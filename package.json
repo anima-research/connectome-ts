@@ -1,0 +1,38 @@
+{
+  "name": "lightweight-connectome",
+  "version": "0.1.0",
+  "description": "Experimental TypeScript implementation of Connectome without DAG",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "example": "ts-node examples/basic-usage.ts",
+    "example:saliency": "ts-node examples/test-saliency-rendering.ts",
+    "test:starship": "ts-node examples/test-starship-scenario.ts",
+    "test:render": "ts-node examples/test-final-render.ts",
+    "test:states": "ts-node examples/test-state-changes.ts",
+    "test:timeline": "ts-node examples/test-state-timeline.ts",
+    "test": "jest",
+    "lint": "eslint src --ext .ts"
+  },
+  "keywords": [
+    "llm",
+    "agent",
+    "veil",
+    "connectome"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
+    "jest": "^29.0.0",
+    "ts-jest": "^29.0.0",
+    "ts-node": "^10.0.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {}
+}
