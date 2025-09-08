@@ -204,7 +204,7 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
           type: "ambient",
           displayName: "Mission Objectives",
           content: "Primary Directive: Investigate signs of intelligent life\nSecondary: Maintain crew and ship safety\nCurrent Mission Duration: 342 days",
-          scope: ["mission_objectives"],
+          scope: [],  // No scope requirements - always active
           saliency: {
             crossStream: true,  // Mission relevant everywhere
             reference: true

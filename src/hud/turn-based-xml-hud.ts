@@ -6,8 +6,7 @@ import {
   ExtractedToolCall 
 } from './types';
 import { ContentBlock } from '../compression/types';
-import { OutgoingVEILOperation } from '../veil/types';
-import { Facet } from '../veil/types';
+import { OutgoingVEILOperation, Facet, ActionFacet } from '../veil/types';
 
 interface Turn {
   isAgent: boolean;
@@ -86,6 +85,14 @@ export class TurnBasedXmlHUD implements HUD {
   }
 
   private isAgentGenerated(block: ContentBlock): boolean {
+    if (!block.source) return false;
+    
+    // New facet types that are always agent-generated
+    if (['speech', 'thought', 'action'].includes(block.source.type)) {
+      return block.source.attributes?.agentGenerated === true;
+    }
+    
+    // Legacy check for event facets
     return block.source?.attributes?.agentGenerated === true;
   }
 
@@ -114,14 +121,35 @@ export class TurnBasedXmlHUD implements HUD {
     
     // Render blocks in original order
     for (const block of blocks) {
-      const action = block.source?.attributes?.agentAction;
+      if (!block.source) continue;
       
-      if (action === 'speak') {
-        parts.push(block.source?.content || '');
-      } else if (action === 'innerThoughts') {
-        parts.push(`<inner_thoughts>\n${block.source?.content || ''}\n</inner_thoughts>`);
-      } else if (action === 'toolCall') {
-        parts.push(this.renderToolCall(block));
+      const facet = block.source;
+      let rendered: string | null = null;
+      
+      switch (facet.type) {
+        case 'speech':
+          rendered = this.renderSpeech(facet);
+          break;
+        case 'thought':
+          rendered = this.renderThought(facet);
+          break;
+        case 'action':
+          rendered = this.renderAction(facet);
+          break;
+        default:
+          // Handle legacy event facets with agentAction attribute
+          const action = facet.attributes?.agentAction;
+          if (action === 'speak') {
+            rendered = facet.content || '';
+          } else if (action === 'innerThoughts') {
+            rendered = `<inner_thoughts>\n${facet.content || ''}\n</inner_thoughts>`;
+          } else if (action === 'toolCall') {
+            rendered = this.renderToolCall(block);
+          }
+      }
+      
+      if (rendered) {
+        parts.push(rendered);
       }
     }
     
@@ -130,8 +158,10 @@ export class TurnBasedXmlHUD implements HUD {
   }
 
   private renderToolCall(block: ContentBlock): string {
-    const toolName = block.source?.attributes?.toolName || 'unknown';
-    const parameters = block.source?.attributes?.parameters || {};
+    // Legacy format handling
+    const attrs = block.source?.attributes as any;
+    const toolName = attrs?.toolName || 'unknown';
+    const parameters = attrs?.parameters || {};
     
     const parts: string[] = [`<tool_call name="${toolName}">`];
     
@@ -160,8 +190,16 @@ export class TurnBasedXmlHUD implements HUD {
         return this.renderState(facet);
       case 'ambient':
         return this.renderAmbient(facet);
+      case 'speech':
+        return this.renderSpeech(facet);
+      case 'thought':
+        return this.renderThought(facet);
+      case 'action':
+        return this.renderAction(facet);
+      case 'tool':
+        return null; // Tools don't render
       default:
-        return facet.content || null;
+        return (facet as any).content || null;
     }
   }
 
@@ -231,14 +269,57 @@ export class TurnBasedXmlHUD implements HUD {
         return facet.content || null;
       case 'ambient':
         return this.renderAmbient(facet);
+      case 'speech':
+        return this.renderSpeech(facet);
+      case 'thought':
+        return this.renderThought(facet);
+      case 'action':
+        return this.renderAction(facet);
+      case 'tool':
+        return null;
       default:
-        return facet.content || null;
+        return (facet as any).content || null;
     }
   }
 
   private renderAmbient(facet: Facet): string {
     const scope = facet.scope?.join(',') || '';
     return `<ambient scope="${scope}">\n${facet.content}\n</ambient>`;
+  }
+
+  private renderSpeech(facet: Facet): string {
+    // Speech renders as plain text when from agent
+    if (facet.attributes?.agentGenerated) {
+      return facet.content || '';
+    }
+    // Environment speech might have a displayName
+    if (facet.displayName) {
+      return `<${this.sanitizeTagName(facet.displayName)}>\n${facet.content}\n</${this.sanitizeTagName(facet.displayName)}>`;
+    }
+    return facet.content || '';
+  }
+
+  private renderThought(facet: Facet): string {
+    return `<inner_thoughts>\n${facet.content || ''}\n</inner_thoughts>`;
+  }
+
+  private renderAction(facet: Facet): string {
+    if (facet.type !== 'action') {
+      return facet.content || '';
+    }
+    
+    const actionFacet = facet as ActionFacet;
+    const toolName = actionFacet.attributes.toolName || actionFacet.displayName || 'unknown';
+    const parameters = actionFacet.attributes.parameters || {};
+    
+    const parts: string[] = [`<tool_call name="${toolName}">`];
+    
+    for (const [key, value] of Object.entries(parameters)) {
+      parts.push(`<parameter name="${key}">${this.escapeXml(String(value))}</parameter>`);
+    }
+    
+    parts.push('</tool_call>');
+    return parts.join('\n');
   }
 
   private sanitizeTagName(name: string): string {

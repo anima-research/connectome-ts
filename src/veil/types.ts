@@ -1,6 +1,6 @@
 // VEIL (Virtual Environment Interface Language) Type Definitions
 
-export type FacetType = 'event' | 'state' | 'ambient' | 'tool';
+export type FacetType = 'event' | 'state' | 'ambient' | 'tool' | 'speech' | 'thought' | 'action';
 
 export interface SaliencyHints {
   // Temporal hints
@@ -52,7 +52,37 @@ export interface ToolFacet extends BaseFacet {
   };
 }
 
-export type Facet = EventFacet | StateFacet | AmbientFacet | ToolFacet;
+export interface SpeechFacet extends BaseFacet {
+  type: 'speech';
+  content: string;  // Required for speech
+  attributes?: {
+    target?: string;  // Which stream/channel this was said to
+    agentGenerated: boolean;
+  };
+}
+
+export interface ThoughtFacet extends BaseFacet {
+  type: 'thought';
+  content: string;  // Required for thoughts
+  scope?: string[];  // Usually includes 'agent-internal'
+  attributes?: {
+    agentGenerated: boolean;
+    private?: boolean;
+  };
+}
+
+export interface ActionFacet extends BaseFacet {
+  type: 'action';
+  displayName: string;  // The tool name
+  content?: string;  // JSON stringified parameters
+  attributes: {
+    agentGenerated: boolean;
+    toolName: string;
+    parameters: Record<string, any>;
+  };
+}
+
+export type Facet = EventFacet | StateFacet | AmbientFacet | ToolFacet | SpeechFacet | ThoughtFacet | ActionFacet;
 
 // VEIL Operations
 export interface AddFacetOperation {

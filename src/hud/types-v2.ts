@@ -1,87 +1,96 @@
-import { MemoryBlock } from '../memory/types';
-import { Facet } from '../veil/types';
-import { OutgoingVEILOperation } from '../veil/types';
+/**
+ * Clean HUD interfaces that work with VEIL primitives
+ * No ContentBlock abstraction
+ */
+
+import { Facet, IncomingVEILFrame, OutgoingVEILFrame, OutgoingVEILOperation } from '../veil/types';
+import { CompressionEngine, RenderedFrame } from '../compression/types-v2';
+
+// Union type for frames
+type VEILFrame = IncomingVEILFrame | OutgoingVEILFrame;
 
 /**
- * HUD (Heads-Up Display) Types v2
- * 
- * The HUD is responsible for:
- * - Token budget management  
- * - Saliency-based content selection/pruning
- * - Assembling the final LLM context
- * - Rendering in the appropriate format (XML, JSON, etc.)
+ * Result of rendering VEIL state
  */
+export interface RenderedContext {
+  // Standard LLM message format
+  messages: Array<{
+    role: 'system' | 'user' | 'assistant';
+    content: string;
+  }>;
+  
+  // Metadata about rendering
+  metadata: {
+    totalTokens: number;
+    renderedFrames: RenderedFrame[];
+    droppedFrames?: number[];
+  };
+}
 
 /**
  * Configuration for HUD rendering
  */
 export interface HUDConfig {
-  systemPrompt?: string;
-  userPrompt?: string;
   maxTokens?: number;
-  temperature?: number;
-  prefillFormat?: boolean;
-  tokenEstimator?: (content: string) => number;
-  saliencyThreshold?: number; // Minimum saliency score to include
+  includeTypes?: Array<'event' | 'state' | 'ambient'>;
+  systemPrompt?: string;
 }
 
 /**
- * Context provided to the HUD for rendering
- */
-export interface HUDContext {
-  currentFacets: Map<string, Facet>;
-  memoryBlocks: MemoryBlock[];
-  focus?: string;
-}
-
-/**
- * The final rendered context ready for LLM
- */
-export interface RenderedContext {
-  system: string;
-  messages: Array<{
-    role: 'user' | 'assistant';
-    content: string;
-  }>;
-  prefill?: string;
-  metadata?: {
-    tokenCount?: number;
-    blocksRendered?: number;
-    blocksSkipped?: number;
-    pruningReasons?: string[];
-    focus?: string;
-  };
-}
-
-/**
- * Result of parsing an LLM completion
- */
-export interface ParsedCompletion {
-  content: string;
-  operations: OutgoingVEILOperation[];
-  hasMoreToSay?: boolean;
-}
-
-/**
- * Interface for HUD implementations
+ * Clean HUD interface working directly with VEIL data
  */
 export interface HUD {
   /**
-   * Render context into final LLM messages
-   * Handles token budget and saliency-based selection
+   * Render VEIL state to LLM context
+   * @param frames - The VEIL frame history
+   * @param currentFacets - Current state of all facets
+   * @param compression - Optional compression engine
+   * @param config - Rendering configuration
    */
   render(
-    context: HUDContext,
-    config: HUDConfig
+    frames: VEILFrame[],
+    currentFacets: Map<string, Facet>,
+    compression?: CompressionEngine,
+    config?: HUDConfig
   ): RenderedContext;
-
+  
   /**
-   * Parse LLM completion to extract operations
+   * Parse LLM completion into VEIL operations
    */
-  parseCompletion(completion: string): ParsedCompletion;
-
+  parseCompletion(completion: string): {
+    operations: OutgoingVEILOperation[];
+    hasMoreToSay: boolean;
+  };
+  
   /**
-   * Get the format identifier for this HUD
+   * Get the format this HUD uses (xml, json, etc)
    */
   getFormat(): string;
+}
+
+/**
+ * Extended interface for HUDs that support frame-aware compression
+ */
+export interface CompressibleHUD extends HUD {
+  /**
+   * Render with explicit frame tracking for compression
+   * Returns both the context and frame-by-frame rendering
+   */
+  renderWithFrameTracking(
+    frames: VEILFrame[],
+    currentFacets: Map<string, Facet>,
+    compression?: CompressionEngine,
+    config?: HUDConfig
+  ): {
+    context: RenderedContext;
+    frameRenderings: RenderedFrame[];
+  };
+  
+  /**
+   * Check if compression is needed based on current state
+   */
+  needsCompression(
+    frames: VEILFrame[],
+    config: HUDConfig
+  ): boolean;
 }

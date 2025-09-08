@@ -40,7 +40,7 @@ export class VEILStateManager {
 
     // Process each operation
     for (const operation of frame.operations) {
-      this.applyOperation(operation);
+      this.applyOperation(operation, frame.sequence, frame.timestamp);
     }
 
     // Update state
@@ -55,45 +55,45 @@ export class VEILStateManager {
    * Record an outgoing frame (from agent) and create facets for agent actions
    */
   recordOutgoingFrame(frame: OutgoingVEILFrame): void {
+    const frameTimestamp = new Date().toISOString();
+    
     // Process agent operations to create facets
     for (const operation of frame.operations) {
       if (operation.type === 'speak') {
-        // Create an event facet for agent speech
+        // Create a speech facet
         const speechFacet: Facet = {
           id: `agent-speak-${frame.sequence}-${Math.random().toString(36).substr(2, 9)}`,
-          type: 'event',
+          type: 'speech',
           content: operation.content,
           attributes: {
             agentGenerated: true,
-            agentAction: 'speak',
             target: operation.target || this.state.currentFocus || 'default'
           }
         };
         this.state.facets.set(speechFacet.id, speechFacet);
       } else if (operation.type === 'toolCall') {
-        // Create an event facet for tool calls
-        const toolFacet: Facet = {
-          id: `agent-tool-${frame.sequence}-${Math.random().toString(36).substr(2, 9)}`,
-          type: 'event',
+        // Create an action facet
+        const actionFacet: Facet = {
+          id: `agent-action-${frame.sequence}-${Math.random().toString(36).substr(2, 9)}`,
+          type: 'action',
+          displayName: operation.toolName,
           content: JSON.stringify(operation.parameters),
           attributes: {
             agentGenerated: true,
-            agentAction: 'toolCall',
             toolName: operation.toolName,
             parameters: operation.parameters
           }
         };
-        this.state.facets.set(toolFacet.id, toolFacet);
+        this.state.facets.set(actionFacet.id, actionFacet);
       } else if (operation.type === 'innerThoughts') {
-        // Create an ambient facet for inner thoughts
+        // Create a thought facet
         const thoughtFacet: Facet = {
           id: `agent-thought-${frame.sequence}-${Math.random().toString(36).substr(2, 9)}`,
-          type: 'ambient',
+          type: 'thought',
           content: operation.content,
           scope: ['agent-internal'],
           attributes: {
             agentGenerated: true,
-            agentAction: 'innerThoughts',
             private: true
           }
         };
@@ -167,10 +167,10 @@ export class VEILStateManager {
     return new Map(this.state.streams);
   }
 
-  private applyOperation(operation: VEILOperation): void {
+  private applyOperation(operation: VEILOperation, frameSequence?: number, timestamp?: string): void {
     switch (operation.type) {
       case 'addFacet':
-        this.addFacet(operation.facet);
+        this.addFacet(operation.facet, frameSequence, timestamp);
         break;
       
       case 'changeState':
@@ -207,13 +207,13 @@ export class VEILStateManager {
     }
   }
 
-  private addFacet(facet: Facet): void {
+  private addFacet(facet: Facet, frameSequence?: number, timestamp?: string): void {
     this.state.facets.set(facet.id, facet);
     
     // Recursively add children
     if (facet.children) {
       for (const child of facet.children) {
-        this.addFacet(child);
+        this.addFacet(child, frameSequence, timestamp);
       }
     }
   }

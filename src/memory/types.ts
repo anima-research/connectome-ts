@@ -10,28 +10,20 @@
 
 import { Facet } from '../veil/types';
 
-export interface MemoryBlock {
+export interface MemoryBlock<TType extends string = string> {
   id: string;
-  type: 'narrative' | 'fact' | 'pattern' | 'raw';
+  type: TType;
   content: string;
-  metadata?: {
-    summary?: boolean;
-    originalFacets?: string[]; // IDs of facets this summarizes
-    timestamp?: string;
-    tags?: string[];
-    relevanceScore?: number;
-  };
-  source?: Facet; // Original facet if type is 'raw'
+  metadata?: Record<string, any>;
+  source?: Facet; // Original facet if this is a direct conversion
 }
 
 export interface MemoryQuery {
   maxBlocks?: number;
-  includeTypes?: MemoryBlock['type'][];
-  tags?: string[];
-  minRelevance?: number;
-  timeRange?: {
-    start?: string;
-    end?: string;
+  filter?: {
+    types?: string[];
+    metadata?: Record<string, any>;
+    contentPattern?: string;
   };
 }
 

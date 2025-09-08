@@ -5,7 +5,8 @@ export { VEILStateManager } from './veil/veil-state';
 // Memory System exports
 export * from './memory/types';
 export { PassthroughMemory } from './memory/passthrough-memory';
-export { NarrativeMemory } from './memory/narrative-memory';
+export { ChunkingMemory } from './memory/chunking-memory';
+export { FrameBasedMemory } from './memory/frame-based-memory';
 
 // Compression exports (legacy - to be migrated)
 export * from './compression/types';
@@ -18,6 +19,8 @@ export * from './hud/types';
 export { XmlHUD } from './hud/xml-hud';
 export { TurnBasedXmlHUD } from './hud/turn-based-xml-hud';
 export { SaliencyAwareHUD } from './hud/saliency-aware-hud';
+export * from './hud/frame-aware-types';
+export { FrameAwareXmlHUD } from './hud/frame-aware-hud';
 
 // Agent Loop exports
 export * from './agent-loop/types';

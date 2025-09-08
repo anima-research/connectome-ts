@@ -1,12 +1,15 @@
 import { Facet } from '../veil/types';
 import { MemorySystem, MemoryQuery, MemoryResult, MemoryBlock } from './types';
 
+// Define the types this memory system uses
+type PassthroughBlockType = 'raw';
+
 /**
  * Simple passthrough memory system that doesn't do any summarization
  * Just converts facets to memory blocks without modification
  */
 export class PassthroughMemory implements MemorySystem {
-  private blocks: Map<string, MemoryBlock> = new Map();
+  private blocks: Map<string, MemoryBlock<PassthroughBlockType>> = new Map();
 
   async ingest(facets: Map<string, Facet>): Promise<void> {
     // Clear previous blocks
@@ -29,7 +32,7 @@ export class PassthroughMemory implements MemorySystem {
       }
       if (isChild) continue;
       
-      const block: MemoryBlock = {
+      const block: MemoryBlock<PassthroughBlockType> = {
         id: facet.id,
         type: 'raw',
         content: facet.content || '',
@@ -44,21 +47,29 @@ export class PassthroughMemory implements MemorySystem {
   }
 
   async query(request: MemoryQuery): Promise<MemoryResult> {
-    const blocks = Array.from(this.blocks.values());
+    let blocks = Array.from(this.blocks.values());
     
-    // Filter by type if requested
-    let filtered = blocks;
-    if (request.includeTypes) {
-      filtered = blocks.filter(b => request.includeTypes!.includes(b.type));
+    // Apply filters if provided
+    if (request.filter) {
+      // Filter by type
+      if (request.filter.types) {
+        blocks = blocks.filter(b => request.filter!.types!.includes(b.type));
+      }
+      
+      // Filter by content pattern
+      if (request.filter.contentPattern) {
+        const pattern = new RegExp(request.filter.contentPattern, 'i');
+        blocks = blocks.filter(b => pattern.test(b.content));
+      }
     }
     
     // Apply max blocks limit
-    if (request.maxBlocks && filtered.length > request.maxBlocks) {
-      filtered = filtered.slice(0, request.maxBlocks);
+    if (request.maxBlocks && blocks.length > request.maxBlocks) {
+      blocks = blocks.slice(0, request.maxBlocks);
     }
     
     return {
-      blocks: filtered,
+      blocks,
       totalMemories: this.blocks.size
     };
   }
