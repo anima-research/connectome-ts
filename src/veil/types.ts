@@ -111,6 +111,9 @@ export interface DeleteScopeOperation {
 
 export interface AgentActivationOperation {
   type: 'agentActivation';
+  priority?: 'low' | 'normal' | 'high';  // How urgently agent attention is needed
+  source?: string;  // Which element/adapter requested activation
+  reason?: string;  // Why activation was requested
   config?: {
     temperature?: number;
     maxTokens?: number;
@@ -151,11 +154,18 @@ export interface StreamInfo {
   metadata?: Record<string, any>;  // Any additional context if needed
 }
 
+// Stream reference with type information
+export interface StreamRef {
+  streamId: string;
+  streamType: string;  // "discord", "terminal", "minecraft", etc.
+  metadata?: Record<string, any>;  // Adapter-specific metadata
+}
+
 // VEIL Frames
 export interface IncomingVEILFrame {
   sequence: number;
   timestamp: string;
-  focus?: string; // Stream ID that has focus (e.g., "discord:general")
+  activeStream?: StreamRef; // Active stream reference with metadata
   operations: VEILOperation[];
 }
 
@@ -200,7 +210,7 @@ export interface VEILState {
   facets: Map<string, Facet>;
   scopes: Set<string>;
   streams: Map<string, StreamInfo>;  // Active streams
-  currentFocus?: string;  // Currently focused stream
+  currentStream?: StreamRef;  // Currently active stream
   frameHistory: (IncomingVEILFrame | OutgoingVEILFrame)[];
   currentSequence: number;
 }

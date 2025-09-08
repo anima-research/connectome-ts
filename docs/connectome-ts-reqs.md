@@ -8,7 +8,7 @@ Spaces are Elements. Elements are arranged in a tree in a root Space (think Unit
 
 What I want to do better is to avoid the hardcoding that was made in the current implementation: all events, both from adapters and internally generated should propagate through an event system to all elements that subscribe to them. We should still frame start/frame end events that occur when an event in the space queue starts being processed and after it finishes processing.
 
-Communication routing is handled through a "focus" mechanism rather than hardcoded channels. When events arrive from external sources (Discord, Minecraft, etc.), they set the focus for that interaction. The agent's speak operations then naturally flow to the focused channel, though they can override with explicit targets when needed for cross-channel communication.
+Communication routing is handled through a "stream reference" mechanism rather than hardcoded channels. When events arrive from external sources (Discord, Minecraft, etc.), they set the active stream for that interaction. The agent's speak operations then naturally flow to the active stream, though they can override with explicit targets when needed for cross-channel communication.
 
 Compression Engine processing happens after the end of frame, HUD begins to render after the compression engine has finished its first pass. Compression Engine should have its own internal asynchronicity (compression happens ahead of when its needed for context building in the HUD), so the first pass likely will only enqueue tasks and block only if needed data is not yet available.
 
@@ -37,7 +37,7 @@ A facet can contain other facets. Temporality of the container indirectly overri
 
 Facets can be assigned scopes. If all scope is destroyed, the associated facets are no longer active (but are rendered in context history up to moment of the scope deletion if saliency constraints allow).
 
-An incoming VEIL frame includes a "focus" property that specifies the active communication channel (e.g., "discord:general", "minecraft:local"). This focus determines where agent responses are directed by default.
+An incoming VEIL frame includes an "active stream" reference that specifies the active communication context with metadata. This stream reference determines where agent responses are directed by default.
 
 An incoming VEIL delta can contain any number of the following operations:
 
@@ -45,7 +45,7 @@ An incoming VEIL delta can contain any number of the following operations:
 2. Changing a state  
 3. Adding or deleting scopes
 4. Adding, updating, or deleting streams (communication contexts)
-5. Agent activation: if this is present, the LLM call will be made at the end of the frame
+5. Agent activation: signals that agent attention may be needed, includes source element reference and arbitrary metadata
 
 Facets can include saliency hints to help the HUD make intelligent context management decisions:
 - Temporal hints: transient (float 0.0-1.0+ for decay rate)
@@ -55,7 +55,7 @@ Facets can include saliency hints to help the HUD make intelligent context manag
 
 An outgoing VEIL delta can contain any number of the following operations (or it can be empty):
 
-1. Speak: Natural language dialogue from the agent (routed to the current focus by default, can override with explicit target)
+1. Speak: Natural language dialogue from the agent (routed to the active stream by default, can override with explicit target)
 2. Command (tool call): Structured tool invocations (also referred to as "action" throughout the codebase)
 3. Cycle request: a request to agent loop to schedule another LLM call immediately
 4. Inner thoughts: Agent's internal reasoning process
@@ -65,6 +65,22 @@ Agent operations create specific facet types:
 - `action` facets from toolCall operations  
 - `thought` facets from innerThoughts operations
 This allows HUDs to render them with appropriate semantic meaning.
+
+Space/Element System Requirements:
+
+Elements are the basic building blocks arranged in a tree hierarchy, with Space as the root element. Elements can have Components that add behavior. Events flow through the element tree using a topic-based subscription system (e.g., "discord.message", "timer.expired"). Elements produce VEIL operations in response to events.
+
+Event System Requirements:
+
+First-class events include frame lifecycle (start/end), time events, element lifecycle (mount/unmount), and scheduled events. Adapter-specific events (Discord, filesystem, etc.) are defined by their respective elements. Events use structured element references instead of strings for source identification.
+
+Agent Interface Requirements:
+
+The Space has an optional AgentInterface that processes completed frames. The agent decides whether to activate based on activation operations and their metadata. Empty frames (no VEIL operations, no activations) are discarded to maintain efficiency. The agent interface receives callbacks after all components have processed frame events.
+
+Stream References:
+
+Communication contexts use structured stream references with metadata instead of string identifiers. Stream references include type information and relevant metadata (channel, user, etc.). This enables flexible routing without hardcoding channel names.
 
 Lets start by defining VEIL and HUD, skipping for now spaces, elements, discord, and all that, building from the inside out. The compression engine should be sketched but the actual compression is too early to implement, we are mostly interested in the API between the compression engine and the HUD.
 

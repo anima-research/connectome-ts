@@ -3,7 +3,8 @@ import {
   VEILState, 
   IncomingVEILFrame, 
   OutgoingVEILFrame, 
-  VEILOperation 
+  VEILOperation,
+  StreamRef
 } from './types';
 
 /**
@@ -18,7 +19,7 @@ export class VEILStateManager {
       facets: new Map(),
       scopes: new Set(),
       streams: new Map(),
-      currentFocus: undefined,
+      currentStream: undefined,
       frameHistory: [],
       currentSequence: 0
     };
@@ -33,9 +34,9 @@ export class VEILStateManager {
       console.warn(`Frame ${frame.sequence} out of order (current: ${this.state.currentSequence})`);
     }
 
-    // Update focus if provided
-    if (frame.focus !== undefined) {
-      this.state.currentFocus = frame.focus;
+    // Update active stream if provided
+    if (frame.activeStream !== undefined) {
+      this.state.currentStream = frame.activeStream;
     }
 
     // Process each operation
@@ -67,7 +68,7 @@ export class VEILStateManager {
           content: operation.content,
           attributes: {
             agentGenerated: true,
-            target: operation.target || this.state.currentFocus || 'default'
+            target: operation.target || this.state.currentStream?.streamId || 'default'
           }
         };
         this.state.facets.set(speechFacet.id, speechFacet);
@@ -114,7 +115,7 @@ export class VEILStateManager {
       facets: new Map(this.state.facets),
       scopes: new Set(this.state.scopes),
       streams: new Map(this.state.streams),
-      currentFocus: this.state.currentFocus,
+      currentStream: this.state.currentStream,
       frameHistory: [...this.state.frameHistory],
       currentSequence: this.state.currentSequence
     };
@@ -156,8 +157,8 @@ export class VEILStateManager {
   /**
    * Get the current focus
    */
-  getCurrentFocus(): string | undefined {
-    return this.state.currentFocus;
+  getCurrentStream(): StreamRef | undefined {
+    return this.state.currentStream;
   }
 
   /**
@@ -200,8 +201,8 @@ export class VEILStateManager {
       case 'deleteStream':
         this.state.streams.delete(operation.streamId);
         // If deleted stream had focus, clear focus
-        if (this.state.currentFocus === operation.streamId) {
-          this.state.currentFocus = undefined;
+        if (this.state.currentStream?.streamId === operation.streamId) {
+          this.state.currentStream = undefined;
         }
         break;
     }

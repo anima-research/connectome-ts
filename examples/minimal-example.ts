@@ -11,7 +11,11 @@ export const minimalExample = {
     {
       sequence: 1,
       timestamp: "2024-01-15T10:00:00Z",
-      focus: "chat:main", // Default chat channel
+      activeStream: {
+        streamId: "chat:main",
+        streamType: "chat",
+        metadata: { channel: "main" }
+      },
       operations: [
         {
           type: "addFacet",

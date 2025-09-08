@@ -8,7 +8,11 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
   {
     sequence: 1,
     timestamp: "2024-01-15T10:30:00Z",
-    focus: "starship:bridge", // The bridge is the default communication channel
+    activeStream: {
+      streamId: "starship:bridge",
+      streamType: "starship", 
+      metadata: { location: "bridge" }
+    },
     operations: [
       {
         type: "addStream",

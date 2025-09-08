@@ -2,26 +2,36 @@
 export * from './veil/types';
 export { VEILStateManager } from './veil/veil-state';
 
-// Memory System exports
-export * from './memory/types';
-export { PassthroughMemory } from './memory/passthrough-memory';
-export { ChunkingMemory } from './memory/chunking-memory';
-export { FrameBasedMemory } from './memory/frame-based-memory';
+// Memory System exports - temporarily removed during cleanup
 
-// Compression exports (legacy - to be migrated)
-export * from './compression/types';
-export { PassthroughCompressionEngine } from './compression/passthrough-engine';
-export { ChronologicalCompressionEngine } from './compression/chronological-engine';
-export { FloatingAmbientEngine } from './compression/floating-ambient-engine';
+// Compression exports
+export * from './compression/types-v2';
+export { AttentionAwareCompressionEngine } from './compression/attention-aware-engine';
+export { SimpleTestCompressionEngine } from './compression/simple-test-engine';
 
 // HUD exports
-export * from './hud/types';
-export { XmlHUD } from './hud/xml-hud';
-export { TurnBasedXmlHUD } from './hud/turn-based-xml-hud';
-export { SaliencyAwareHUD } from './hud/saliency-aware-hud';
-export * from './hud/frame-aware-types';
-export { FrameAwareXmlHUD } from './hud/frame-aware-hud';
+export * from './hud/types-v2';
+export { FrameTrackingHUD } from './hud/frame-tracking-hud';
 
-// Agent Loop exports
-export * from './agent-loop/types';
-export { AgentLoop } from './agent-loop/agent-loop';
+// LLM exports
+export * from './llm/llm-interface';
+export { MockLLMProvider } from './llm/mock-llm-provider';
+
+// Space/Element exports
+export { 
+  ElementRef,
+  SpaceEvent,
+  FrameStartEvent,
+  FrameEndEvent,
+  TimeEvent,
+  ElementMountEvent,
+  ElementUnmountEvent,
+  AgentResponseEvent,
+  ComponentLifecycle,
+  EventHandler,
+  TopicSubscription,
+  AgentInterface
+} from './spaces/types';
+export { Space } from './spaces/space';
+export { Element } from './spaces/element';
+export { Component } from './spaces/component';
