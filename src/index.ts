@@ -16,6 +16,7 @@ export { FrameTrackingHUD } from './hud/frame-tracking-hud';
 // LLM exports
 export * from './llm/llm-interface';
 export { MockLLMProvider } from './llm/mock-llm-provider';
+export { AnthropicProvider } from './llm/anthropic-provider';
 
 // Space/Element exports
 export { 
@@ -29,9 +30,19 @@ export {
   AgentResponseEvent,
   ComponentLifecycle,
   EventHandler,
-  TopicSubscription,
-  AgentInterface
+  TopicSubscription
 } from './spaces/types';
 export { Space } from './spaces/space';
 export { Element } from './spaces/element';
 export { Component } from './spaces/component';
+
+// Agent exports
+export * from './agent/types';
+export { BasicAgent } from './agent/basic-agent';
+export { AgentComponent } from './agent/agent-component';
+
+// Element exports
+export { ConsoleChatComponent } from './elements/console-chat';
+
+// Tracing exports
+export * from './tracing';

@@ -105,26 +105,42 @@ npm run example  # Run basic usage example
 ```typescript
 import {
   VEILStateManager,
-  PassthroughCompressionEngine,
-  XmlHUD,
-  AgentLoop
+  FrameTrackingHUD,
+  BasicAgent,
+  AnthropicProvider,
+  MockLLMProvider,
+  Space
 } from 'lightweight-connectome';
 
 // Initialize components
 const veilState = new VEILStateManager();
-const compression = new PassthroughCompressionEngine();
-const hud = new XmlHUD();
 
-// Create agent loop with your LLM provider
-const agentLoop = new AgentLoop(veilState, compression, hud, {
-  llmProvider: yourLLMProvider,
-  maxCycles: 5
-});
+// Choose LLM provider
+const llmProvider = process.env.ANTHROPIC_API_KEY
+  ? new AnthropicProvider({ apiKey: process.env.ANTHROPIC_API_KEY })
+  : new MockLLMProvider();
 
-// Apply VEIL frames and process activations
-veilState.applyIncomingFrame(frame);
-const result = await agentLoop.processActivations();
+// Create agent
+const agent = new BasicAgent({
+  systemPrompt: 'You are a helpful assistant.',
+  defaultMaxTokens: 1000
+}, llmProvider, veilState);
+
+// Create space and attach agent
+const space = new Space(veilState);
+space.setAgent(agent);
+
+// Process incoming frames
+await space.emit({ topic: 'frame:start', ... });
 ```
+
+### LLM Providers
+
+The framework includes multiple LLM providers:
+
+- **AnthropicProvider**: For Claude models (requires API key)
+- **MockLLMProvider**: For testing without API calls
+- Custom providers can implement the `LLMProvider` interface
 
 ## Current Status
 

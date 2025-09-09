@@ -89,6 +89,14 @@ export class FrameTrackingHUD implements CompressibleHUD {
       totalTokens += this.estimateTokens(stateContent);
     }
     
+    // Add pending activations info if present
+    if (config.metadata?.pendingActivations) {
+      const { count, sources } = config.metadata.pendingActivations;
+      const pendingInfo = `\n<pending_activations>\nThere are ${count} pending activation(s) from: ${sources.join(', ')}\n</pending_activations>`;
+      partsWithAmbient.push(pendingInfo);
+      totalTokens += this.estimateTokens(pendingInfo);
+    }
+    
     // Build final context
     const messages = this.buildMessages(partsWithAmbient.join('\n\n'), config);
     

@@ -3,6 +3,11 @@ import { SpaceEvent, AgentInterface, FrameStartEvent, FrameEndEvent, StreamRef }
 import { VEILStateManager } from '../veil/veil-state';
 import { IncomingVEILFrame } from '../veil/types';
 import { matchesTopic } from './utils';
+import { 
+  TraceStorage, 
+  TraceCategory, 
+  getGlobalTracer 
+} from '../tracing';
 
 /**
  * The root Space element that orchestrates the entire system
@@ -24,11 +29,6 @@ export class Space extends Element {
   private currentFrame?: IncomingVEILFrame;
   
   /**
-   * Current frame ID
-   */
-  private frameCounter: number = 0;
-  
-  /**
    * Active stream reference
    */
   private activeStream?: StreamRef;
@@ -43,9 +43,15 @@ export class Space extends Element {
    */
   private processingFrame: boolean = false;
   
+  /**
+   * Tracer for observability
+   */
+  private tracer: TraceStorage | undefined;
+  
   constructor(veilState: VEILStateManager) {
     super('root');
     this.veilState = veilState;
+    this.tracer = getGlobalTracer();
   }
   
   /**
@@ -68,6 +74,20 @@ export class Space extends Element {
   queueEvent(event: SpaceEvent): void {
     this.eventQueue.push(event);
     
+    this.tracer?.record({
+      id: `evt-${Date.now()}`,
+      timestamp: Date.now(),
+      level: 'debug',
+      category: TraceCategory.EVENT_QUEUE,
+      component: 'Space',
+      operation: 'queueEvent',
+      data: {
+        topic: event.topic,
+        source: event.source.elementId,
+        queueLength: this.eventQueue.length
+      }
+    });
+    
     // If not processing, start a frame
     if (!this.processingFrame) {
       // Use setImmediate or similar to process on next tick
@@ -89,8 +109,9 @@ export class Space extends Element {
     if (this.processingFrame) return;
     this.processingFrame = true;
     
-    const frameId = ++this.frameCounter;
-    
+    const frameId = this.veilState.getNextSequence();
+    const frameSpan = this.tracer?.startSpan('processFrame', 'Space');
+
     try {
       // Start frame
       this.currentFrame = {
@@ -98,6 +119,21 @@ export class Space extends Element {
         timestamp: new Date().toISOString(),
         operations: []
       };
+      
+      this.tracer?.record({
+        id: `frame-start-${frameId}`,
+        timestamp: Date.now(),
+        level: 'info',
+        category: TraceCategory.FRAME_START,
+        component: 'Space',
+        operation: 'processFrame',
+        data: {
+          frameId,
+          sequence: frameId,
+          queuedEvents: this.eventQueue.length
+        },
+        parentId: frameSpan?.id
+      });
       
       // Emit frame:start
       await this.distributeEvent({
@@ -131,6 +167,22 @@ export class Space extends Element {
       
       // Finalize frame
       if (hasOperations || hasActivation) {
+        this.tracer?.record({
+          id: `frame-end-${frameId}`,
+          timestamp: Date.now(),
+          level: 'info',
+          category: TraceCategory.FRAME_END,
+          component: 'Space',
+          operation: 'processFrame',
+          data: {
+            frameId,
+            operations: this.currentFrame.operations.length,
+            hasActivation,
+            activeStream: this.currentFrame.activeStream?.streamId
+          },
+          parentId: frameSpan?.id
+        });
+        
         // Update active stream if provided
         if (this.currentFrame.activeStream) {
           this.activeStream = this.currentFrame.activeStream;
@@ -141,17 +193,53 @@ export class Space extends Element {
         
         // Let agent process if available
         if (this.agent) {
-          await this.agent.onFrameComplete(
+          const agentResponse = await this.agent.onFrameComplete(
             this.currentFrame,
             this.veilState.getState()
           );
+          
+          // If agent generated a response, emit events for routing
+          if (agentResponse) {
+            for (const op of agentResponse.operations) {
+              if (op.type === 'speak') {
+                await this.distributeEvent({
+                  topic: 'agent:response',
+                  source: this.getRef(),
+                  payload: {
+                    content: op.content,
+                    stream: this.currentFrame.activeStream
+                  },
+                  timestamp: Date.now()
+                });
+              }
+            }
+          }
         }
+      } else {
+        // Still record empty frames to maintain sequence continuity
+        this.veilState.applyIncomingFrame(this.currentFrame);
+        
+        this.tracer?.record({
+          id: `frame-empty-${frameId}`,
+          timestamp: Date.now(),
+          level: 'debug',
+          category: TraceCategory.FRAME_END,
+          component: 'Space',
+          operation: 'processFrame',
+          data: {
+            frameId,
+            message: 'Frame empty (no operations) but recorded for sequence continuity'
+          },
+          parentId: frameSpan?.id
+        });
       }
-      // If frame is empty, discard it
       
     } finally {
       this.currentFrame = undefined;
       this.processingFrame = false;
+      if (frameSpan) {
+        this.tracer?.endSpan(frameSpan.id);
+      }
       
       // Process next frame if events are queued
       if (this.eventQueue.length > 0) {

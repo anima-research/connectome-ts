@@ -13,6 +13,8 @@
     "test:render": "ts-node examples/test-final-render.ts",
     "test:states": "ts-node examples/test-state-changes.ts",
     "test:timeline": "ts-node examples/test-state-timeline.ts",
+    "test:anthropic": "ts-node examples/test-anthropic-simple.ts",
+    "test:console": "ts-node examples/test-console-chat.ts",
     "test": "jest",
     "lint": "eslint src --ext .ts"
   },
@@ -34,5 +36,7 @@
     "ts-node": "^10.0.0",
     "typescript": "^5.0.0"
   },
-  "dependencies": {}
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.61.0"
+  }
 }

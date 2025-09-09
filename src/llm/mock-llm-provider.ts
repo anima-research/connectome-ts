@@ -9,6 +9,7 @@ export class MockLLMProvider implements LLMProvider {
   private responses: string[] = [];
   private responseIndex = 0;
   private compressionPattern = /Please compress the following content.*?<content_to_compress>(.*?)<\/content_to_compress>/s;
+  private customResponses: Map<string, string> = new Map();
   
   constructor(responses?: string[]) {
     if (responses) {
@@ -25,18 +26,27 @@ export class MockLLMProvider implements LLMProvider {
   }
   
   /**
-   * Add a single response
+   * Add a response - either sequential or pattern-based
    */
-  addResponse(response: string) {
-    this.responses.push(response);
+  addResponse(patternOrResponse: string, response?: string): void {
+    if (response !== undefined) {
+      // Pattern-based response
+      this.customResponses.set(patternOrResponse, response);
+    } else {
+      // Sequential response
+      this.responses.push(patternOrResponse);
+    }
   }
   
   async generate(
     messages: LLMMessage[],
     options?: LLMOptions
   ): Promise<LLMResponse> {
+    // Filter out cache markers for processing
+    const processableMessages = messages.filter(m => m.role !== 'cache');
+    
     // Check if this is a compression request
-    const lastMessage = messages[messages.length - 1];
+    const lastMessage = processableMessages[processableMessages.length - 1];
     if (lastMessage && this.compressionPattern.test(lastMessage.content)) {
       // Extract the content to compress
       const match = lastMessage.content.match(this.compressionPattern);
@@ -72,6 +82,18 @@ export class MockLLMProvider implements LLMProvider {
       }
     }
     
+    // Check for custom pattern-based responses
+    if (lastMessage) {
+      for (const [pattern, response] of this.customResponses) {
+        if (lastMessage.content.includes(pattern)) {
+          return {
+            content: response,
+            tokensUsed: this.estimateTokens(response)
+          };
+        }
+      }
+    }
+    
     // Return next response in sequence or default
     if (this.responseIndex < this.responses.length) {
       const response = this.responses[this.responseIndex++];
@@ -95,6 +117,14 @@ export class MockLLMProvider implements LLMProvider {
   
   getProviderName(): string {
     return 'mock';
+  }
+  
+  getCapabilities() {
+    return {
+      supportsPrefill: true,
+      supportsCaching: false, // Mock doesn't actually cache
+      maxContextLength: 100000
+    };
   }
   
   /**

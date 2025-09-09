@@ -109,8 +109,9 @@ export interface TopicSubscription {
 export interface AgentInterface {
   /**
    * Called after all components have processed frame:end
+   * Returns outgoing frame if agent generates a response
    */
-  onFrameComplete(frame: any, state: any): Promise<void>;
+  onFrameComplete(frame: any, state: any): Promise<any>;
   
   /**
    * Check if activation should proceed

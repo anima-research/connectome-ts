@@ -26,12 +26,23 @@ export class VEILStateManager {
   }
 
   /**
+   * Get the next sequence number for a new frame
+   */
+  getNextSequence(): number {
+    return this.state.currentSequence + 1;
+  }
+
+  /**
    * Apply an incoming frame to the current state
    */
   applyIncomingFrame(frame: IncomingVEILFrame): void {
-    // Validate sequence
-    if (frame.sequence <= this.state.currentSequence) {
-      console.warn(`Frame ${frame.sequence} out of order (current: ${this.state.currentSequence})`);
+    // Validate sequence - must be exactly the next number
+    const expectedSequence = this.state.currentSequence + 1;
+    if (frame.sequence !== expectedSequence) {
+      throw new Error(
+        `Frame sequence error: expected ${expectedSequence}, got ${frame.sequence} ` +
+        `(current: ${this.state.currentSequence})`
+      );
     }
 
     // Update active stream if provided
@@ -56,6 +67,15 @@ export class VEILStateManager {
    * Record an outgoing frame (from agent) and create facets for agent actions
    */
   recordOutgoingFrame(frame: OutgoingVEILFrame): void {
+    // Validate sequence - must be exactly the next number
+    const expectedSequence = this.state.currentSequence + 1;
+    if (frame.sequence !== expectedSequence) {
+      throw new Error(
+        `Frame sequence error: expected ${expectedSequence}, got ${frame.sequence} ` +
+        `(current: ${this.state.currentSequence})`
+      );
+    }
+    
     const frameTimestamp = new Date().toISOString();
     
     // Process agent operations to create facets

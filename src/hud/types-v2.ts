@@ -34,6 +34,14 @@ export interface HUDConfig {
   maxTokens?: number;
   includeTypes?: Array<'event' | 'state' | 'ambient'>;
   systemPrompt?: string;
+  enableCaching?: boolean;
+  cacheStrategy?: 'frame-boundary' | 'token-threshold' | 'none';
+  metadata?: {
+    pendingActivations?: {
+      count: number;
+      sources: string[];
+    };
+  };
 }
 
 /**
