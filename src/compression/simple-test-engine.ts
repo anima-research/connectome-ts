@@ -2,7 +2,7 @@
  * Simple test compression engine for verifying frame-based compression
  */
 
-import { CompressionEngine, CompressibleRange, CompressionResult, RenderedFrame } from './types-v2';
+import { CompressionEngine, CompressibleRange, CompressionResult, RenderedFrame, StateDelta } from './types-v2';
 import { Facet, IncomingVEILFrame, OutgoingVEILFrame } from '../veil/types';
 
 // Union type for frames
@@ -10,6 +10,7 @@ type VEILFrame = IncomingVEILFrame | OutgoingVEILFrame;
 
 export class SimpleTestCompressionEngine implements CompressionEngine {
   private compressions = new Map<number, string>();
+  private stateDeltas = new Map<number, StateDelta>();
   
   identifyCompressibleRanges(
     frames: VEILFrame[],
@@ -54,6 +55,47 @@ export class SimpleTestCompressionEngine implements CompressionEngine {
       f.sequence >= range.fromFrame && f.sequence <= range.toFrame
     );
     
+    // Track state changes
+    const stateDelta: StateDelta = {
+      changes: new Map(),
+      added: [],
+      deleted: []
+    };
+    
+    // Process all operations to compute net state effect
+    for (const frame of framesInRange) {
+      if ('operations' in frame) {
+        for (const op of frame.operations) {
+          if (op.type === 'addFacet' && op.facet?.type === 'state') {
+            stateDelta.added.push(op.facet.id);
+            stateDelta.changes.set(op.facet.id, op.facet);
+          } else if (op.type === 'changeState' && 'facetId' in op && 'updates' in op) {
+            // Apply updates to tracked state
+            const existing = stateDelta.changes.get(op.facetId);
+            if (existing) {
+              // Merge updates into existing tracked state
+              stateDelta.changes.set(op.facetId, {
+                ...existing,
+                ...op.updates,
+                attributes: {
+                  ...existing.attributes,
+                  ...(op.updates.attributes || {})
+                }
+              } as Partial<Facet>);
+            } else if (!stateDelta.added.includes(op.facetId)) {
+              // Track updates for facets that existed before this range
+              stateDelta.changes.set(op.facetId, {
+                ...op.updates,
+                type: 'state' // Ensure we keep the type
+              } as Partial<Facet>);
+            }
+          }
+          // Handle deleteScope operations that might delete facets
+          // For now, we'll skip this complexity
+        }
+      }
+    }
+    
     // Create simple summary
     const eventCount = framesInRange.filter(f => 
       f.operations.some((op: any) => op.type === 'addFacet' && op.facet?.type === 'event')
@@ -65,9 +107,12 @@ export class SimpleTestCompressionEngine implements CompressionEngine {
     
     const summary = `[Frames ${range.fromFrame}-${range.toFrame}: ${eventCount} events, ${agentCount} agent actions]`;
     
-    // Store compression
+    // Store compression and state delta
     for (let seq = range.fromFrame; seq <= range.toFrame; seq++) {
       this.compressions.set(seq, summary);
+      if (stateDelta.changes.size > 0 || stateDelta.added.length > 0 || stateDelta.deleted.length > 0) {
+        this.stateDeltas.set(seq, stateDelta);
+      }
     }
     
     return {
@@ -75,6 +120,7 @@ export class SimpleTestCompressionEngine implements CompressionEngine {
         from: range.fromFrame,
         to: range.toFrame
       },
+      stateDelta: stateDelta.changes.size > 0 || stateDelta.added.length > 0 || stateDelta.deleted.length > 0 ? stateDelta : undefined,
       engineData: { summary }
     };
   }
@@ -98,7 +144,23 @@ export class SimpleTestCompressionEngine implements CompressionEngine {
     return replacement;
   }
   
+  getStateDelta(frameSequence: number): StateDelta | null {
+    // Only return state delta for the first frame in a compressed range
+    const delta = this.stateDeltas.get(frameSequence);
+    if (!delta) return null;
+    
+    // Check if this is the first frame of a compressed range
+    const previousDelta = this.stateDeltas.get(frameSequence - 1);
+    if (previousDelta === delta) {
+      // Not the first frame of this compression
+      return null;
+    }
+    
+    return delta;
+  }
+  
   clearCache(): void {
     this.compressions.clear();
+    this.stateDeltas.clear();
   }
 }

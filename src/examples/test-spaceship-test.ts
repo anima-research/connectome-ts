@@ -340,9 +340,9 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
     ]
   } as OutgoingVEILFrame,
 
-  // Frame 10: Agent decides to open personal log (outgoing)
+  // Frame 9.5: Agent decides to open personal log (outgoing)
   {
-    sequence: 10,
+    sequence: 9.5,
     timestamp: "2024-01-15T10:32:20Z",
     operations: [
       {
@@ -359,9 +359,9 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
     ]
   } as OutgoingVEILFrame,
 
-  // Frame 11: System creates log stream in response
+  // Frame 9.6: System creates log stream in response
   {
-    sequence: 11,
+    sequence: 9.6,
     timestamp: "2024-01-15T10:32:21Z",
     operations: [
       {
@@ -385,9 +385,9 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
     ]
   },
 
-  // Frame 12: Agent makes log entry (outgoing)
+  // Frame 9.7: Agent makes log entry (outgoing)
   {
-    sequence: 12,
+    sequence: 9.7,
     timestamp: "2024-01-15T10:32:25Z",
     operations: [
       {
@@ -398,9 +398,9 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
     ]
   } as OutgoingVEILFrame,
 
-  // Frame 13: Tool definitions for the additional tools used
+  // Frame 10: Tool definitions for the additional tools used
   {
-    sequence: 13,
+    sequence: 10,
     timestamp: "2024-01-15T10:32:00Z",  // Retroactively adding tool definitions
     operations: [
       {

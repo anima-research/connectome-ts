@@ -29,6 +29,18 @@ export interface CompressibleRange {
 }
 
 /**
+ * State changes that occurred within a compressed range
+ */
+export interface StateDelta {
+  // Facet ID -> final state after all changes in the range
+  changes: Map<string, Partial<Facet>>;
+  // Facet IDs that were added in this range
+  added: string[];
+  // Facet IDs that were deleted in this range
+  deleted: string[];
+}
+
+/**
  * Result of compressing a range
  */
 export interface CompressionResult {
@@ -36,6 +48,8 @@ export interface CompressionResult {
     from: number;
     to: number;
   };
+  // Optional state delta representing net effect of state changes
+  stateDelta?: StateDelta;
   // Implementation-specific data - opaque to HUD
   engineData: unknown;
 }
@@ -72,6 +86,12 @@ export interface CompressionEngine {
    * Returns null if frame should render normally
    */
   getReplacement(frameSequence: number): string | null;
+  
+  /**
+   * Get the state delta for a compressed frame range
+   * Returns null if no state changes occurred in the range
+   */
+  getStateDelta(frameSequence: number): StateDelta | null;
   
   /**
    * Optional: prepare compression in advance

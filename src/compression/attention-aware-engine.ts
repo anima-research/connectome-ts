@@ -3,7 +3,7 @@
  * Inserts compression instructions at the right spot and wraps content
  */
 
-import { CompressionEngine, CompressibleRange, CompressionResult, RenderedFrame } from './types-v2';
+import { CompressionEngine, CompressibleRange, CompressionResult, RenderedFrame, StateDelta } from './types-v2';
 import { Facet, IncomingVEILFrame, OutgoingVEILFrame } from '../veil/types';
 import { LLMProvider, LLMMessage } from '../llm/llm-interface';
 
@@ -13,6 +13,7 @@ interface CompressionRecord {
   range: { from: number; to: number };
   summary: string;
   originalContent: string;
+  stateDelta?: StateDelta;
 }
 
 export class AttentionAwareCompressionEngine implements CompressionEngine {
@@ -79,6 +80,14 @@ export class AttentionAwareCompressionEngine implements CompressionEngine {
     renderedFrames: RenderedFrame[],
     currentFacets: Map<string, Facet>
   ): Promise<CompressionResult> {
+    // Find frames in range
+    const framesInRange = frames.filter(f => 
+      f.sequence >= range.fromFrame && f.sequence <= range.toFrame
+    );
+    
+    // Compute state delta
+    const stateDelta = this.computeStateDelta(framesInRange);
+    
     // Find the rendered content for this range
     const rangeContent = renderedFrames
       .filter(rf => rf.frameSequence >= range.fromFrame && rf.frameSequence <= range.toFrame)
@@ -105,7 +114,8 @@ export class AttentionAwareCompressionEngine implements CompressionEngine {
     const record: CompressionRecord = {
       range: { from: range.fromFrame, to: range.toFrame },
       summary: response.content,
-      originalContent: rangeContent
+      originalContent: rangeContent,
+      stateDelta: stateDelta.changes.size > 0 || stateDelta.added.length > 0 || stateDelta.deleted.length > 0 ? stateDelta : undefined
     };
     
     // Map all frames in range to this compression
@@ -115,6 +125,7 @@ export class AttentionAwareCompressionEngine implements CompressionEngine {
     
     return {
       replacesFrames: { from: range.fromFrame, to: range.toFrame },
+      stateDelta: record.stateDelta,
       engineData: { summary: response.content }
     };
   }
@@ -157,6 +168,62 @@ Provide a concise summary in 1-3 sentences.`;
     return `<compression_instruction>
 The following ${pending.toFrame - pending.fromFrame + 1} frames (${pending.totalTokens} tokens) will be compressed.
 </compression_instruction>`;
+  }
+  
+  getStateDelta(frameSequence: number): StateDelta | null {
+    const record = this.compressions.get(frameSequence);
+    if (!record || !record.stateDelta) return null;
+    
+    // Only return state delta for first frame in range
+    if (frameSequence === record.range.from) {
+      return record.stateDelta;
+    }
+    
+    return null;
+  }
+  
+  private computeStateDelta(frames: VEILFrame[]): StateDelta {
+    const stateDelta: StateDelta = {
+      changes: new Map(),
+      added: [],
+      deleted: []
+    };
+    
+    // Process all operations to compute net state effect
+    for (const frame of frames) {
+      if ('operations' in frame) {
+        for (const op of frame.operations) {
+          if (op.type === 'addFacet' && op.facet?.type === 'state') {
+            stateDelta.added.push(op.facet.id);
+            stateDelta.changes.set(op.facet.id, op.facet);
+          } else if (op.type === 'changeState' && 'facetId' in op && 'updates' in op) {
+            // Apply updates to tracked state
+            const existing = stateDelta.changes.get(op.facetId);
+            if (existing) {
+              // Merge updates into existing tracked state
+              stateDelta.changes.set(op.facetId, {
+                ...existing,
+                ...op.updates,
+                attributes: {
+                  ...existing.attributes,
+                  ...(op.updates.attributes || {})
+                }
+              } as Partial<Facet>);
+            } else if (!stateDelta.added.includes(op.facetId)) {
+              // Track updates for facets that existed before this range
+              stateDelta.changes.set(op.facetId, {
+                ...op.updates,
+                type: 'state' // Ensure we keep the type
+              } as Partial<Facet>);
+            }
+          }
+          // Handle deleteScope operations that might delete facets
+          // For now, we'll skip this complexity
+        }
+      }
+    }
+    
+    return stateDelta;
   }
   
   clearCache(): void {

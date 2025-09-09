@@ -106,7 +106,7 @@ To support frame-based compression, the HUD must maintain frame boundaries durin
 
 Key HUD behaviors:
 1. Events render only in their frames when they occur
-2. States render when initially added (showing initial values), when changed (chronologically), and at the end (current values)
+2. States render when initially added (showing initial values) and when changed (chronologically).
 3. Ambient facets use "floating" behavior - appearing at a preferred depth from current moment (e.g., 5 messages back) to stay in attention zone
 4. Agent turns are grouped together within `<my_turn>` blocks
 5. Facets with displayName use it as XML tags; those without displayName render as plain content
@@ -130,6 +130,12 @@ The Compression Engine produces narrative blocks that replace frame ranges in th
 - The current VEIL state (all active facets)
 
 The Compression Engine returns frame-range replacements (e.g., "frames 10-50 become this narrative"). The HUD then applies these replacements when rendering, skipping the original frame effects and inserting narratives instead. This frame-based approach provides stable references even when facets are later modified or deleted.
+
+State preservation in compression:
+- When compressing frame ranges that contain state changes, the compression must preserve the net effect of all state mutations
+- The compressed frame should include a state delta showing the union of all changes from the beginning to end of the range
+- For example, if a facet's attributes change multiple times within the range, only the final values need to be preserved
+- This ensures the HUD can correctly track state evolution even when frames are compressed
 
 Attention-aware compression:
 - Content to be compressed is wrapped in `<content_to_compress>` tags

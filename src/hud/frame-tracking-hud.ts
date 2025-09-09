@@ -5,7 +5,7 @@
 
 import { Facet, IncomingVEILFrame, OutgoingVEILFrame, VEILOperation } from '../veil/types';
 import { CompressibleHUD, RenderedContext, HUDConfig } from './types-v2';
-import { CompressionEngine, RenderedFrame } from '../compression/types-v2';
+import { CompressionEngine, RenderedFrame, StateDelta } from '../compression/types-v2';
 
 // Union type for frames
 type VEILFrame = IncomingVEILFrame | OutgoingVEILFrame;
@@ -44,12 +44,21 @@ export class FrameTrackingHUD implements CompressibleHUD {
     }> = [];
     let totalTokens = 0;
     
+    // Track state as we replay operations - start with empty state
+    const replayedState = new Map<string, Facet>();
+    
     // Render each frame
     for (const frame of frames) {
       // Check if this frame is compressed
       if (compression?.shouldReplaceFrame(frame.sequence)) {
         const replacement = compression.getReplacement(frame.sequence);
         if (replacement !== null) {
+          // Apply state delta if present
+          const stateDelta = compression.getStateDelta(frame.sequence);
+          if (stateDelta) {
+            this.applyStateDelta(stateDelta, replayedState);
+          }
+          
           // Add replacement even if it's empty string (for compressed frames)
           if (replacement) {
             frameContents.push({
@@ -63,8 +72,13 @@ export class FrameTrackingHUD implements CompressibleHUD {
         }
       }
       
-      // Render frame normally
-      const { content, facetIds } = this.renderFrame(frame, currentFacets);
+      // Update replayed state if this is an incoming frame
+      if (this.isIncomingFrame(frame)) {
+        this.updateReplayedState(frame as IncomingVEILFrame, replayedState);
+      }
+      
+      // Render frame with the state as it was at this point in time
+      const { content, facetIds } = this.renderFrame(frame, replayedState);
       const tokens = this.estimateTokens(content);
       
       frameRenderings.push({
@@ -90,8 +104,8 @@ export class FrameTrackingHUD implements CompressibleHUD {
       }
     }
     
-    // Build turn-based messages
-    const messages = this.buildTurnBasedMessages(frameContents, currentFacets, config);
+    // Build messages directly from frame contents
+    const messages = this.buildFrameBasedMessages(frameContents, currentFacets, config);
     
     // Calculate total tokens from messages
     totalTokens = messages.reduce((sum, msg) => sum + this.estimateTokens(msg.content), 0);
@@ -149,6 +163,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
             // Render events and states when they're added (to show initial values)
             // Skip ambient facets - they use floating behavior
             if (operation.facet.type === 'event' || operation.facet.type === 'state') {
+              // Always use the facet from the operation, not currentFacets
               const rendered = this.renderFacet(operation.facet);
               if (rendered) parts.push(rendered);
             }
@@ -156,11 +171,22 @@ export class FrameTrackingHUD implements CompressibleHUD {
           break;
           
         case 'changeState':
-          // Render the updated state
-          const facet = currentFacets.get(operation.facetId);
-          if (facet) {
-            const rendered = this.renderFacet(facet);
-            if (rendered) parts.push(rendered);
+          // Render the state as it was changed in this frame, not the current value
+          if ('updates' in operation && operation.updates) {
+            // Create a temporary facet with the updated values from this operation
+            const currentFacet = currentFacets.get(operation.facetId);
+            if (currentFacet && currentFacet.type === 'state') {
+              const updatedFacet = {
+                ...currentFacet,
+                ...operation.updates,
+                attributes: {
+                  ...currentFacet.attributes,
+                  ...(operation.updates.attributes || {})
+                }
+              };
+              const rendered = this.renderFacet(updatedFacet);
+              if (rendered) parts.push(rendered);
+            }
           }
           break;
           
@@ -252,45 +278,21 @@ export class FrameTrackingHUD implements CompressibleHUD {
     return stateParts.length > 0 ? stateParts.join('\n\n') : null;
   }
   
-  private buildTurnBasedMessages(
+  private buildFrameBasedMessages(
     frameContents: Array<{ type: 'incoming' | 'outgoing' | 'compressed'; content: string; sequence: number }>,
     currentFacets: Map<string, Facet>,
     config: HUDConfig
   ): RenderedContext['messages'] {
     const messages: RenderedContext['messages'] = [];
     
-    // Don't add system prompt to messages - that's handled by the agent
-    
-    // Group consecutive frames by type to create coherent turns
-    const turns: Array<{ role: 'user' | 'assistant'; content: string[] }> = [];
-    let currentTurn: { role: 'user' | 'assistant'; content: string[] } | null = null;
-    
+    // Each frame becomes its own message
     for (const frame of frameContents) {
-      // Compressed content could be either user or assistant - we'll treat as assistant for now
+      // Compressed frames are treated as assistant messages
       const role = frame.type === 'incoming' ? 'user' : 'assistant';
       
-      if (!currentTurn || currentTurn.role !== role) {
-        // Start new turn
-        if (currentTurn && currentTurn.content.length > 0) {
-          turns.push(currentTurn);
-        }
-        currentTurn = { role, content: [] };
-      }
-      
-      currentTurn.content.push(frame.content);
-    }
-    
-    // Add final turn
-    if (currentTurn && currentTurn.content.length > 0) {
-      turns.push(currentTurn);
-    }
-    
-    // Convert turns to messages
-    for (const turn of turns) {
-      const content = turn.content.join('\n\n');
       messages.push({
-        role: turn.role,
-        content: content
+        role,
+        content: frame.content
       });
     }
     
@@ -303,9 +305,8 @@ export class FrameTrackingHUD implements CompressibleHUD {
       if (rendered) ambientContent.push(rendered);
     }
     
-    const stateContent = this.renderCurrentState(currentFacets, config);
+    // Don't add state content here - states are only rendered in frames where they're added or changed
     const contextParts = [...ambientContent];
-    if (stateContent) contextParts.push(stateContent);
     
     // Add pending activations info if present
     if (config.metadata?.pendingActivations) {
@@ -403,6 +404,66 @@ export class FrameTrackingHUD implements CompressibleHUD {
   
   private sanitizeTagName(name: string): string {
     return name.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+  }
+  
+  private updateReplayedState(frame: IncomingVEILFrame, replayedState: Map<string, Facet>): void {
+    for (const operation of frame.operations) {
+      switch (operation.type) {
+        case 'addFacet':
+          if ('facet' in operation && operation.facet) {
+            replayedState.set(operation.facet.id, operation.facet);
+          }
+          break;
+          
+        case 'changeState':
+          if ('facetId' in operation && 'updates' in operation) {
+            const existingFacet = replayedState.get(operation.facetId);
+            if (existingFacet && existingFacet.type === 'state') {
+              // Apply the updates to create the new state
+              const updatedFacet = {
+                ...existingFacet,
+                ...operation.updates,
+                attributes: {
+                  ...existingFacet.attributes,
+                  ...(operation.updates.attributes || {})
+                }
+              };
+              replayedState.set(operation.facetId, updatedFacet);
+            }
+          }
+          break;
+          
+        // Could handle deleteScope operations here to remove associated facets
+        // but for now we'll keep it simple
+      }
+    }
+  }
+  
+  private applyStateDelta(delta: StateDelta, replayedState: Map<string, Facet>): void {
+    // Handle deletions first
+    for (const deletedId of delta.deleted) {
+      replayedState.delete(deletedId);
+    }
+    
+    // Apply changes to existing facets
+    for (const [facetId, changes] of delta.changes) {
+      const existing = replayedState.get(facetId);
+      if (existing) {
+        // Merge changes into existing facet
+        const updated = {
+          ...existing,
+          ...changes,
+          attributes: {
+            ...existing.attributes,
+            ...(changes.attributes || {})
+          }
+        };
+        replayedState.set(facetId, updated as Facet);
+      }
+    }
+    
+    // Note: New facets in delta.added would need full facet data,
+    // which would be included in delta.changes with their full state
   }
   
   private escapeXml(str: string): string {

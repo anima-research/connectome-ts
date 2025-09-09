@@ -166,6 +166,14 @@ export class BasicAgent implements AgentInterface {
         parentId: cycleSpan?.id
       });
       
+      // Debug: Log messages for interactive box test
+      if (this.config.name === 'interactive-explorer') {
+        console.log('\n[Agent] Messages being sent:');
+        context.messages.forEach((msg, i) => {
+          console.log(`[${i}] ${msg.role}: ${msg.content.slice(0, 100)}...`);
+        });
+      }
+      
       // Call LLM
       const response = await this.llmProvider.generate(
         context.messages,
