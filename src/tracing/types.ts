@@ -41,6 +41,12 @@ export enum TraceCategory {
   AGENT_RESPONSE_PARSE = 'agent.response_parse',
   AGENT_TOOL_CALL = 'agent.tool_call',
   
+  // LLM interactions
+  LLM_REQUEST = 'llm.request',
+  LLM_RESPONSE = 'llm.response',
+  LLM_ERROR = 'llm.error',
+  LLM_TOKEN_USAGE = 'llm.token_usage',
+  
   // Adapter operations
   ADAPTER_INPUT = 'adapter.input',
   ADAPTER_OUTPUT = 'adapter.output',

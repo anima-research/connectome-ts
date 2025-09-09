@@ -42,6 +42,12 @@ export interface HUDConfig {
       sources: string[];
     };
   };
+  formatConfig?: {
+    assistant?: {
+      prefix?: string;
+      suffix?: string;
+    };
+  };
 }
 
 /**

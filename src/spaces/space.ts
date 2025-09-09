@@ -202,12 +202,13 @@ export class Space extends Element {
           if (agentResponse) {
             for (const op of agentResponse.operations) {
               if (op.type === 'speak') {
+                const responseStream = this.currentFrame.activeStream || this.activeStream;
                 await this.distributeEvent({
                   topic: 'agent:response',
                   source: this.getRef(),
                   payload: {
                     content: op.content,
-                    stream: this.currentFrame.activeStream
+                    stream: responseStream
                   },
                   timestamp: Date.now()
                 });

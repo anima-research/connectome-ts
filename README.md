@@ -154,6 +154,32 @@ The framework includes multiple LLM providers:
 - SaliencyAwareHUD with link-aware scoring
 - Basic agent loop orchestration
 
+## Observability
+
+The system includes comprehensive observability with file-based trace persistence:
+
+```bash
+# Interactive console chat with tracing
+npm run test:console
+
+# View real-time traces
+tail -f traces/trace-*.jsonl | jq .
+
+# Search for LLM interactions  
+grep "llm\." traces/trace-*.jsonl | jq .
+
+# Analyze agent behavior
+jq 'select(.component == "BasicAgent")' traces/trace-*.jsonl
+```
+
+Features:
+- **Full LLM request/response capture** - All interactions logged
+- **File-based persistence** - Traces saved to `./traces` directory  
+- **Automatic rotation** - Manages disk space automatically
+- **Multiple export formats** - JSON, CSV, Markdown
+
+See [docs/observability.md](docs/observability.md) for detailed documentation.
+
 ## Next Steps
 
 ### Phase 2: Elements & Spaces

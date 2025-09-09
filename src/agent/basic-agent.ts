@@ -380,6 +380,12 @@ export class BasicAgent implements AgentInterface {
             count: this.state.pendingActivations?.length || 0,
             sources: Array.from(pendingBySources.keys())
           } : undefined
+        },
+        formatConfig: {
+          assistant: {
+            prefix: '<my_turn>\n',
+            suffix: '\n</my_turn>'
+          }
         }
       }
     );

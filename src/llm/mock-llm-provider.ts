@@ -4,6 +4,7 @@
  */
 
 import { LLMProvider, LLMMessage, LLMResponse, LLMOptions } from './llm-interface';
+import { getGlobalTracer, TraceCategory } from '../tracing';
 
 export class MockLLMProvider implements LLMProvider {
   private responses: string[] = [];
@@ -45,6 +46,22 @@ export class MockLLMProvider implements LLMProvider {
     // Filter out cache markers for processing
     const processableMessages = messages.filter(m => m.role !== 'cache');
     
+    // Trace the request
+    const tracer = getGlobalTracer();
+    tracer?.record({
+      id: `mock-llm-request-${Date.now()}`,
+      timestamp: Date.now(),
+      level: 'debug',
+      category: TraceCategory.LLM_REQUEST,
+      component: 'MockLLMProvider',
+      operation: 'generate',
+      data: {
+        messageCount: processableMessages.length,
+        lastMessageRole: processableMessages[processableMessages.length - 1]?.role,
+        lastMessagePreview: processableMessages[processableMessages.length - 1]?.content.substring(0, 100)
+      }
+    });
+    
     // Check if this is a compression request
     const lastMessage = processableMessages[processableMessages.length - 1];
     if (lastMessage && this.compressionPattern.test(lastMessage.content)) {
@@ -66,48 +83,67 @@ export class MockLLMProvider implements LLMProvider {
             const firstEvent = eventNumbers[0];
             const lastEvent = eventNumbers[eventNumbers.length - 1];
             
-            return {
+            return this.traceAndReturn({
               content: `[Compressed: Events ${firstEvent}-${lastEvent} (${count} total events)]`,
               tokensUsed: 20
-            };
+            });
           }
         }
         
         // Default compression
         const lines = contentToCompress.split('\n').filter(l => l.trim());
-        return {
+        return this.traceAndReturn({
           content: `[Compressed: ${lines.length} lines of content]`,
           tokensUsed: 15
-        };
+        });
       }
     }
     
     // Check for custom pattern-based responses
-    if (lastMessage) {
-      for (const [pattern, response] of this.customResponses) {
-        if (lastMessage.content.includes(pattern)) {
-          return {
-            content: response,
-            tokensUsed: this.estimateTokens(response)
-          };
-        }
+    // Look for patterns in all messages, not just the last one
+    const allContent = processableMessages.map(m => m.content).join(' ').toLowerCase();
+    
+    for (const [pattern, response] of this.customResponses) {
+      if (allContent.includes(pattern.toLowerCase())) {
+        return this.traceAndReturn({
+          content: response,
+          tokensUsed: this.estimateTokens(response)
+        });
       }
     }
     
     // Return next response in sequence or default
     if (this.responseIndex < this.responses.length) {
       const response = this.responses[this.responseIndex++];
-      return {
+      return this.traceAndReturn({
         content: response,
         tokensUsed: this.estimateTokens(response)
-      };
+      });
     }
     
     // Default response
-    return {
+    return this.traceAndReturn({
       content: "Mock response",
       tokensUsed: 3
-    };
+    });
+  }
+  
+  private traceAndReturn(response: LLMResponse): LLMResponse {
+    const tracer = getGlobalTracer();
+    tracer?.record({
+      id: `mock-llm-response-${Date.now()}`,
+      timestamp: Date.now(),
+      level: 'debug',
+      category: TraceCategory.LLM_RESPONSE,
+      component: 'MockLLMProvider',
+      operation: 'generate',
+      data: {
+        contentLength: response.content.length,
+        contentPreview: response.content,
+        tokensUsed: response.tokensUsed
+      }
+    });
+    return response;
   }
   
   estimateTokens(text: string): number {

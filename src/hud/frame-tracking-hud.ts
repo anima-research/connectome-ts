@@ -37,7 +37,11 @@ export class FrameTrackingHUD implements CompressibleHUD {
     frameRenderings: RenderedFrame[];
   } {
     const frameRenderings: RenderedFrame[] = [];
-    const renderedParts: string[] = [];
+    const frameContents: Array<{ 
+      type: 'incoming' | 'outgoing' | 'compressed';
+      content: string;
+      sequence: number;
+    }> = [];
     let totalTokens = 0;
     
     // Render each frame
@@ -48,7 +52,11 @@ export class FrameTrackingHUD implements CompressibleHUD {
         if (replacement !== null) {
           // Add replacement even if it's empty string (for compressed frames)
           if (replacement) {
-            renderedParts.push(replacement);
+            frameContents.push({
+              type: 'compressed',
+              content: replacement,
+              sequence: frame.sequence
+            });
             totalTokens += this.estimateTokens(replacement);
           }
           continue;
@@ -73,32 +81,20 @@ export class FrameTrackingHUD implements CompressibleHUD {
       
       // Only add non-empty content
       if (content.trim()) {
-        renderedParts.push(content);
+        frameContents.push({
+          type: this.isIncomingFrame(frame) ? 'incoming' : 'outgoing',
+          content,
+          sequence: frame.sequence
+        });
         totalTokens += tokens;
       }
     }
     
-    // Apply floating ambient facets
-    const ambientFacets = this.getAmbientFacets(currentFacets);
-    const partsWithAmbient = this.insertFloatingAmbient(renderedParts, ambientFacets);
+    // Build turn-based messages
+    const messages = this.buildTurnBasedMessages(frameContents, currentFacets, config);
     
-    // Render current state (non-ambient facets that persist)
-    const stateContent = this.renderCurrentState(currentFacets, config);
-    if (stateContent) {
-      partsWithAmbient.push(stateContent);
-      totalTokens += this.estimateTokens(stateContent);
-    }
-    
-    // Add pending activations info if present
-    if (config.metadata?.pendingActivations) {
-      const { count, sources } = config.metadata.pendingActivations;
-      const pendingInfo = `\n<pending_activations>\nThere are ${count} pending activation(s) from: ${sources.join(', ')}\n</pending_activations>`;
-      partsWithAmbient.push(pendingInfo);
-      totalTokens += this.estimateTokens(pendingInfo);
-    }
-    
-    // Build final context
-    const messages = this.buildMessages(partsWithAmbient.join('\n\n'), config);
+    // Calculate total tokens from messages
+    totalTokens = messages.reduce((sum, msg) => sum + this.estimateTokens(msg.content), 0);
     
     return {
       context: {
@@ -256,23 +252,99 @@ export class FrameTrackingHUD implements CompressibleHUD {
     return stateParts.length > 0 ? stateParts.join('\n\n') : null;
   }
   
-  private buildMessages(content: string, config: HUDConfig): RenderedContext['messages'] {
+  private buildTurnBasedMessages(
+    frameContents: Array<{ type: 'incoming' | 'outgoing' | 'compressed'; content: string; sequence: number }>,
+    currentFacets: Map<string, Facet>,
+    config: HUDConfig
+  ): RenderedContext['messages'] {
     const messages: RenderedContext['messages'] = [];
     
-    if (config.systemPrompt) {
+    // Don't add system prompt to messages - that's handled by the agent
+    
+    // Group consecutive frames by type to create coherent turns
+    const turns: Array<{ role: 'user' | 'assistant'; content: string[] }> = [];
+    let currentTurn: { role: 'user' | 'assistant'; content: string[] } | null = null;
+    
+    for (const frame of frameContents) {
+      // Compressed content could be either user or assistant - we'll treat as assistant for now
+      const role = frame.type === 'incoming' ? 'user' : 'assistant';
+      
+      if (!currentTurn || currentTurn.role !== role) {
+        // Start new turn
+        if (currentTurn && currentTurn.content.length > 0) {
+          turns.push(currentTurn);
+        }
+        currentTurn = { role, content: [] };
+      }
+      
+      currentTurn.content.push(frame.content);
+    }
+    
+    // Add final turn
+    if (currentTurn && currentTurn.content.length > 0) {
+      turns.push(currentTurn);
+    }
+    
+    // Convert turns to messages
+    for (const turn of turns) {
+      const content = turn.content.join('\n\n');
       messages.push({
-        role: 'system',
-        content: config.systemPrompt
+        role: turn.role,
+        content: content
       });
     }
     
-    // Note: User prompts should be added by the calling context
-    // This HUD only manages the assistant's rendered context
+    // Add floating ambient and state content as system context
+    const ambientFacets = this.getAmbientFacets(currentFacets);
+    const ambientContent: string[] = [];
     
-    messages.push({
-      role: 'assistant',
-      content: content
-    });
+    for (const [id, facet] of ambientFacets) {
+      const rendered = this.renderFacet(facet);
+      if (rendered) ambientContent.push(rendered);
+    }
+    
+    const stateContent = this.renderCurrentState(currentFacets, config);
+    const contextParts = [...ambientContent];
+    if (stateContent) contextParts.push(stateContent);
+    
+    // Add pending activations info if present
+    if (config.metadata?.pendingActivations) {
+      const { count, sources } = config.metadata.pendingActivations;
+      const pendingInfo = `<pending_activations>\nThere are ${count} pending activation(s) from: ${sources.join(', ')}\n</pending_activations>`;
+      contextParts.push(pendingInfo);
+    }
+    
+    if (contextParts.length > 0) {
+      // Add context to the last user message or create a new one
+      const contextContent = contextParts.join('\n\n');
+      const lastMessage = messages[messages.length - 1];
+      
+      if (lastMessage && lastMessage.role === 'user') {
+        // Append to last user message
+        lastMessage.content = `${lastMessage.content}\n\n${contextContent}`;
+      } else {
+        // Create a new user message with context
+        messages.push({
+          role: 'user',
+          content: contextContent
+        });
+      }
+    }
+    
+    // Apply format config for prefill
+    if (config.formatConfig?.assistant?.prefix) {
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage && lastMessage.role === 'assistant') {
+        // Add prefix to existing assistant message
+        lastMessage.content = config.formatConfig.assistant.prefix + lastMessage.content;
+      } else {
+        // Add new assistant message with just the prefix for prefill
+        messages.push({
+          role: 'assistant',
+          content: config.formatConfig.assistant.prefix
+        });
+      }
+    }
     
     return messages;
   }

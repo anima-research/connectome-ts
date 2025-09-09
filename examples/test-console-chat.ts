@@ -69,9 +69,23 @@ async function runConsoleChatTest() {
   console.log('=== Connectome Console Chat Test ===');
   console.log('Starting interactive console chat with full VEIL/Agent integration\n');
   
-  // Create tracer for observability
-  const tracer = createDefaultTracer();
-  console.log('Tracing enabled - internal operations will be logged\n');
+  // Create tracer for observability with file persistence
+  const tracingEnabled = process.env.ENABLE_TRACING !== 'false';
+  if (tracingEnabled) {
+    const tracer = createDefaultTracer({
+      type: 'file',
+      fileConfig: {
+        directory: './traces',
+        maxFileSize: 50 * 1024 * 1024, // 50MB
+        rotationPolicy: 'size',
+        keepFiles: 5
+      }
+    });
+    console.log('Tracing enabled - logs will be saved to ./traces directory');
+    console.log('To disable tracing, set ENABLE_TRACING=false\n');
+  } else {
+    console.log('Tracing disabled\n');
+  }
   
   // Create core components
   const veilState = new VEILStateManager();
@@ -80,12 +94,9 @@ async function runConsoleChatTest() {
   // Create agent with system prompt
   const agent = new BasicAgent({
     name: 'Assistant',
-    systemPrompt: `You are a helpful AI assistant in a console chat interface. 
-Keep your responses concise and friendly. 
-You can see when users send messages from the console.
-When you respond, be natural and conversational.`,
-    defaultMaxTokens: 150,
-    defaultTemperature: 0.7
+    systemPrompt: `You're chatting through a console interface. Be yourself and keep things concise.`,
+    defaultMaxTokens: 200,
+    defaultTemperature: 1.0
   }, llmProvider, veilState);
   
   // Create space and attach agent
