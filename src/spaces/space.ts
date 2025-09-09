@@ -8,15 +8,16 @@ import {
   TraceCategory, 
   getGlobalTracer 
 } from '../tracing';
+import { EventPriorityQueue } from './priority-queue';
 
 /**
  * The root Space element that orchestrates the entire system
  */
 export class Space extends Element {
   /**
-   * Event queue for the current frame
+   * Priority event queue for the current frame
    */
-  private eventQueue: SpaceEvent[] = [];
+  private eventQueue: EventPriorityQueue = new EventPriorityQueue();
   
   /**
    * VEIL state manager
@@ -84,7 +85,9 @@ export class Space extends Element {
       data: {
         topic: event.topic,
         source: event.source.elementId,
-        queueLength: this.eventQueue.length
+        priority: event.priority || 'normal',
+        queueLength: this.eventQueue.length,
+        queueState: this.eventQueue.getDebugInfo()
       }
     });
     
@@ -143,9 +146,12 @@ export class Space extends Element {
         timestamp: Date.now()
       } as FrameStartEvent);
       
-      // Process all queued events
-      const events = [...this.eventQueue];
-      this.eventQueue = [];
+      // Process all queued events in priority order
+      const events: SpaceEvent[] = [];
+      while (!this.eventQueue.isEmpty()) {
+        const event = this.eventQueue.shift();
+        if (event) events.push(event);
+      }
       
       for (const event of events) {
         await this.distributeEvent(event);

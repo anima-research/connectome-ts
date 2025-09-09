@@ -27,7 +27,14 @@ There are the following types of facets:
 Events: Have strict temporality - occur at one specific moment
 States: Have defined temporality at creation but remain valid until changed/invalidated
 Ambient: Has loose temporality - valid from creation until scope is destroyed. Ambient facets "float" in the context, preferring to be rendered at a fixed depth from the current moment (e.g., 3-5 messages back) to stay in the attention zone while respecting temporal constraints. Examples include mission objectives, tool instructions, or contextual reminders.
-Tool definitions: Tool definitions don’t get rendered. Instructions for using tools are displayed using other facet types. Tool definitions allow the HUD to process completions and extract commands. Tool calls will be handled by the callback specified, normally by the Element that produced the facet.
+Tool definitions: Tool definitions don't get rendered. Instructions for using tools are displayed using other facet types. Tool definitions allow the HUD to process completions and extract commands. Modern tool definitions support:
+  - Element routing via elementPath/elementId
+  - Generic event emission instead of callbacks
+  - Hierarchical namespaces (e.g., chat.general.say)
+  - Parameter schemas with type information
+Speech: Natural language output from agent speak operations
+Thought: Internal reasoning from agent innerThoughts operations
+Action: Structured actions from agent toolCall operations
 
 Events, states and ambient contain content. The content can be a combination of text and images. They also include an id (normally does not get rendered to the agent), displayName (can be blank), and an arbitrary set of key-value pairs. Facets don't normally include a timestamp.
 
@@ -60,11 +67,23 @@ An outgoing VEIL delta can contain any number of the following operations (or it
 3. Cycle request: a request to agent loop to schedule another LLM call immediately
 4. Inner thoughts: Agent's internal reasoning process
 
+Important: Agent actions are declarations in outgoing frames. Their consequences (state changes, events) appear in subsequent incoming frames, maintaining clear causality and enabling the agent to observe the results of its actions.
+
 Agent operations create specific facet types:
 - `speech` facets from speak operations
-- `action` facets from toolCall operations  
+- `action` facets from toolCall operations (or @element.action syntax)
 - `thought` facets from innerThoughts operations
 This allows HUDs to render them with appropriate semantic meaning.
+
+Action Syntax:
+Agents use @element.action syntax for invoking tools:
+- Simple: @box.open
+- With parameters: @box.open("gently") or @box.open(speed="slow", careful=true)
+- Hierarchical paths: @chat.general.say("Hello")
+- Block parameters: @email.send { to: alice@example.com, subject: Test }
+Tools are registered with explicit paths (no wildcards) to avoid collisions.
+The action parser handles inline named parameters with type inference (strings, numbers, booleans).
+Note: Block format has limitations with nested braces and should be used for simple key-value pairs.
 
 Space/Element System Requirements:
 
@@ -104,12 +123,23 @@ The HUD is responsible for assembling the actual final LLM context. It is called
 
 To support frame-based compression, the HUD must maintain frame boundaries during rendering - tracking which rendered segments came from which VEIL frames. This enables the compression engine to understand the relationship between frames and their rendered representation.
 
+The HUD does not store current state. Instead, it rebuilds state from the beginning for each render by replaying all frame operations. This ensures historical accuracy - each frame shows the state as it existed at that moment, not the final state.
+
+Implementation Architecture:
+- LLMProvider interface abstracts different LLM backends (Anthropic, OpenAI, etc.)
+- Providers handle both message-based and prefill modes internally
+- Includes retry logic with exponential backoff for transient errors
+- Tracing system captures all internal operations for debugging
+- File-based trace storage with rotation and export capabilities
+
 Key HUD behaviors:
 1. Events render only in their frames when they occur
-2. States render when initially added (showing initial values) and when changed (chronologically).
+2. States render when initially added (showing initial values) and when changed (chronologically)
 3. Ambient facets use "floating" behavior - appearing at a preferred depth from current moment (e.g., 5 messages back) to stay in attention zone
-4. Agent turns are grouped together within `<my_turn>` blocks
+4. Frames are the natural units of conversation - no artificial turn-based grouping
 5. Facets with displayName use it as XML tags; those without displayName render as plain content
+6. Agent operations are wrapped in `<my_turn>` tags for prefill compatibility
+7. State is rebuilt incrementally by replaying operations from the beginning to ensure historical accuracy
 
 Rendered context for xml-style hud would look kind of like:
 
@@ -117,11 +147,19 @@ Rendered context for xml-style hud would look kind of like:
    30 users
    7 users online
 </chat_info>
-<chat>
 <msg source="general" sender="quarnaris">But I agree that, from my observations, if you have a long one-on-one conversation about a particular topic, the model would tend to want to explore the reverse side of it (edited)</msg>
 <time_marker>3 min ago</time_marker>
 <msg source="general" sender="antra_tessera">hey</msg>
-</chat>
+<my_turn>
+@chat.general.say("I find that interesting too - models do seem to naturally explore contrasting perspectives")
+</my_turn>
+<!-- Agent action declared -->
+<msg source="general" sender="connectome">I find that interesting too - models do seem to naturally explore contrasting perspectives</msg>
+<!-- Action consequence: message appeared in chat -->
+<msg source="general" sender="alice">Yeah, it's like they want to be balanced</msg>
+<my_turn>
+@chat.general.say("Exactly! It might be a form of intellectual curiosity")
+</my_turn>
 
 
 The Compression Engine produces narrative blocks that replace frame ranges in the final LLM context. The HUD provides the Compression Engine with:
@@ -150,6 +188,41 @@ Some tools can create internally scheduled events in the AgentLoop. For example,
 
 Most external events are batchable, although not all. In this case they cause updates of Elements, but the AgentLoop does not call the LLM until the end of a batch.
 
-As the first step, lets mockup a larger example of rendered context, one that contains multiple turns and shows examples of various VEIL features. We can use prefill format. For simplicity, lets assume that our mockup does not include images. The prefill format (with no images) works as follows. There is a system prompt (typically backroom style this agent is in CLI simulation mode), a fixed user message along the lines of "<cmd>cat log.txt</cmd>" and everything else is one assistant message, which is sent to the LLM as prefill. The assistant turn is marked with <my_turn></my_turn> xml tags. The opening tag is prefilled when a completion is sent.
+As the first step, lets mockup a larger example of rendered context, one that contains multiple turns and shows examples of various VEIL features. We can use prefill format. For simplicity, lets assume that our mockup does not include images. The prefill format (with no images) works as follows: all content is sent as a sequence of user and assistant messages. The HUD renders frames as they naturally occur, with the last assistant message having the `<my_turn>` prefix for prefill. System prompts are handled by the agent, not the HUD.
 
 Note, that the rendered context is not VEIL. In the rendered context it is impossible to tell the type of facets that led to its production, so it makes sense to specify that information in comments.
+
+Current Implementation Status:
+
+Completed:
+- VEIL data model with all facet types (event, state, ambient, tool, speech, thought, action)
+- VEILStateManager for managing facets and frame history
+- FrameTrackingHUD with frame-based rendering (no turn grouping, historical state accuracy)
+- State preservation through incremental replay of operations
+- @element.action syntax with hierarchical paths and named parameters
+- Action parser with type inference for inline parameters
+- BasicAgent with modern tool registration (ToolDefinition objects)
+- Generic event emission for tool actions (no hardcoded callbacks)
+- LLMProvider interface with AnthropicProvider implementation
+- Retry logic with exponential backoff and error logging
+- Prefill mode support with proper formatting
+- Token budget management (context vs generation limits)
+- Compression engine API with state delta preservation
+- SimpleTestCompressionEngine and AttentionAwareCompressionEngine
+- Tracing system with synchronous file-based storage
+- Console chat adapter as test harness
+- Interactive element test scenarios
+- Agent activation queue with source-based deduplication
+- Basic Space/Element/Component structure with event handling
+
+Still Pending:
+- Full event system with propagation and lifecycle events  
+- Stream reference tracking for communication routing
+- Discord adapter integration
+- Complete Space/Element/Component architecture with mount/unmount lifecycle
+- Scheduled events and timers
+- Full agent sleep/wake functionality with pending activation processing
+- Full compression implementation with LLM-based summarization
+- Additional adapters (filesystem, shell terminal, etc.)
+- Discovery mechanism for @element.? syntax
+- Enhanced block parameter parsing (proper grammar/parser)

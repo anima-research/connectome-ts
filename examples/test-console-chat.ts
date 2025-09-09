@@ -20,16 +20,10 @@ import { createDefaultTracer } from '../src/tracing';
 
 // Create LLM provider based on environment
 function createLLMProvider(): LLMProvider {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const useMock = process.env.USE_MOCK_LLM === 'true';
   
-  if (apiKey) {
-    console.log('Using Anthropic provider (Claude 3.5 Sonnet)');
-    return new AnthropicProvider({
-      apiKey,
-      defaultModel: 'claude-3-5-sonnet-20241022'
-    });
-  } else {
-    console.log('No ANTHROPIC_API_KEY found, using mock provider');
+  if (useMock) {
+    console.log('Using mock provider (USE_MOCK_LLM=true)');
     const mock = new MockLLMProvider();
     
     // Add some custom responses for testing - just plain text, no XML tags
@@ -63,6 +57,22 @@ function createLLMProvider(): LLMProvider {
     
     return mock;
   }
+  
+  // If not using mock, require API key
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.error('\n❌ Error: ANTHROPIC_API_KEY environment variable is not set');
+    console.error('\nTo run this test, you need to either:');
+    console.error('1. Set ANTHROPIC_API_KEY in your environment or .env file');
+    console.error('2. Use the mock provider with: USE_MOCK_LLM=true npm run test:console\n');
+    process.exit(1);
+  }
+  
+  console.log('Using Anthropic provider (Claude 3.5 Sonnet)');
+  return new AnthropicProvider({
+    apiKey,
+    defaultModel: 'claude-3-5-sonnet-20241022'
+  });
 }
 
 async function runConsoleChatTest() {

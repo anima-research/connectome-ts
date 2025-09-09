@@ -31,7 +31,7 @@ export interface RenderedContext {
  * Configuration for HUD rendering
  */
 export interface HUDConfig {
-  maxTokens?: number;
+  maxTokens?: number;  // Token budget for context window (e.g., 4000-8000) - currently only warns if exceeded
   includeTypes?: Array<'event' | 'state' | 'ambient'>;
   systemPrompt?: string;
   enableCaching?: boolean;

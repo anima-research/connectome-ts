@@ -98,7 +98,8 @@ export class AnthropicProvider implements LLMProvider {
       messages: anthropicMessages
     };
     
-    // Trace the request
+    // Log and trace the request
+    console.log('[AnthropicProvider:generate] Starting request...');
     const tracer = getGlobalTracer();
     tracer?.record({
       id: `llm-request-${Date.now()}`,
@@ -129,6 +130,9 @@ export class AnthropicProvider implements LLMProvider {
     let lastError: any;
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       try {
+        if (attempt > 0) {
+          console.log(`[AnthropicProvider] Retry attempt ${attempt}/${this.maxRetries} after exponential backoff`);
+        }
         const response = await this.client.messages.create(request);
 
         // Extract text content
@@ -166,8 +170,21 @@ export class AnthropicProvider implements LLMProvider {
       } catch (error) {
         lastError = error;
         
+        // Log the error immediately
+        console.error(`[AnthropicProvider] Request failed (attempt ${attempt + 1}/${this.maxRetries + 1}):`, 
+          error instanceof Error ? error.message : error);
+        
         // Determine if we should retry
         const shouldRetry = attempt < this.maxRetries && this.isRetryableError(error);
+        
+        if (shouldRetry) {
+          const delay = this.retryDelay * Math.pow(2, attempt);
+          console.log(`[AnthropicProvider] Will retry in ${delay}ms (exponential backoff)`);
+        } else if (attempt === this.maxRetries) {
+          console.error(`[AnthropicProvider] Max retries (${this.maxRetries}) exceeded`);
+        } else {
+          console.error(`[AnthropicProvider] Error is not retryable`);
+        }
         
         // Trace the error
         tracer?.record({

@@ -4,7 +4,7 @@
 
 import { Space } from '../src/spaces/space';
 import { BasicAgent } from '../src/agent/basic-agent';
-import { AgentConfig } from '../src/agent/types';
+import { AgentConfig, ToolDefinition } from '../src/agent/types';
 import { VEILStateManager } from '../src/veil/veil-state';
 import { FrameTrackingHUD } from '../src/hud/frame-tracking-hud';
 import { 
@@ -17,6 +17,7 @@ import {
 } from '../src/veil/types';
 import { 
   createTracer,
+  setGlobalTracer,
   TraceStorage,
   FileTraceStorageConfig
 } from '../src/tracing';
@@ -36,19 +37,10 @@ dotenv.config();
 
 // Create LLM provider
 function createLLMProvider(): LLMProvider {
-  // Force mock provider for testing
-  const useMock = false; // Set to false to use Anthropic
+  const useMock = process.env.USE_MOCK_LLM === 'true';
   
-  if (!useMock && process.env.ANTHROPIC_API_KEY) {
-    return new AnthropicProvider({
-      apiKey: process.env.ANTHROPIC_API_KEY!,
-      defaultModel: 'claude-3-5-sonnet-20241022',
-      defaultMaxTokens: 200,
-      maxRetries: 3,
-      retryDelay: 1000
-    });
-  } else {
-    // Mock provider for testing
+  if (useMock) {
+    console.log('Using mock provider (USE_MOCK_LLM=true)');
     const mock = new MockLLMProvider();
     
     // Override generate to log what we're receiving
@@ -81,8 +73,8 @@ function createLLMProvider(): LLMProvider {
         // If user mentions opening or the box
         if ((userContent.includes('open') || userContent.includes('box')) && !boxIsOpen) {
           return {
-            content: "I see there's a mysterious box here! Let me try to open it.\n\n" +
-                    "<action type=\"open_box\">Opening the mysterious box...</action>\n\n" +
+            content: "I see there's a mysterious box here! I know I can use `@box.open` or `@box.open(\"gently\")` to interact with it. Let me try:\n\n" +
+                    "@box.open(\"carefully\")\n\n" +
                     "Let's see what's inside!",
             metadata: {}
           };
@@ -106,6 +98,24 @@ function createLLMProvider(): LLMProvider {
     
     return mock;
   }
+  
+  // If not using mock, require API key
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.error('\n❌ Error: ANTHROPIC_API_KEY environment variable is not set');
+    console.error('\nTo run this test, you need to either:');
+    console.error('1. Set ANTHROPIC_API_KEY in your environment or .env file');
+    console.error('2. Use the mock provider with: USE_MOCK_LLM=true npm run test:interactive\n');
+    process.exit(1);
+  }
+  
+  return new AnthropicProvider({
+    apiKey,
+    defaultModel: 'claude-sonnet-4-20250514',
+    defaultMaxTokens: 200,
+    maxRetries: 3,
+    retryDelay: 1000
+  });
 }
 
 // Create tracer based on environment
@@ -123,6 +133,7 @@ function createDefaultTracer(): TraceStorage | undefined {
     type: 'file',
     fileConfig: config
   });
+  setGlobalTracer(tracer);
   return tracer;
 }
 
@@ -155,12 +166,14 @@ function initializeBoxState(space: Space, veilState: VEILStateManager) {
           id: 'available-actions',
           type: 'ambient',
           scope: ['interactive-environment'],
-          content: `You can interact with objects in this environment using action tags.
+          content: `<info>You can interact with objects in this environment using the @element.action syntax.
 
 Currently available actions:
-- <action type="open_box">description of opening the box</action>
+- @box.open or @box.open("gently")
 
-Example: To open the box, you would say something like "Let me open the box" followed by <action type="open_box">Opening the mysterious box...</action>`,
+Example: To open the box, you would say something like "Let me open the box" followed by @box.open
+
+Note: If you want to talk about actions without executing them, wrap them in backticks like \`@box.open\`. This allows you to discuss commands without triggering them.</info>`,
           attributes: {}
         }
       }
@@ -199,7 +212,7 @@ function handleOpenBox(space: Space, veilState: VEILStateManager): string {
     payload: {
       facetId: 'box-state',
       updates: {
-        content: `The box is now open, revealing ${boxAttrs.contents}!`,
+        content: `The box is open, containing ${boxAttrs.contents}!`,
         attributes: {
           isOpen: true,
           hasBeenOpened: true
@@ -248,43 +261,10 @@ class InteractiveAgent extends BasicAgent {
   public lastParsedCompletion?: ParsedCompletion;
   
   public parseCompletion(completion: string): ParsedCompletion {
-    const operations: any[] = [];
+    // Call parent's parseCompletion which now handles @element.action syntax
+    const result = super.parseCompletion(completion);
     
-    // Extract action tags
-    const actionRegex = /<action\s+type="([^"]+)"[^>]*>([^<]*)<\/action>/g;
-    let match;
-    const actions: Array<{type: string; description: string}> = [];
-    
-    while ((match = actionRegex.exec(completion)) !== null) {
-      actions.push({
-        type: match[1],
-        description: match[2].trim()
-      });
-    }
-    
-    // Extract speech (everything not in action tags)
-    const speechContent = completion.replace(actionRegex, '').trim();
-    if (speechContent) {
-      operations.push({
-        type: 'speak',
-        content: speechContent
-      });
-    }
-    
-    // Store actions in metadata for processing
-    if (actions.length > 0) {
-      operations.push({
-        type: 'innerThoughts',
-        content: `Performing actions: ${actions.map(a => a.description).join(', ')}`
-      });
-    }
-    
-    const result = {
-      operations,
-      hasMoreToSay: false,
-      rawContent: completion
-    };
-    
+    // Store for debugging
     this.lastParsedCompletion = result;
     return result;
   }
@@ -321,6 +301,7 @@ async function main() {
   
   // Set agent on space
   space.setAgent(agent);
+  agent.setSpace(space, 'agent');
   
   // Add agent component
   const agentComponent = new AgentComponent(agent);
@@ -410,45 +391,30 @@ async function main() {
   const veilHandler = new VEILEventHandler();
   space.addComponent(veilHandler);
   
-  // Process agent actions from parsed completion
-  const originalRunCycle = agent.runCycle.bind(agent);
-  (agent as any).runCycle = async function(context: any, streamRef?: any) {
-    const result = await originalRunCycle(context, streamRef);
-    
-    // Check the parsed completion for actions
-    if (agent.lastParsedCompletion) {
-      // Look for innerThoughts that mention actions
-      const innerThoughts = agent.lastParsedCompletion.operations.find(
-        (op: any) => op.type === 'innerThoughts' && op.content.includes('Performing actions:')
-      );
-      
-      if (innerThoughts && (innerThoughts as any).content.includes('Opening the mysterious box')) {
-        // Check if box is already open
-        const boxFacet = Array.from(veilState.getActiveFacets().values())
-          .find(f => f.id === 'box-state');
-        const boxAttrs = boxFacet?.attributes as any;
-        
-        if (boxAttrs?.isOpen) {
-          console.log('\n[System]: Agent attempted to open the box, but it\'s already open!');
-        } else {
-          console.log('\n[System]: Agent is attempting to open the box...');
-          // Queue a high-priority event for the box opening
-          space.queueEvent({
-            topic: 'action:open_box',
-            payload: { 
-              action: 'open_box',
-              source: 'agent' 
-            },
-            source: { elementId: 'agent', elementPath: ['agent'] },
-            timestamp: Date.now(),
-            metadata: { priority: 'high' }
-          });
-        }
+  // Register the open_box action with generic event emission
+  const openBoxTool: ToolDefinition = {
+    name: 'box.open',
+    description: 'Open the mysterious box',
+    parameters: { 
+      value: { type: 'string', description: 'How to open (e.g., "gently")' } 
+    },
+    elementPath: ['box'],
+    emitEvent: {
+      topic: 'action:open_box',
+      payloadTemplate: { 
+        action: 'open_box',
+        source: 'agent'
       }
     }
-    
-    return result;
   };
+  
+  agent.registerTool(openBoxTool);
+  
+  // Also register as just 'open' for flexibility
+  agent.registerTool({
+    ...openBoxTool,
+    name: 'open'
+  });
   
   // Start interactive session
   console.log('\n> System initialized with:');
@@ -459,9 +425,24 @@ async function main() {
   console.log('\nThe agent can discover and open the box on its own!');
   console.log('You can also type "/open" to open it yourself.\n');
   
+  // Handle console closing
+  class CleanupComponent extends Component {
+    handleEvent(event: SpaceEvent): void {
+      if (event.topic === 'console:closing') {
+        if (tracer && 'close' in tracer) {
+          (tracer as any).close();
+        }
+      }
+    }
+  }
+  space.addComponent(new CleanupComponent());
+  
   // Keep the process alive
   process.on('SIGINT', () => {
     console.log('\n[Interactive Test] Goodbye!');
+    if (tracer && 'close' in tracer) {
+      (tracer as any).close();
+    }
     process.exit(0);
   });
 }

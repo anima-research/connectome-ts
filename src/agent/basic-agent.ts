@@ -16,7 +16,8 @@ import {
   OutgoingVEILOperation,
   AgentActivationOperation,
   VEILState,
-  StreamRef
+  StreamRef,
+  ActionOperation
 } from '../veil/types';
 import { RenderedContext } from '../hud/types-v2';
 import { FrameTrackingHUD } from '../hud/frame-tracking-hud';
@@ -28,6 +29,8 @@ import {
   TraceCategory, 
   getGlobalTracer 
 } from '../tracing';
+import { SpaceEvent } from '../spaces/types';
+import { parseInlineParameters } from './action-parser';
 
 export class BasicAgent implements AgentInterface {
   private state: AgentState = {
@@ -44,6 +47,8 @@ export class BasicAgent implements AgentInterface {
   private compressionEngine?: CompressionEngine;
   private tools: Map<string, ToolDefinition> = new Map();
   private tracer: TraceStorage | undefined;
+  private space?: any;  // Reference to Space when set
+  private agentElementId?: string;
   
   constructor(
     config: AgentConfig,
@@ -247,11 +252,83 @@ export class BasicAgent implements AgentInterface {
     
     // The model outputs plain text without <my_turn> tags
     // The HUD handles formatting when rendering
-    const turnContent = completion;
+    let turnContent = completion;
     
     // For now, assume the turn is complete if we got a response
     // In a real implementation, we'd check if we hit max tokens
     hasMoreToSay = false;
+    
+    // First, protect backticked content from being parsed as actions
+    const backtickPlaceholders: string[] = [];
+    let protectedContent = turnContent.replace(/`([^`]+)`/g, (match, content) => {
+      const placeholder = `__BACKTICK_${backtickPlaceholders.length}__`;
+      backtickPlaceholders.push(match);
+      return placeholder;
+    });
+    
+    // Parse @element.action syntax (now supports hierarchical paths like @chat.general.say)
+    const actionRegex = /@([\w.]+)(?:\s*\(([^)]*)\)|\s*\{([\s\S]*?)\})?/g;
+    let actionMatch;
+    while ((actionMatch = actionRegex.exec(protectedContent)) !== null) {
+      const fullPath = actionMatch[1];
+      const inlineParams = actionMatch[2];
+      const blockParams = actionMatch[3];
+      
+      // Split the path (e.g., "chat.general.say" → ["chat", "general", "say"])
+      const pathParts = fullPath.split('.');
+      
+      let parameters: Record<string, any> = {};
+      
+      if (inlineParams) {
+        // Parse inline params: @box.open("gently") or @box.open(speed="slow", careful=true)
+        parameters = parseInlineParameters(inlineParams);
+      } else if (blockParams) {
+        // Parse block parameters: @email.send { to: alice@example.com, subject: Test }
+        // This is a simplified parser - could be enhanced
+        const lines = blockParams.trim().split('\n');
+        let currentKey: string | null = null;
+        let currentValue: string[] = [];
+        
+        for (const line of lines) {
+          const keyMatch = line.match(/^\s*(\w+):\s*(.*)/);
+          if (keyMatch) {
+            // Save previous key/value
+            if (currentKey) {
+              parameters[currentKey] = currentValue.join('\n').trim();
+            }
+            currentKey = keyMatch[1];
+            currentValue = [keyMatch[2]];
+          } else if (currentKey && line.trim()) {
+            // Continuation of previous value
+            currentValue.push(line);
+          }
+        }
+        // Save last key/value
+        if (currentKey) {
+          parameters[currentKey] = currentValue.join('\n').trim();
+        }
+      }
+      
+      // Restore backticks in parameters
+      if (Object.keys(parameters).length > 0) {
+        for (const key in parameters) {
+          if (typeof parameters[key] === 'string') {
+            let value = parameters[key];
+            backtickPlaceholders.forEach((original, index) => {
+              value = value.replace(`__BACKTICK_${index}__`, original.slice(1, -1)); // Remove backticks
+            });
+            parameters[key] = value;
+          }
+        }
+      }
+      
+      operations.push({
+        type: 'action',
+        path: pathParts,
+        parameters: Object.keys(parameters).length > 0 ? parameters : undefined,
+        rawSyntax: actionMatch[0]
+      });
+    }
     
     // Parse thoughts
     const thoughtRegex = /<thought>([\s\S]*?)<\/thought>/g;
@@ -285,14 +362,31 @@ export class BasicAgent implements AgentInterface {
       });
     }
     
-    // Extract speech (everything not in special tags)
+    // Extract speech (everything not in special tags or actions)
     let speechContent = turnContent;
     
+    // Protect backticks before removing content
+    const speechBacktickPlaceholders: string[] = [];
+    let protectedSpeech = speechContent.replace(/`([^`]+)`/g, (match, content) => {
+      const placeholder = `__SPEECH_BACKTICK_${speechBacktickPlaceholders.length}__`;
+      speechBacktickPlaceholders.push(match);
+      return placeholder;
+    });
+    
     // Remove thoughts
-    speechContent = speechContent.replace(/<thought>[\s\S]*?<\/thought>/g, '');
+    protectedSpeech = protectedSpeech.replace(/<thought>[\s\S]*?<\/thought>/g, '');
     
     // Remove tool calls
-    speechContent = speechContent.replace(/<tool_call\s+name="[^"]+"[\s\S]*?<\/tool_call>/g, '');
+    protectedSpeech = protectedSpeech.replace(/<tool_call\s+name="[^"]+"[\s\S]*?<\/tool_call>/g, '');
+    
+    // Remove @element.action syntax (now handles hierarchical paths)
+    protectedSpeech = protectedSpeech.replace(/@[\w.]+(?:\s*\([^)]*\)|\s*\{[\s\S]*?\})?/g, '');
+    
+    // Restore backticks
+    speechContent = protectedSpeech;
+    speechBacktickPlaceholders.forEach((original, index) => {
+      speechContent = speechContent.replace(`__SPEECH_BACKTICK_${index}__`, original);
+    });
     
     // Clean up whitespace
     speechContent = speechContent.trim();
@@ -348,6 +442,21 @@ export class BasicAgent implements AgentInterface {
   }
   
   /**
+   * Register a tool that the agent can use
+   */
+  registerTool(tool: ToolDefinition): void {
+    this.tools.set(tool.name, tool);
+  }
+  
+  /**
+   * Called when agent is attached to a space
+   */
+  setSpace(space: any, elementId?: string): void {
+    this.space = space;
+    this.agentElementId = elementId;
+  }
+  
+  /**
    * Check if there are pending activations that should be processed
    */
   hasPendingActivations(): boolean {
@@ -382,7 +491,7 @@ export class BasicAgent implements AgentInterface {
       this.compressionEngine,
       {
         systemPrompt: this.config.systemPrompt,
-        maxTokens: this.config.defaultMaxTokens || 1000,
+        maxTokens: this.config.contextTokenBudget || 4000,  // Context window budget, not generation limit
         metadata: {
           pendingActivations: pendingBySources.size > 0 ? {
             count: this.state.pendingActivations?.length || 0,
@@ -394,8 +503,10 @@ export class BasicAgent implements AgentInterface {
             prefix: '<my_turn>\n',
             suffix: '\n</my_turn>'
           }
-        }
-      }
+        },
+        // Pass agent name for debugging
+        name: this.config.name
+      } as any
     );
   }
   
@@ -418,16 +529,58 @@ export class BasicAgent implements AgentInterface {
     for (const op of operations) {
       if (op.type === 'toolCall') {
         const tool = this.tools.get(op.toolName);
-        if (tool) {
+        if (tool && tool.handler) {
           try {
             await tool.handler(op.parameters);
           } catch (error) {
             console.error(`Tool ${op.toolName} error:`, error);
           }
+        } else if (tool && !tool.handler) {
+          console.warn(`Tool ${op.toolName} has no handler`);
         } else {
           console.warn(`Unknown tool: ${op.toolName}`);
         }
+      } else if (op.type === 'action') {
+        // Handle new @element.action syntax
+        await this.processAction(op as ActionOperation);
       }
+    }
+  }
+  
+  private async processAction(action: ActionOperation): Promise<void> {
+    // Look for a registered tool that matches the full path
+    const toolName = action.path.join('.');
+    const tool = this.tools.get(toolName);
+    
+    if (tool && tool.handler) {
+      // Use legacy handler if available
+      try {
+        await tool.handler(action.parameters || {});
+      } catch (error) {
+        console.error(`Action ${toolName} error:`, error);
+      }
+    } else if (tool && tool.emitEvent && this.space) {
+      // Use generic event emission
+      const event: SpaceEvent = {
+        topic: tool.emitEvent.topic,
+        payload: {
+          ...tool.emitEvent.payloadTemplate,
+          parameters: action.parameters,
+          path: action.path,
+          action: action.path[action.path.length - 1] // Last part is the action
+        },
+        source: {
+          elementId: this.agentElementId || 'agent',
+          elementPath: []
+        },
+        timestamp: Date.now(),
+        priority: 'immediate' // Agent actions must complete atomically
+      };
+      
+      console.log(`[System]: Agent is performing ${toolName}`);
+      this.space.queueEvent(event);
+    } else {
+      console.warn(`Unknown action: ${toolName}`);
     }
   }
   

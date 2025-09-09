@@ -102,7 +102,20 @@ export class ConsoleChatComponent extends Component {
     this.rl.on('close', () => {
       if (this.isActive) {
         console.log('\n[Console Chat] Goodbye!');
-        process.exit(0);
+        // Emit an event to allow cleanup
+        const space = this.element?.space as any;
+        if (space && space.queueEvent) {
+          space.queueEvent({
+            topic: 'console:closing',
+            payload: {},
+            source: {
+              elementId: this.element?.id || 'console',
+              elementPath: this.element?.getPath() || []
+            }
+          });
+        }
+        // Give a moment for cleanup
+        setTimeout(() => process.exit(0), 100);
       }
     });
   }
@@ -196,7 +209,8 @@ export class ConsoleChatComponent extends Component {
       topic: 'console:input',
       source: this.element.getRef(),
       payload: { message },
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      priority: 'high' // User messages have high priority
     });
   }
 
@@ -306,7 +320,8 @@ export class ConsoleChatComponent extends Component {
         topic: 'console:input',
         source: this.element.getRef(),
         payload: { message: '[Processing pending activation from sleep]' },
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        priority: 'high' // Pending activations from sleep have high priority
       });
     }
   }

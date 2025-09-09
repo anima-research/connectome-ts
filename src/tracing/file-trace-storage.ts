@@ -17,7 +17,6 @@ export interface FileTraceStorageConfig {
 export class FileTraceStorage implements TraceStorage {
   private config: Required<FileTraceStorageConfig>;
   private currentFile: string;
-  private currentStream?: fs.WriteStream;
   private traces: Map<string, TraceEvent> = new Map();
   private spans: Map<string, TraceSpan> = new Map();
   
@@ -35,7 +34,6 @@ export class FileTraceStorage implements TraceStorage {
     }
     
     this.currentFile = this.generateFileName();
-    this.openStream();
   }
   
   record(event: TraceEvent): void {
@@ -178,8 +176,8 @@ export class FileTraceStorage implements TraceStorage {
   }
   
   private writeTrace(trace: TraceEvent): void {
-    if (!this.currentStream) {
-      this.openStream();
+    if (!this.currentFile) {
+      this.currentFile = this.generateFileName();
     }
     
     const line = JSON.stringify({
@@ -187,17 +185,12 @@ export class FileTraceStorage implements TraceStorage {
       _type: 'trace'
     }) + '\n';
     
-    this.currentStream!.write(line);
+    // Use synchronous write to ensure data is written immediately
+    const filePath = path.join(this.config.directory, this.currentFile);
+    fs.appendFileSync(filePath, line);
   }
   
-  private openStream(): void {
-    if (this.currentStream) {
-      this.currentStream.end();
-    }
-    
-    const filePath = path.join(this.config.directory, this.currentFile);
-    this.currentStream = fs.createWriteStream(filePath, { flags: 'a' });
-  }
+  // No longer needed - using synchronous writes
   
   private generateFileName(): string {
     const now = new Date();
@@ -221,7 +214,6 @@ export class FileTraceStorage implements TraceStorage {
   
   private rotate(): void {
     this.currentFile = this.generateFileName();
-    this.openStream();
     this.cleanOldFiles();
   }
   
@@ -321,9 +313,7 @@ export class FileTraceStorage implements TraceStorage {
    * Close the storage and clean up resources
    */
   close(): void {
-    if (this.currentStream) {
-      this.currentStream.end();
-      this.currentStream = undefined;
-    }
+    // No longer needed - using synchronous writes
+    // Data is written immediately
   }
 }

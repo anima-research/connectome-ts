@@ -21,7 +21,19 @@ export interface ToolDefinition {
   name: string;
   description: string;
   parameters: Record<string, any>; // JSON schema
-  handler: (params: any) => Promise<any>;
+  
+  // Element routing
+  elementPath?: string[];  // e.g., ['box'] for @box.open
+  elementId?: string;      // Direct element ID reference
+  
+  // Event emission
+  emitEvent?: {
+    topic: string;          // e.g., 'box:action'
+    payloadTemplate?: any;  // Template for event payload, can use {params} placeholder
+  };
+  
+  // Legacy handler (optional, for backward compatibility)
+  handler?: (params: any) => Promise<any>;
 }
 
 /**
@@ -31,7 +43,8 @@ export interface AgentConfig {
   name?: string;
   systemPrompt?: string;
   defaultTemperature?: number;
-  defaultMaxTokens?: number;
+  defaultMaxTokens?: number;  // Max tokens for LLM generation (e.g., 200-1000)
+  contextTokenBudget?: number;  // Token budget for context window (e.g., 4000-8000)
   tools?: ToolDefinition[];
 }
 

@@ -44,6 +44,18 @@ export class FrameTrackingHUD implements CompressibleHUD {
     }> = [];
     let totalTokens = 0;
     
+    // Note on token budget: We currently include ALL frames even if we exceed the budget.
+    // Dropping frames (whether old or new) is problematic:
+    // - Dropping old frames loses important context and setup
+    // - Dropping new frames (the previous behavior) causes amnesia about recent messages
+    // If frame dropping becomes necessary, it should be done intelligently (e.g., using
+    // compression, importance scoring, or keeping a sliding window of recent + important frames).
+    
+    // Debug: Log frame sequences being rendered
+    if ((config as any).name === 'interactive-explorer') {
+      console.log('[HUD] Rendering frames:', frames.map(f => f.sequence).join(', '));
+    }
+    
     // Track state as we replay operations - start with empty state
     const replayedState = new Map<string, Facet>();
     
@@ -81,6 +93,11 @@ export class FrameTrackingHUD implements CompressibleHUD {
       const { content, facetIds } = this.renderFrame(frame, replayedState);
       const tokens = this.estimateTokens(content);
       
+      // Debug: Log frames with no content
+      if ((config as any).name === 'interactive-explorer' && !content.trim()) {
+        console.log(`[HUD] Frame ${frame.sequence} has no content. Operations:`, frame.operations.map(op => op.type));
+      }
+      
       frameRenderings.push({
         frameSequence: frame.sequence,
         content,
@@ -88,13 +105,12 @@ export class FrameTrackingHUD implements CompressibleHUD {
         facetIds
       });
       
-      // Check token budget
-      if (config.maxTokens && totalTokens + tokens > config.maxTokens) {
-        break;
-      }
-      
       // Only add non-empty content
       if (content.trim()) {
+        // Debug log frame content
+        if ((config as any).name === 'interactive-explorer') {
+          console.log(`[HUD] Frame ${frame.sequence} (${this.isIncomingFrame(frame) ? 'incoming' : 'outgoing'}):`, content.slice(0, 100) + '...');
+        }
         frameContents.push({
           type: this.isIncomingFrame(frame) ? 'incoming' : 'outgoing',
           content,
@@ -102,6 +118,13 @@ export class FrameTrackingHUD implements CompressibleHUD {
         });
         totalTokens += tokens;
       }
+    }
+    
+    // Check if we exceeded token budget (but don't drop frames)
+    if (config.maxTokens && totalTokens > config.maxTokens) {
+      console.warn(`[HUD] Token budget exceeded: ${totalTokens} > ${config.maxTokens}.`);
+      console.warn(`[HUD] Including all ${frameContents.length} frames to preserve conversation coherence.`);
+      console.warn(`[HUD] Consider increasing contextTokenBudget in AgentConfig.`);
     }
     
     // Build messages directly from frame contents
@@ -124,14 +147,14 @@ export class FrameTrackingHUD implements CompressibleHUD {
   
   private renderFrame(
     frame: VEILFrame,
-    currentFacets: Map<string, Facet>
+    replayedState: Map<string, Facet>
   ): { content: string; facetIds: string[] } {
     const parts: string[] = [];
     const facetIds: string[] = [];
     
     // Separate handling for incoming vs outgoing frames
     if (this.isIncomingFrame(frame)) {
-      const content = this.renderIncomingFrame(frame as IncomingVEILFrame, currentFacets);
+      const content = this.renderIncomingFrame(frame as IncomingVEILFrame, replayedState);
       return { content, facetIds: this.extractFacetIds(frame) };
     } else {
       const content = this.renderOutgoingFrame(frame as OutgoingVEILFrame);
@@ -152,7 +175,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
   
   private renderIncomingFrame(
     frame: IncomingVEILFrame,
-    currentFacets: Map<string, Facet>
+    replayedState: Map<string, Facet>
   ): string {
     const parts: string[] = [];
     
@@ -174,7 +197,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
           // Render the state as it was changed in this frame, not the current value
           if ('updates' in operation && operation.updates) {
             // Create a temporary facet with the updated values from this operation
-            const currentFacet = currentFacets.get(operation.facetId);
+            const currentFacet = replayedState.get(operation.facetId);
             if (currentFacet && currentFacet.type === 'state') {
               const updatedFacet = {
                 ...currentFacet,
@@ -214,6 +237,12 @@ export class FrameTrackingHUD implements CompressibleHUD {
               operation.toolName,
               operation.parameters
             ));
+          }
+          break;
+          
+        case 'action':
+          if ('path' in operation && Array.isArray(operation.path)) {
+            parts.push(this.renderAction(operation));
           }
           break;
           
@@ -259,6 +288,28 @@ export class FrameTrackingHUD implements CompressibleHUD {
     
     parts.push('</tool_call>');
     return parts.join('\n');
+  }
+  
+  private renderAction(action: any): string {
+    // Render as the original @path syntax (e.g., @chat.general.say)
+    const actionPath = action.path.join('.');
+    
+    if (action.parameters && Object.keys(action.parameters).length > 0) {
+      const params = action.parameters;
+      // Check if it's a simple single value parameter
+      if (Object.keys(params).length === 1 && params.value !== undefined) {
+        return `@${actionPath}("${params.value}")`;
+      } else {
+        // Multi-parameter, render as block
+        const paramLines = Object.entries(params).map(([key, value]) => 
+          `  ${key}: ${value}`
+        ).join('\n');
+        return `@${actionPath} {\n${paramLines}\n}`;
+      }
+    } else {
+      // No parameters
+      return `@${actionPath}`;
+    }
   }
   
   private renderCurrentState(

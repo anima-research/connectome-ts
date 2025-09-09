@@ -21,6 +21,15 @@ export interface StreamRef {
 }
 
 /**
+ * Event priority levels
+ * - immediate: For agent action processing frames (never preempted)
+ * - high: User messages, important system events
+ * - normal: Default priority for most events
+ * - low: Background tasks, periodic updates
+ */
+export type EventPriority = 'immediate' | 'high' | 'normal' | 'low';
+
+/**
  * Base event class for the Space system
  */
 export interface SpaceEvent<T = unknown> {
@@ -28,6 +37,7 @@ export interface SpaceEvent<T = unknown> {
   source: ElementRef;
   payload: T;
   timestamp: number;
+  priority?: EventPriority;  // Defaults to 'normal'
   metadata?: Record<string, any>;
 }
 

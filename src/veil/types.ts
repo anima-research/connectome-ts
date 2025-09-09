@@ -193,8 +193,16 @@ export interface SpeakOperation {
   targets?: string[]; // Optional multiple targets for broadcasting
 }
 
+export interface ActionOperation {
+  type: 'action';
+  path: string[];        // Full path (e.g., ['chat', 'general', 'say'])
+  parameters?: Record<string, any>;  // Named parameters
+  rawSyntax?: string;    // Original @element.method syntax for reference
+}
+
 export type OutgoingVEILOperation = 
   | ToolCallOperation 
+  | ActionOperation
   | CycleRequestOperation 
   | InnerThoughtsOperation
   | SpeakOperation;
