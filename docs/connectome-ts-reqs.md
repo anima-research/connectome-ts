@@ -214,11 +214,13 @@ Completed:
 - Interactive element test scenarios
 - Agent activation queue with source-based deduplication
 - Basic Space/Element/Component structure with event handling
+- Event priority queue with immediate/high/normal/low priorities
+- Three-phase event propagation (capture, at-target, bubble)
+- Event control utilities (stopPropagation, stopImmediatePropagation, preventDefault)
 
 Still Pending:
-- Full event system with propagation and lifecycle events  
 - Stream reference tracking for communication routing
-- Discord adapter integration
+- Discord adapter integration  
 - Complete Space/Element/Component architecture with mount/unmount lifecycle
 - Scheduled events and timers
 - Full agent sleep/wake functionality with pending activation processing

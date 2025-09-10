@@ -16,6 +16,7 @@
     "test:anthropic": "ts-node examples/test-anthropic-simple.ts",
     "test:console": "ts-node examples/test-console-chat.ts",
     "test:interactive": "ts-node examples/test-interactive-box.ts",
+    "test:dispenser": "ts-node examples/test-box-dispenser.ts",
     "test": "jest",
     "lint": "eslint src --ext .ts"
   },

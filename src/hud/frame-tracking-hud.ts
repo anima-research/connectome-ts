@@ -178,25 +178,23 @@ export class FrameTrackingHUD implements CompressibleHUD {
     replayedState: Map<string, Facet>
   ): string {
     const parts: string[] = [];
+    const renderedStates = new Map<string, string>(); // Track rendered states by facet ID
     
+    // First pass: collect all state operations in this frame
     for (const operation of frame.operations) {
       switch (operation.type) {
         case 'addFacet':
-          if ('facet' in operation) {
-            // Render events and states when they're added (to show initial values)
-            // Skip ambient facets - they use floating behavior
-            if (operation.facet.type === 'event' || operation.facet.type === 'state') {
-              // Always use the facet from the operation, not currentFacets
-              const rendered = this.renderFacet(operation.facet);
-              if (rendered) parts.push(rendered);
+          if ('facet' in operation && operation.facet.type === 'state') {
+            // Store the initial state rendering
+            const rendered = this.renderFacet(operation.facet);
+            if (rendered) {
+              renderedStates.set(operation.facet.id, rendered);
             }
           }
           break;
           
         case 'changeState':
-          // Render the state as it was changed in this frame, not the current value
           if ('updates' in operation && operation.updates) {
-            // Create a temporary facet with the updated values from this operation
             const currentFacet = replayedState.get(operation.facetId);
             if (currentFacet && currentFacet.type === 'state') {
               const updatedFacet = {
@@ -208,8 +206,44 @@ export class FrameTrackingHUD implements CompressibleHUD {
                 }
               };
               const rendered = this.renderFacet(updatedFacet);
-              if (rendered) parts.push(rendered);
+              if (rendered) {
+                // Override any previous rendering of this state in this frame
+                renderedStates.set(operation.facetId, rendered);
+              }
             }
+          }
+          break;
+      }
+    }
+    
+    // Second pass: render everything in order, using final states
+    for (const operation of frame.operations) {
+      switch (operation.type) {
+        case 'addFacet':
+          if ('facet' in operation) {
+            if (operation.facet.type === 'event') {
+              // Events are always rendered
+              const rendered = this.renderFacet(operation.facet);
+              if (rendered) parts.push(rendered);
+            } else if (operation.facet.type === 'state') {
+              // For states, use the final version from renderedStates
+              const finalRendering = renderedStates.get(operation.facet.id);
+              if (finalRendering) {
+                parts.push(finalRendering);
+                // Remove from map so we don't render it again
+                renderedStates.delete(operation.facet.id);
+              }
+            }
+          }
+          break;
+          
+        case 'changeState':
+          // Check if we haven't already rendered this state
+          const finalRendering = renderedStates.get(operation.facetId);
+          if (finalRendering) {
+            parts.push(finalRendering);
+            // Remove from map so we don't render it again
+            renderedStates.delete(operation.facetId);
           }
           break;
           

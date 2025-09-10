@@ -231,13 +231,21 @@ export class Element {
   /**
    * Handle an event
    */
-  handleEvent(event: SpaceEvent): void {
+  async handleEvent(event: SpaceEvent): Promise<void> {
     if (!this._active) return;
+    
+    // Update current target
+    event.currentTarget = this.getRef();
     
     // Let components handle the event
     for (const component of this._components) {
-      if (component.enabled) {
-        component.handleEvent(event);
+      if (component.enabled && component.handleEvent) {
+        await component.handleEvent(event);
+        
+        // Check if immediate propagation was stopped
+        if (event.immediatePropagationStopped) {
+          return;
+        }
       }
     }
   }

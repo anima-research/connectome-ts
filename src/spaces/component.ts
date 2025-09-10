@@ -63,7 +63,7 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
    * Handle events that reach this component
    * Override to process specific events
    */
-  handleEvent(event: SpaceEvent): void {
+  async handleEvent(event: SpaceEvent): Promise<void> {
     // Override in subclasses
   }
   

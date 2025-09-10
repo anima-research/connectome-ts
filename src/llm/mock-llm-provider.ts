@@ -46,6 +46,16 @@ export class MockLLMProvider implements LLMProvider {
     // Filter out cache markers for processing
     const processableMessages = messages.filter(m => m.role !== 'cache');
     
+    // Log full context for debugging
+    if (process.env.DEBUG_LLM_CONTEXT === 'true') {
+      console.log('\n[MockLLMProvider] Full message context:');
+      messages.forEach((msg, i) => {
+        console.log(`\n--- Message ${i + 1} (${msg.role}) ---`);
+        console.log(msg.content.substring(0, 500) + (msg.content.length > 500 ? '...' : ''));
+      });
+      console.log('\n--- End of context ---\n');
+    }
+    
     // Trace the request
     const tracer = getGlobalTracer();
     tracer?.record({

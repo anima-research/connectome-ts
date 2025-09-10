@@ -30,6 +30,16 @@ export interface StreamRef {
 export type EventPriority = 'immediate' | 'high' | 'normal' | 'low';
 
 /**
+ * Event propagation phases (DOM-style)
+ */
+export enum EventPhase {
+  NONE = 0,
+  CAPTURING_PHASE = 1,
+  AT_TARGET = 2,
+  BUBBLING_PHASE = 3
+}
+
+/**
  * Base event class for the Space system
  */
 export interface SpaceEvent<T = unknown> {
@@ -39,6 +49,18 @@ export interface SpaceEvent<T = unknown> {
   timestamp: number;
   priority?: EventPriority;  // Defaults to 'normal'
   metadata?: Record<string, any>;
+  
+  // Propagation control
+  bubbles?: boolean;  // Whether event bubbles up (default: true)
+  cancelable?: boolean;  // Whether propagation can be stopped (default: true)
+  
+  // Runtime state (set by the event system)
+  eventPhase?: EventPhase;
+  currentTarget?: ElementRef;
+  target?: ElementRef;
+  defaultPrevented?: boolean;
+  propagationStopped?: boolean;
+  immediatePropagationStopped?: boolean;
 }
 
 /**
@@ -102,7 +124,7 @@ export interface ComponentLifecycle {
  * Event handler interface
  */
 export interface EventHandler {
-  handleEvent(event: SpaceEvent): void | Promise<void>;
+  handleEvent(event: SpaceEvent): Promise<void>;
 }
 
 /**

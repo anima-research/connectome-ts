@@ -1,5 +1,5 @@
 import { Element } from './element';
-import { SpaceEvent, AgentInterface, FrameStartEvent, FrameEndEvent, StreamRef } from './types';
+import { SpaceEvent, AgentInterface, FrameStartEvent, FrameEndEvent, StreamRef, EventPhase, ElementRef } from './types';
 import { VEILStateManager } from '../veil/veil-state';
 import { IncomingVEILFrame } from '../veil/types';
 import { matchesTopic } from './utils';
@@ -9,6 +9,7 @@ import {
   getGlobalTracer 
 } from '../tracing';
 import { EventPriorityQueue } from './priority-queue';
+import { eventBubbles } from './event-utils';
 
 /**
  * The root Space element that orchestrates the entire system
@@ -259,25 +260,135 @@ export class Space extends Element {
    * Distribute an event through the element tree
    */
   private async distributeEvent(event: SpaceEvent): Promise<void> {
-    // Recursively distribute to all elements that are subscribed
-    await this.distributeToElement(this, event);
+    // For broadcast-style events (like agent:response), distribute to all subscribers
+    if (this.isBroadcastEvent(event.topic)) {
+      await this.broadcastEvent(event);
+      return;
+    }
+    
+    // Otherwise use three-phase propagation
+    await this.propagateEvent(event);
   }
   
   /**
-   * Recursively distribute event to an element and its children
+   * Check if an event should be broadcast to all subscribers
    */
-  private async distributeToElement(element: Element, event: SpaceEvent): Promise<void> {
+  private isBroadcastEvent(topic: string): boolean {
+    // These events should reach all subscribers regardless of tree position
+    const broadcastTopics = ['agent:response', 'frame:start', 'frame:end', 'element:action'];
+    return broadcastTopics.some(t => topic.startsWith(t));
+  }
+  
+  /**
+   * Broadcast an event to all subscribed elements
+   */
+  private async broadcastEvent(event: SpaceEvent): Promise<void> {
+    await this.broadcastToElement(this, event);
+  }
+  
+  /**
+   * Recursively broadcast to element and children
+   */
+  private async broadcastToElement(element: Element, event: SpaceEvent): Promise<void> {
     if (!element.active) return;
     
-    // Check if element is subscribed
     if (element.isSubscribedTo(event.topic)) {
       await element.handleEvent(event);
     }
     
-    // Distribute to children
+    // Broadcast to all children
     for (const child of element.children) {
-      await this.distributeToElement(child, event);
+      await this.broadcastToElement(child, event);
     }
+  }
+  
+  /**
+   * Use three-phase propagation for an event
+   */
+  private async propagateEvent(event: SpaceEvent): Promise<void> {
+    // Find the target element based on the event source
+    const targetElement = this.findElementByRef(event.source);
+    if (!targetElement) {
+      console.warn(`Target element not found for event: ${event.topic}`, event.source);
+      return;
+    }
+    
+    // Set the target
+    event.target = targetElement.getRef();
+    
+    // Build the propagation path from root to target
+    const path: Element[] = [];
+    let current: Element | null = targetElement;
+    while (current) {
+      path.unshift(current);
+      current = current.parent;
+    }
+    
+    // Phase 1: Capturing phase (root to target)
+    event.eventPhase = EventPhase.CAPTURING_PHASE;
+    for (let i = 0; i < path.length - 1; i++) {
+      const element = path[i];
+      if (!element.active) continue;
+      
+      if (element.isSubscribedTo(event.topic)) {
+        await element.handleEvent(event);
+        
+        if (event.propagationStopped) {
+          return;
+        }
+      }
+    }
+    
+    // Phase 2: At target
+    event.eventPhase = EventPhase.AT_TARGET;
+    if (targetElement.active && targetElement.isSubscribedTo(event.topic)) {
+      await targetElement.handleEvent(event);
+      
+      if (event.propagationStopped) {
+        return;
+      }
+    }
+    
+    // Phase 3: Bubbling phase (target to root)
+    if (eventBubbles(event)) {
+      event.eventPhase = EventPhase.BUBBLING_PHASE;
+      for (let i = path.length - 2; i >= 0; i--) {
+        const element = path[i];
+        if (!element.active) continue;
+        
+        if (element.isSubscribedTo(event.topic)) {
+          await element.handleEvent(event);
+          
+          if (event.propagationStopped) {
+            return;
+          }
+        }
+      }
+    }
+    
+    // Reset phase
+    event.eventPhase = EventPhase.NONE;
+  }
+  
+  /**
+   * Find an element by its reference
+   */
+  private findElementByRef(ref: ElementRef): Element | null {
+    return this.findElementByIdInTree(this, ref.elementId);
+  }
+  
+  /**
+   * Recursively find element by ID in the tree
+   */
+  private findElementByIdInTree(root: Element, id: string): Element | null {
+    if (root.id === id) return root;
+    
+    for (const child of root.children) {
+      const found = this.findElementByIdInTree(child, id);
+      if (found) return found;
+    }
+    
+    return null;
   }
   
   /**

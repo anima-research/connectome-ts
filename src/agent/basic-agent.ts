@@ -267,7 +267,8 @@ export class BasicAgent implements AgentInterface {
     });
     
     // Parse @element.action syntax (now supports hierarchical paths like @chat.general.say)
-    const actionRegex = /@([\w.]+)(?:\s*\(([^)]*)\)|\s*\{([\s\S]*?)\})?/g;
+    // Updated to support hyphens in element names (e.g., @box-1.open)
+    const actionRegex = /@([\w.-]+)(?:\s*\(([^)]*)\)|\s*\{([\s\S]*?)\})?/g;
     let actionMatch;
     while ((actionMatch = actionRegex.exec(protectedContent)) !== null) {
       const fullPath = actionMatch[1];
@@ -379,8 +380,8 @@ export class BasicAgent implements AgentInterface {
     // Remove tool calls
     protectedSpeech = protectedSpeech.replace(/<tool_call\s+name="[^"]+"[\s\S]*?<\/tool_call>/g, '');
     
-    // Remove @element.action syntax (now handles hierarchical paths)
-    protectedSpeech = protectedSpeech.replace(/@[\w.]+(?:\s*\([^)]*\)|\s*\{[\s\S]*?\})?/g, '');
+    // Remove @element.action syntax (now handles hierarchical paths and hyphens)
+    protectedSpeech = protectedSpeech.replace(/@[\w.-]+(?:\s*\([^)]*\)|\s*\{[\s\S]*?\})?/g, '');
     
     // Restore backticks
     speechContent = protectedSpeech;
