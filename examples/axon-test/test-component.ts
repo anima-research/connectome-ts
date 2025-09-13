@@ -25,7 +25,7 @@ class TestComponent extends VEILComponent {
     });
     
     // Listen for test events
-    this.element.subscribe('test.ping');
+    this.subscribe('test.ping');
     
     // Update state periodically
     this.intervalId = setInterval(() => {
@@ -36,9 +36,8 @@ class TestComponent extends VEILComponent {
           lastUpdate: new Date().toISOString()
         }
       });
-      this.element.emit({
+      this.emit({
         topic: 'test.pong',
-        source: this.element.getRef(),
         payload: { count: this.counter },
         timestamp: Date.now()
       });
@@ -48,9 +47,8 @@ class TestComponent extends VEILComponent {
   async handleEvent(event) {
     if (event.topic === 'test.ping') {
       console.log('[TestComponent] Received ping!');
-      this.element.emit({
+      this.emit({
         topic: 'test.pong',
-        source: this.element.getRef(),
         payload: { message: 'Pong from AXON component!' },
         timestamp: Date.now()
       });

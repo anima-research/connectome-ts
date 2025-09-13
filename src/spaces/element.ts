@@ -121,6 +121,11 @@ export class Element {
     this._children.push(child);
     child._parent = this;
     
+    // Auto-subscribe to element:action if the child has handleAction
+    if (child.handleAction) {
+      child.subscribe('element:action');
+    }
+    
     // Emit mount event
     this.space.emit({
       topic: 'element:mount',
@@ -237,6 +242,20 @@ export class Element {
     // Update current target
     event.currentTarget = this.getRef();
     
+    // Check if this is an element:action event meant for us
+    if (event.topic === 'element:action' && this.handleAction) {
+      const payload = event.payload as any;
+      const path = payload.path || [];
+      const action = path[path.length - 1];
+      const elementPath = path.slice(0, -1);
+      
+      // Check if this action is for this element
+      // Handle both direct ID match and path match
+      if (elementPath.length === 1 && elementPath[0] === this.id) {
+        await this.handleAction(action, payload.parameters);
+      }
+    }
+    
     // Let components handle the event
     for (const component of this._components) {
       if (component.enabled && component.handleEvent) {
@@ -249,6 +268,11 @@ export class Element {
       }
     }
   }
+  
+  /**
+   * Handle an action - subclasses can override
+   */
+  protected async handleAction?(action: string, parameters?: any): Promise<any>;
   
   /**
    * Emit an event (delegates to space)

@@ -30,7 +30,7 @@ export class AxonElement extends Element {
   private hotReloadWs?: WebSocket;
   
   constructor(config: { id: string }) {
-    super(config.id);
+    super(config.id, config.id);  // Pass id as both name and id
   }
   
   /**

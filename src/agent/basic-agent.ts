@@ -444,8 +444,32 @@ export class BasicAgent implements AgentInterface {
   
   /**
    * Register a tool that the agent can use
+   * Can accept either a full ToolDefinition or just a tool name string for common patterns
    */
-  registerTool(tool: ToolDefinition): void {
+  registerTool(toolOrName: ToolDefinition | string): void {
+    let tool: ToolDefinition;
+    
+    if (typeof toolOrName === 'string') {
+      // Smart defaults for string-based registration
+      const parts = toolOrName.split('.');
+      
+      tool = {
+        name: toolOrName,
+        description: `Perform ${toolOrName} action`,
+        parameters: {},
+        elementPath: parts.slice(0, -1),
+        emitEvent: {
+          topic: 'element:action',
+          payloadTemplate: {}
+        }
+      };
+    } else {
+      tool = toolOrName;
+    }
+    
+    if (!tool.name) {
+      throw new Error('Tool must have a name');
+    }
     this.tools.set(tool.name, tool);
   }
   

@@ -46,57 +46,35 @@ Observe how the component loads and maintains state. The component will send pon
   const consoleChat = new ConsoleChatComponent();
   space.addComponent(consoleChat);
   
-  // Create AXON element
-  const axonElement = new AxonElement({ id: 'test' });
-  space.addChild(axonElement);
-  
-  // Add action handler component that converts element:action to test.ping
-  class ActionHandler extends Component {
-    onMount() {
-      this.element.subscribe('element:action');
+  // Create AXON element with action handling
+  class TestAxonElement extends AxonElement {
+    constructor() {
+      super({ id: 'test' });
     }
     
-    async handleEvent(event: any): Promise<void> {
-      if (event.topic === 'element:action') {
-        const payload = event.payload as any;
-        const elementPath = payload.path?.slice(0, -1) || [];
-        const action = payload.path?.[payload.path.length - 1];
-        
-        // Check if this is test.ping action
-        if (elementPath.length === 1 && elementPath[0] === 'test' && action === 'ping') {
-          console.log('[ActionHandler] Converting element:action to test.ping');
-          // Find the test element and emit the event there
-          const testElement = this.element.findChild('test');
-          if (testElement) {
-            testElement.emit({
-              topic: 'test.ping',
-              source: testElement.getRef(),
-              payload: {},
-              timestamp: Date.now()
-            });
-          }
-        }
+    async handleAction(action: string, parameters?: any): Promise<any> {
+      if (action === 'ping') {
+        this.emit({
+          topic: 'test.ping',
+          source: this.getRef(),
+          payload: {},
+          timestamp: Date.now()
+        });
+        return { content: 'Ping sent!' };
       }
     }
   }
-  space.addComponent(new ActionHandler());
   
-  // Add test ping tool
-  agent.registerTool({
-    name: 'test.ping',
-    description: 'Send a ping to the test component',
-    parameters: {},
-    elementPath: ['test'],
-    emitEvent: {
-      topic: 'element:action',
-      payloadTemplate: {}
-    }
-  });
+  const axonElement = new TestAxonElement();
+  space.addChild(axonElement);
+  
+  // Add test ping tool using smart defaults
+  agent.registerTool('test.ping');
   
   // Component to listen for test events
   class TestListener extends Component {
     onMount() {
-      this.element.subscribe('test.pong');
+      this.subscribe('test.pong');  // Using convenience method
     }
     
     async handleEvent(event: any): Promise<void> {
@@ -110,7 +88,7 @@ Observe how the component loads and maintains state. The component will send pon
   // Component to handle agent activation
   class ActivationHandler extends Component {
     onMount() {
-      this.element.subscribe('agent:activate');
+      this.subscribe('agent:activate');  // Using convenience method
     }
     
     async handleEvent(event: any): Promise<void> {
@@ -137,9 +115,8 @@ Observe how the component loads and maintains state. The component will send pon
   }
   space.addComponent(new ActivationHandler());
   
-  // Set agent
+  // Set agent (auto-wires the bidirectional connection)
   space.setAgent(agent);
-  (agent as any).setSpace(space, space.id);
   
   // Connect to AXON service
   console.log('[Test] Connecting to AXON service...');

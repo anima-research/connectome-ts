@@ -87,4 +87,44 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
     }
     this.onUnmount();
   }
+  
+  // ========== Convenience Methods ==========
+  
+  /**
+   * Emit an event from the parent element
+   */
+  protected emit(event: Omit<SpaceEvent, 'source'>): void {
+    this.element.emit({
+      ...event,
+      source: this.element.getRef()
+    });
+  }
+  
+  /**
+   * Subscribe the parent element to an event topic
+   */
+  protected subscribe(topic: string): void {
+    this.element.subscribe(topic);
+  }
+  
+  /**
+   * Find a child element by ID
+   */
+  protected findChild(id: string): Element | null {
+    return this.element.findChild(id);
+  }
+  
+  /**
+   * Get the parent element's ID
+   */
+  protected get elementId(): string {
+    return this.element.id;
+  }
+  
+  /**
+   * Get a reference to the parent element
+   */
+  protected getRef(): ElementRef {
+    return this.element.getRef();
+  }
 }

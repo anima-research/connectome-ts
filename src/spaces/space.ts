@@ -61,6 +61,10 @@ export class Space extends Element {
    */
   setAgent(agent: AgentInterface): void {
     this.agent = agent;
+    // Auto-wire bidirectional connection if agent supports it
+    if ('setSpace' in agent && typeof (agent as any).setSpace === 'function') {
+      (agent as any).setSpace(this, this.id);
+    }
   }
   
   /**
