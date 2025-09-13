@@ -6,22 +6,45 @@ AXON is a protocol for dynamically loading and connecting external services to C
 
 ## Core Concepts
 
-### 1. Dynamic Elements
-- Elements that can be created by providing only a URL
-- Load code modules from external servers
-- Run locally within Connectome process (not remote execution)
-- Can be thick clients (local processing) or thin clients (server-side processing)
+### 1. Dynamic Component Loading
+- AXON loads standard Connectome Components from external URLs
+- Components run locally within Connectome process
+- Loaded components have full access to existing Component APIs
+- No new APIs or abstractions - just dynamic loading of components
 
-### 2. Module System
-- Main module serves as entry point
-- Can request additional modules dynamically
-- Modules are cached after first load
-- Support for relative module paths
+### 2. Minimal Protocol
+- Simple manifest points to component module
+- Module exports a Component class (default export)
+- Component handles its own initialization in mount()
+- Hot reload supported via manifest configuration
 
-### 3. Unified API
-- AXON elements expose the same API as native Connectome elements
-- Server-side AXON elements (when building services) mirror this API
-- Enables code reuse between different client types
+### 3. Complete Reusability
+- Components work identically whether local or loaded via AXON
+- All existing patterns and base classes available
+- No special "AXON components" - just regular components loaded dynamically
+
+## Simple Example
+
+Agent connects to space game:
+```
+@space.connect("axon://game.server/spacegame")
+```
+
+This fetches `http://game.server/spacegame` which returns:
+```json
+{"main": "./spacegame-component.js"}
+```
+
+Then loads the component which is just a normal Connectome component:
+```typescript
+export default class SpaceGameComponent extends VEILComponent {
+  mount() {
+    this.addFacet({type: 'state', id: 'game', content: 'Connected!'});
+  }
+}
+```
+
+That's it. No new APIs, no complex protocols.
 
 ## Protocol Specification
 
@@ -36,159 +59,317 @@ GET /path/to/service
 Accept: application/json
 ```
 
-### Discovery Response
+### Manifest Response
 ```json
 {
-  "version": "1.0",
-  "type": "thick-client" | "thin-client",
-  "main": "./client-main.js",
-  "baseUrl": "https://host:port/clients/",
-  "capabilities": ["websocket", "veil", "events", "storage"],
-  "metadata": {
-    "name": "Space Game AI Client",
-    "description": "Connect to the persistent space game",
-    "author": "game.server"
-  },
+  "main": "./spacegame-component.js",
+  "name": "Space Game Client",
+  "description": "Connect to the persistent space game",
+  "modules": [
+    "./spacegame-component.js",
+    "./physics-engine.js",
+    "./ai-strategies.js"
+  ],
   "dev": {
-    "hotReload": "ws://host:port/axon-dev/hot-reload",
-    "typescript": true
+    "hotReload": "ws://host:port/hot-reload"
   }
+}
+```
+
+Minimal required:
+```json
+{
+  "main": "./component.js"
 }
 ```
 
 ## Client-Side Requirements
 
 ### AxonElement Class
-The generic AXON element in Connectome must:
+The AxonElement is a standard Element that:
 
-1. **Fetch manifest** from AXON URL
-2. **Load main module** using dynamic import
-3. **Provide Connectome APIs** to loaded code:
-   - VEIL operations (addFacet, updateState, etc.)
-   - Event system (emit, on, off)
-   - Space reference
-4. **Provide AXON-specific APIs**:
-   - Module loading system
-   - Local storage for thick clients
-   - Previous state for hot reloading
+1. **Fetches manifest** from AXON URL
+2. **Loads component module** using dynamic import
+3. **Instantiates the component** and adds it to itself
+4. **Handles hot reloading** by unmounting old and mounting new components
 
-### Module Loading API
 ```typescript
-interface ModuleAPI {
-  // Load a module relative to manifest baseUrl
-  load(path: string): Promise<any>;
+class AxonElement extends Element {
+  private loadedComponent?: Component;
+  private manifestUrl: string;
+  private moduleUrl: string;
+  private hotReloadWs?: WebSocket;
   
-  // Preload multiple modules
-  preload(paths: string[]): Promise<any[]>;
+  async connect(axonUrl: string): Promise<void> {
+    this.manifestUrl = axonUrl;
+    const manifest = await fetch(axonUrl).then(r => r.json());
+    this.moduleUrl = new URL(manifest.main, axonUrl).toString();
+    
+    // Load the component
+    await this.loadComponent();
+    
+    // Set up hot reload if specified
+    if (manifest.dev?.hotReload) {
+      this.setupHotReload(manifest.dev.hotReload);
+    }
+  }
   
-  // Get already loaded module
-  get(path: string): any | undefined;
+  private async loadComponent(): Promise<void> {
+    // Clean up previous instance
+    if (this.loadedComponent) {
+      await this.loadedComponent.unmount();
+      this.removeComponent(this.loadedComponent);
+    }
+    
+    // Load main module with version
+    const mainVersion = this.moduleVersions?.[this.manifest.main] || Date.now();
+    const url = `${this.moduleUrl}?v=${mainVersion}`;
+    
+    // TODO: Intercept dynamic imports within the component
+    // to append versions from this.moduleVersions
+    const module = await import(url);
+    
+    const ComponentClass = module.default;
+    this.loadedComponent = new ComponentClass();
+    this.addComponent(this.loadedComponent);
+  }
   
-  // Check if module is loaded
-  has(path: string): boolean;
-}
-```
-
-### VEIL API
-```typescript
-interface VeilAPI {
-  addFacet(facet: Facet): void;
-  updateState(facetId: string, updates: StateUpdate): void;
-  addEvent(event: EventFacet): void;
-  addAmbient(ambient: AmbientFacet): void;
-}
-```
-
-### Events API
-```typescript
-interface EventsAPI {
-  emit(topic: string, data: any): void;
-  on(topic: string, handler: EventHandler): void;
-  off(topic: string, handler: EventHandler): void;
-  once(topic: string, handler: EventHandler): void;
-}
-```
-
-### Storage API (for thick clients)
-```typescript
-interface StorageAPI {
-  get(key: string): Promise<any>;
-  set(key: string, value: any): Promise<void>;
-  delete(key: string): Promise<void>;
-  clear(): Promise<void>;
-}
-```
-
-### Client Module Interface
-```typescript
-// What loaded modules must export
-export interface AxonClientModule {
-  // Required: Initialize the client
-  initialize(api: AxonAPI): Promise<AxonClient>;
-}
-
-export interface AxonClient {
-  // Optional: Get state for hot reload
-  getState?(): any;
+  private setupHotReload(wsUrl: string): void {
+    this.hotReloadWs = new WebSocket(wsUrl);
+    
+    this.hotReloadWs.onmessage = async (event) => {
+      const msg = JSON.parse(event.data);
+      
+      if (msg.type === 'module-versions') {
+        // Initial version map or updates
+        this.moduleVersions = msg.versions;
+      } else if (msg.type === 'module-update') {
+        // Single module changed
+        this.moduleVersions[msg.module] = msg.version;
+        if (msg.module === this.manifest.main) {
+          console.log('[AxonElement] Main module changed, reloading...');
+          await this.loadComponent();
+        }
+      } else if (msg.type === 'reload') {
+        // Force reload
+        await this.loadComponent();
+      }
+    };
+    
+    // Reconnect on close (server restart)
+    this.hotReloadWs.onclose = () => {
+      setTimeout(() => this.setupHotReload(wsUrl), 1000);
+    };
+  }
   
-  // Optional: Cleanup on reload/disconnect
-  cleanup?(): Promise<void>;
+  async unmount(): Promise<void> {
+    this.hotReloadWs?.close();
+    await super.unmount();
+  }
 }
 ```
+
+### Loaded Component Requirements
+Components loaded via AXON are standard Connectome Components:
+
+```typescript
+// Example AXON component module
+import { VEILComponent } from '@connectome/components';
+
+export default class SpaceGameComponent extends VEILComponent {
+  private ws?: WebSocket;
+  
+  async mount() {
+    // Standard component initialization
+    this.ws = new WebSocket('ws://game.server/ai');
+    
+    // Use inherited methods from VEILComponent
+    this.addFacet({
+      type: 'state',
+      id: 'ship-status',
+      displayName: 'ship',
+      content: 'Connecting to space game...'
+    });
+    
+    // Standard event handling
+    this.element.on('game.command', (cmd) => {
+      this.ws?.send(JSON.stringify(cmd));
+    });
+  }
+  
+  async unmount() {
+    // Standard cleanup
+    this.ws?.close();
+  }
+}
+```
+
+### No New APIs
+AXON components use existing APIs:
+- `this.addOperation()` - from VEILComponent
+- `this.addFacet()` - from VEILComponent  
+- `this.updateState()` - from VEILComponent
+- `this.element.emit()` - from Component
+- `this.element.on()` - from Component
+- Standard mount/unmount lifecycle
+
+### Module Loading with Versions
+The AxonElement provides versioned imports transparently:
+
+```typescript
+// Component writes:
+import { PhysicsEngine } from './physics-engine.js';
+
+// AxonElement loads as:
+import { PhysicsEngine } from './physics-engine.js?v=d4e5f6a8';
+```
+
+This happens through dynamic import interception based on module versions received via WebSocket.
+
+### Design Advantages
+
+This approach avoids complexity by:
+1. **No new abstractions** - Just loading existing Component classes
+2. **No API translation** - Components use the same APIs locally or via AXON
+3. **No special protocols** - Simple HTTP/WebSocket for transport
+4. **Full compatibility** - Any Component can be loaded via AXON
+5. **Natural patterns** - Developers write normal Components
 
 ## Server-Side Requirements
 
-### AXON Server Library
-Provides base classes and utilities for building AXON services:
+### Minimal Static Serving
+AXON services need to:
 
-1. **AxonServer class**
-   - HTTP server for manifest and modules
-   - WebSocket support for real-time communication
-   - Development mode with hot reloading
-   - TypeScript compilation support
+1. **Serve manifest.json** at the AXON URL
+2. **Serve component modules** (JavaScript files)
+3. **For development: Hot reload WebSocket** specified in manifest
 
-2. **AxonElement base class**
-   - Mirrors Connectome Element API
-   - Methods: handleEvent, addFacet, emit
-   - Lifecycle: initialize, cleanup
-
-3. **Development Server**
-   - File watching for hot reload
-   - On-the-fly TypeScript compilation
-   - Source map support
-   - WebSocket notifications for changes
-
-### Manifest Generation
-Server library should auto-generate manifest from configuration:
+### Example Server Setup
 ```typescript
-const server = new AxonServer({
-  name: "Space Game",
-  description: "Persistent space game world",
-  main: "./clients/spacegame-ai.ts",
-  capabilities: ["websocket", "veil", "events"],
-  dev: {
-    watch: "./clients/**/*.ts",
-    typescript: true
-  }
+// Simple Express server
+app.get('/spacegame/ai-client', (req, res) => {
+  res.json({
+    main: './spacegame-component.js',
+    name: 'Space Game Client',
+    dev: {
+      hotReload: 'ws://localhost:3000/hot-reload'
+    }
+  });
 });
+
+// Serve the component module
+app.use('/spacegame', express.static('./clients'));
+
+// Optional: Hot reload for development
+if (process.env.NODE_ENV === 'development') {
+  const wss = new WebSocketServer({ port: 3000 });
+  const moduleVersions = new Map();
+  
+  // Compute initial versions
+  const modules = ['./spacegame-component.js', './physics-engine.js', './ai-strategies.js'];
+  for (const module of modules) {
+    const stats = fs.statSync(path.join('./clients', module));
+    moduleVersions.set(module, stats.mtimeMs.toString());
+  }
+  
+  // Send versions on connect
+  wss.on('connection', (ws) => {
+    ws.send(JSON.stringify({
+      type: 'module-versions',
+      versions: Object.fromEntries(moduleVersions)
+    }));
+  });
+  
+  // Watch for changes
+  chokidar.watch('./clients/**/*.js').on('change', (filePath) => {
+    const module = './' + path.relative('./clients', filePath);
+    const stats = fs.statSync(filePath);
+    const newVersion = stats.mtimeMs.toString();
+    
+    moduleVersions.set(module, newVersion);
+    
+    // Notify all clients
+    const msg = JSON.stringify({
+      type: 'module-update',
+      module,
+      version: newVersion
+    });
+    
+    wss.clients.forEach(client => client.send(msg));
+  });
+}
 ```
+
+### TypeScript Support
+For TypeScript development:
+- Use standard build tools (tsc, esbuild, etc.)
+- Or serve TypeScript with on-the-fly compilation
+- Include source maps for debugging
 
 ## Hot Reloading Requirements
 
-1. **State Preservation**
-   - Clients can export current state via getState()
-   - State passed to new instance via previousState
-   - Connections and resources properly cleaned up
+1. **Component Lifecycle**
+   - Call unmount() on old component
+   - Remove old component from element
+   - Load new module with cache busting
+   - Create and mount new component
 
-2. **Change Detection**
-   - File watching on server side
-   - WebSocket/SSE for change notifications
-   - Immediate reload on client side
+2. **Module Cache Busting**
+   ```typescript
+   // Force fresh import
+   const url = `${manifest.main}?t=${Date.now()}`;
+   const module = await import(url);
+   ```
 
-3. **Module Cache Invalidation**
-   - Add timestamp to module URLs
-   - Force fresh imports on reload
-   - Clear old module references
+3. **WebSocket Protocol**
+   The hot reload WebSocket sends JSON messages:
+   
+   ```json
+   // On connect: send all module versions
+   {
+     "type": "module-versions",
+     "versions": {
+       "./spacegame-component.js": "a3f2b1c7",
+       "./physics-engine.js": "d4e5f6a8",
+       "./ai-strategies.js": "b2c3d4e9"
+     }
+   }
+   
+   // When a module changes
+   {
+     "type": "module-update",
+     "module": "./physics-engine.js",
+     "version": "e5f6a7b9" // new hash/timestamp
+   }
+   
+   // Force reload everything
+   {
+     "type": "reload"
+   }
+   ```
+   
+   - Server tracks file changes and computes versions (hash or timestamp)
+   - Client maintains version map for cache busting
+   - Auto-reconnects on server restart
+
+4. **State Preservation (Optional)**
+   Components can implement state preservation:
+   ```typescript
+   class SpaceGameComponent extends VEILComponent {
+     getState() {
+       return { shipId: this.shipId, position: this.position };
+     }
+     
+     async mount() {
+       // Restore from previous instance if available
+       const saved = this.element.getMetadata('previousState');
+       if (saved) {
+         this.shipId = saved.shipId;
+         this.position = saved.position;
+       }
+     }
+   }
+   ```
 
 ## Security Considerations (Future)
 
@@ -213,52 +394,65 @@ While sandboxing is deferred for initial implementation, the design should accom
 
 ### 1. Space Game Integration
 ```typescript
-// Agent connects to space game
+// Agent tool usage
 @space.connect("axon://game.server/spacegame/ai-client")
 
-// Receives VEIL updates about game state
+// The loaded component generates VEIL
 <ship>Your ship "Explorer-7" is at coordinates (42, 128, 3)</ship>
 <fuel>Fuel: 78% (consumption: 0.5/s)</fuel>
+
+// Agent interacts via standard actions
+@space-game.move({x: 50, y: 130, z: 3})
+@space-game.scan()
 ```
 
-### 2. Social Media Monitor
+### 2. Multi-Module Example
 ```typescript
-@space.connect("axon://social.api/mastodon/reader")
-
-// Generates VEIL for social updates
-<mention>@alice mentioned you in "AI consciousness thread"</mention>
+// Component can load additional modules as needed
+export default class AdvancedGameComponent extends VEILComponent {
+  async mount() {
+    // Load physics engine for local calculations
+    const physics = await import('./physics-engine.js');
+    this.physics = new physics.Engine();
+    
+    // Load AI strategies
+    const ai = await import('./ai-strategies.js');
+    this.strategist = new ai.Strategist();
+  }
+}
 ```
 
-### 3. Research Experiment
+### 3. Service Migration
 ```typescript
-@space.connect("axon://lab.university/experiment-7/participant")
+// Services can migrate from adapters to AXON seamlessly
+// Old: Custom Discord adapter with hardcoded integration
+// New: Discord provides AXON component that agents load
 
-// Interactive research tasks via VEIL
-<task>Please describe what you see in this image</task>
+@space.connect("axon://discord.com/connectome/client")
 ```
 
 ## Implementation Phases
 
-### Phase 1: Core Protocol (Current Priority)
-- Basic AxonElement implementation
-- Module loading system
-- Simple manifest format
-- Hot reloading support
+### Phase 1: Core Implementation (For Space Game Testing)
+- Basic AxonElement that loads components
+- Simple manifest fetching
+- Component mounting/unmounting
+- Cache-busted imports
 
-### Phase 2: Server Library
-- TypeScript AXON server
-- Development mode
-- Example implementations
-- Documentation
+### Phase 2: Development Experience
+- Hot reload support
+- Better error handling
+- Source map support
+- Development mode optimizations
 
-### Phase 3: Advanced Features
-- Python server library
-- Sandboxing options
-- Module verification
+### Phase 3: Extended Features
+- Module dependency resolution
+- State preservation helpers
+- Component communication patterns
 - Performance optimizations
 
-### Phase 4: Ecosystem
-- AXON registry/discovery
-- Standard client modules
-- Community contributions
-- Best practices guide
+### Phase 4: Security & Ecosystem
+- Sandboxing options (VM, Workers)
+- HTTPS/origin verification
+- Service discovery
+- Best practices documentation
