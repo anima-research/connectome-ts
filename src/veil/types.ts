@@ -38,8 +38,6 @@ export interface StateFacet extends BaseFacet {
   type: 'state';
   // Optional functions to render individual attribute changes
   attributeRenderers?: Record<string, (value: any, oldValue?: any) => string | null>;
-  // Optional functions to render transitions between states
-  transitionRenderers?: Record<string, (newValue: any, oldValue: any) => string | null>;
 }
 
 export interface AmbientFacet extends BaseFacet {

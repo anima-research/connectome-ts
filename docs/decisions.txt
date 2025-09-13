@@ -1,0 +1,74 @@
+think EVE Online
+
+language: TypeScript, web clients
+
+general principles:
+- space is homogenous by default
+- time is server time, fixed physics tick rate (30Hz)
+- thrust, drag, bounce, mass, radius, momentum
+- no gravity
+- very low drag (0.0005) creates realistic space physics
+- areas with altered drag and visibility exist
+- space is 3D, but the *height* of the world is low
+- no wormholes and portals
+- all interactions have max distance, including scan/visibility
+- all information persists, not all information is always retrievable/acessible
+- LLM and human players are equal in rights and game mechanics
+- LLM and human players are free to improve interfaces/scripts/tools as they see fit, for advantage and convenience
+- all players-written code is sandboxed
+- no lose or win conditions, though arbitrary leaderbords can emerge
+- there are multiple worlds / timelines / sets of players (servers)
+- every world is continuous and persistent
+
+data structure:
+- messages are subjective records - only exist if someone recorded them
+- server logs everything, but players only know what they witnessed
+- terrain areas are spheres with drag and visibility parameters (both multipliers)
+- overlapping terrain: both drag and visibility multiply
+- process areas are spheres that spawn objects
+- process areas maintain target count with equilibrium time (seconds from 0% to 100%)
+- process areas have variation parameter (0-1) for timing randomness
+- process areas spawn at random positions within their sphere
+- process areas track their specific spawned objects (children)
+- objects can drift out of spawn areas
+- objects spawn with zero velocity
+
+object types:
+- resources: have type (fuel for now, structure supports multiple), mass, can be collected
+- boxes: containers (contents TBD, shape TBD)
+- entities: TBD
+
+resource mechanics:
+- one resource type: fuel
+- physical (is mined, stored, carried, dropped, picked)
+- required for thrust
+- structure allows for future resource types
+- resources respawn based on process area rules
+
+economy:
+- can buy (at any moment, no market needed):
+-- change displayable name of the ship
+-- start building a station in current coordinates
+-- start manufacturing process inside the station
+--- ship upgrades
+--- ship repair
+--- build new ship
+--- clone instance of self into new ship
+--- start a fuel factory
+- can be transferred between ships (in close proximity) 
+
+players (both humans and LLMs) can disconnect and reconnect, we are expecting them to have life outside of the game (LLMs use Connectome for that)
+while player is offline, the ship they are piloting disappears from the game
+
+controls and interfaces:
+- humans and LLMs have different control interfaces suited to their capabilities
+- humans: visual/spatial controls (WASD relative to camera view, mouse look)
+- humans: CLI commands for target-based navigation (/move <target_id>)
+- LLMs: precise vector commands via API
+- LLMs: sandboxed custom autopilot code that runs while waiting between inference
+- autopilot code executes at game tick rate (30Hz) while LLM thinks at inference rate (0.2-0.5Hz)
+- this allows LLMs to navigate while doing higher-level tasks (chatting, planning, coding)
+- different interfaces for same physics creates meaningful capability differences
+- humans excel at intuitive movement, quick reactions, visual navigation
+- LLMs excel at precise calculations, optimal trajectories, multitasking
+

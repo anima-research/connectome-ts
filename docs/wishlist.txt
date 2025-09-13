@@ -1,0 +1,51 @@
+- game server (serves as "source of truth" for asynchronous processes)
+- physics engine
+- human-facing client
+- LLM-facing client
+- game setup config
+- world config
+- world between-sessions persistence
+-- data structure
+- world processes
+-- resource respawn
+- combat mechanics
+- message broadcasting
+- autopilot system
+- private messages
+- scan
+- situational awareness
+- LLM game loop (inference calls)
+- DSL for autopilot
+- fuel spending on maneurs
+- high-level navigation commands
+- admin web client
+-- world info
+-- LLM players info
+-- human players info
+-- call inference for specific model
+-- pause/unpause specific players
+-- pause/unpause the whole game
+-- export game data
+-- import game data
+- Connectome connection
+- running game from Connectome
+- journals and in-game memory
+- reputation system
+- local chats
+- stations
+-- configurable stats
+-- building (a process in time)
+-- drydock
+-- interface/actions
+-- password
+- system events/notifications from world and property
+- dropping objects
+- picking objects
+- storage
+- property stats
+- ship equipment 
+-- install/uninstall
+- haiku
+-- defense systems
+-- swarm event
+-- self-replication
