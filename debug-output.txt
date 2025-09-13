@@ -1,0 +1,552 @@
+
+> lightweight-connectome@0.1.0 test:dispenser
+> ts-node examples/test-box-dispenser.ts
+
+[dotenv@17.2.2] injecting env (0) from .env -- tip: 📡 auto-backup env with Radar: https://dotenvx.com/radar
+=== Box Dispenser Test ===
+Testing complex element interactions with box dispenser
+
+Tracing enabled - logs will be saved to ./traces directory
+To disable tracing, set ENABLE_TRACING=false
+
+Using mock provider (USE_MOCK_LLM=true)
+[90m[Space:queueEvent] [0m
+[90m[Space:queueEvent] [0m
+
+[Console Chat] Mounting...
+[Console Chat] Ready! Type messages to chat with the agent.
+[Console Chat] Commands: /quit to exit, /sleep to toggle agent sleep
+
+> [90m[Space:queueEvent] [0m
+[90m[Space:queueEvent] [0m
+
+The workshop awakens, filled with potential and mystery.
+A curious explorer has arrived to discover what wonders might emerge...
+
+[System] Triggering initial agent activation...
+[90m[Space:queueEvent] [0m
+[90m[Space:processFrame] {"spanId":"span-1757704330177-apr5avjyo","type":"span-start"}[0m
+[36m[Space:processFrame] frame=2[0m
+[System] Adding activation to current frame
+[36m[Space:processFrame] frame=2 ops=5[0m
+[36m[BasicAgent:onFrameComplete] {"frameSequence":2,"operations":5,"activeStream":"console:main"}[0m
+[HUD:renderIncomingFrame] Total parts: 1
+[HUD:renderIncomingFrame] Total parts: 3
+[90m[BasicAgent:runCycle] {"spanId":"span-1757704330178-skos1oyg1","type":"span-start"}[0m
+[36m[BasicAgent:runCycle] {"messages":3,"totalTokens":257,"activeStream":"console:main"}[0m
+
+[MockLLMProvider] Full message context:
+
+--- Message 1 (user) ---
+<workshop>A workshop shimmers into existence around you. Light dances off crystalline surfaces, and in the center, an ornate dispenser hums with potential. It seems to sense your presence, waiting.</workshop>
+
+--- Message 2 (user) ---
+<control_panel>Control Panel Settings:
+- Size: medium
+- Color: rainbow
+
+You can change settings with:
+@dispenser.setSize("small"|"medium"|"large")
+@dispenser.setColor("red"|"blue"|"green"|"rainbow")</control_panel>
+<dispenser>A magical box dispenser with a big red button and a control panel.</dispenser>
+<button>A big, inviting red button labeled "DISPENSE"</button>
+
+This place exists between dream and algorithm, where intention meets creation.
+Each box that emerges carries something unique - a f...
+
+--- Message 3 (assistant) ---
+<my_turn>
+
+
+--- End of context ---
+
+[90m[MockLLMProvider:generate] {"messageCount":3,"lastMessageRole":"assistant","lastMessagePreview":"<my_turn>\n"}[0m
+[90m[MockLLMProvider:generate] {"contentLength":84,"contentPreview":"Oh wow, a magical box dispenser! This is fascinating. Let me explore what it can do.","tokensUsed":21}[0m
+[36m[BasicAgent:runCycle] "Processing......"[0m
+[90m[BasicAgent:parseCompletion] {"operations":1,"hasMoreToSay":false}[0m
+[90m[BasicAgent:runCycle] {"spanId":"span-1757704330178-skos1oyg1","duration":1,"type":"span-end"}[0m
+[36m[ConsoleChat:handleAgentResponse] "Oh wow, a magical box dispenser! This is fascinati"[0m
+
+[Agent]: Oh wow, a magical box dispenser! This is fascinating. Let me explore what it can do.
+> [90m[Space:processFrame] {"spanId":"span-1757704330177-apr5avjyo","duration":2,"type":"span-end"}[0m
+[90m[Space:processFrame] {"spanId":"span-1757704330179-97241vhef","type":"span-start"}[0m
+[36m[Space:processFrame] frame=4[0m
+[90m[Space:processFrame] frame=4[0m
+[90m[Space:processFrame] {"spanId":"span-1757704330179-97241vhef","duration":0,"type":"span-end"}[0m
+[90m[Space:processFrame] {"spanId":"span-1757704330179-i1dpldt7h","type":"span-start"}[0m
+[36m[Space:processFrame] frame=5[0m
+[90m[Space:processFrame] frame=5[0m
+[90m[Space:processFrame] {"spanId":"span-1757704330179-i1dpldt7h","duration":0,"type":"span-end"}[0m
+[90m[Space:processFrame] {"spanId":"span-1757704330180-psbq93lcr","type":"span-start"}[0m
+[36m[Space:processFrame] frame=6[0m
+[90m[Space:processFrame] frame=6[0m
+[90m[Space:processFrame] {"spanId":"span-1757704330180-psbq93lcr","duration":0,"type":"span-end"}[0m
+[90m[Space:processFrame] {"spanId":"span-1757704330180-mkta8b9xi","type":"span-start"}[0m
+[36m[Space:processFrame] frame=7[0m
+[90m[Space:processFrame] frame=7[0m
+[90m[Space:processFrame] {"spanId":"span-1757704330180-mkta8b9xi","duration":0,"type":"span-end"}[0m
+
+[You]: hey
+[36m[ConsoleChat:handleMessage] "hey"[0m
+[90m[Space:queueEvent] [0m
+[90m[Space:processFrame] {"spanId":"span-1757704334543-m3zef4b17","type":"span-start"}[0m
+[36m[Space:processFrame] frame=8[0m
+[36m[Space:processFrame] frame=8 ops=3[0m
+[36m[BasicAgent:onFrameComplete] {"frameSequence":8,"operations":3,"activeStream":"console:main"}[0m
+[HUD:renderIncomingFrame] Total parts: 1
+[HUD:renderIncomingFrame] Total parts: 3
+[HUD:renderIncomingFrame] Total parts: 1
+[90m[BasicAgent:runCycle] {"spanId":"span-1757704334544-pjh74sdzz","type":"span-start"}[0m
+[36m[BasicAgent:runCycle] {"messages":5,"totalTokens":285,"activeStream":"console:main"}[0m
+
+[MockLLMProvider] Full message context:
+
+--- Message 1 (user) ---
+<workshop>A workshop shimmers into existence around you. Light dances off crystalline surfaces, and in the center, an ornate dispenser hums with potential. It seems to sense your presence, waiting.</workshop>
+
+--- Message 2 (user) ---
+<control_panel>Control Panel Settings:
+- Size: medium
+- Color: rainbow
+
+You can change settings with:
+@dispenser.setSize("small"|"medium"|"large")
+@dispenser.setColor("red"|"blue"|"green"|"rainbow")</control_panel>
+<dispenser>A magical box dispenser with a big red button and a control panel.</dispenser>
+<button>A big, inviting red button labeled "DISPENSE"</button>
+
+--- Message 3 (assistant) ---
+<my_turn>
+
+Oh wow, a magical box dispenser! This is fascinating. Let me explore what it can do.
+
+</my_turn>
+
+--- Message 4 (user) ---
+hey
+
+This place exists between dream and algorithm, where intention meets creation.
+Each box that emerges carries something unique - a fragment of possibility made real.
+The dispenser seems to respond to your curiosity.
+
+Available actions:
+- @dispenser.dispense() - Press the button to dispense a new box
+- @dispenser.setSize("small"|"medium"|"large") - Change box size
+- @dispenser.setColor("red"|"blue"|"green"|"rainbow") - Change box color
+
+--- Message 5 (assistant) ---
+<my_turn>
+
+
+--- End of context ---
+
+[90m[MockLLMProvider:generate] {"messageCount":5,"lastMessageRole":"assistant","lastMessagePreview":"<my_turn>\n"}[0m
+[90m[MockLLMProvider:generate] {"contentLength":84,"contentPreview":"Let me try pressing the dispense button and see what happens!\n\n@dispenser.dispense()","tokensUsed":21}[0m
+[36m[BasicAgent:runCycle] "Processing......"[0m
+[90m[BasicAgent:parseCompletion] {"operations":2,"hasMoreToSay":false}[0m
+[90m[BasicAgent:runCycle] {"spanId":"span-1757704334544-pjh74sdzz","duration":1,"type":"span-end"}[0m
+[System]: Agent is performing dispenser.dispense
+[90m[Space:queueEvent] [0m
+[36m[ConsoleChat:handleAgentResponse] "Let me try pressing the dispense button and see wh"[0m
+
+[Agent]: Let me try pressing the dispense button and see what happens!
+> [90m[Space:processFrame] {"spanId":"span-1757704334543-m3zef4b17","duration":2,"type":"span-end"}[0m
+[90m[Space:processFrame] {"spanId":"span-1757704334545-3wfb622pj","type":"span-start"}[0m
+[36m[Space:processFrame] frame=10[0m
+[90m[Space:queueEvent] [0m
+[36m[Space:processFrame] frame=10 ops=3[0m
+[36m[BasicAgent:onFrameComplete] {"frameSequence":10,"operations":3}[0m
+[HUD:renderIncomingFrame] Total parts: 1
+[HUD:renderIncomingFrame] Total parts: 3
+[HUD:renderIncomingFrame] Total parts: 1
+[HUD:changeState] {
+  updateMode: 'attributesOnly',
+  attributes: { boxesDispensed: 1 },
+  hasAttributeRenderers: true
+}
+[renderAttributeChanges] {
+  facetId: 'dispenser-state',
+  hasAttributeRenderers: true,
+  attributeRenderers: { boxesDispensed: [Function: boxesDispensed] },
+  newAttributes: { boxesDispensed: 1 }
+}
+[renderer] {
+  key: 'boxesDispensed',
+  newValue: 1,
+  oldValue: 1,
+  rendered: '(1 boxes created)'
+}
+[HUD:renderAttributeChanges] {
+  facetId: 'dispenser-state',
+  rendered: '<dispenser>(1 boxes created)</dispenser>'
+}
+[HUD:second-pass] Adding changeState rendering: {
+  facetId: 'dispenser-state',
+  rendering: '<dispenser>(1 boxes created)</dispenser>'
+}
+[HUD:renderIncomingFrame] Total parts: 2
+[HUD:renderIncomingFrame] Found boxes created in parts!
+[90m[BasicAgent:runCycle] {"spanId":"span-1757704334547-t2u9ght8l","type":"span-start"}[0m
+[36m[BasicAgent:runCycle] {"messages":7,"totalTokens":337}[0m
+
+[MockLLMProvider] Full message context:
+
+--- Message 1 (user) ---
+<workshop>A workshop shimmers into existence around you. Light dances off crystalline surfaces, and in the center, an ornate dispenser hums with potential. It seems to sense your presence, waiting.</workshop>
+
+--- Message 2 (user) ---
+<control_panel>Control Panel Settings:
+- Size: medium
+- Color: rainbow
+
+You can change settings with:
+@dispenser.setSize("small"|"medium"|"large")
+@dispenser.setColor("red"|"blue"|"green"|"rainbow")</control_panel>
+<dispenser>A magical box dispenser with a big red button and a control panel.</dispenser>
+<button>A big, inviting red button labeled "DISPENSE"</button>
+
+--- Message 3 (assistant) ---
+<my_turn>
+
+Oh wow, a magical box dispenser! This is fascinating. Let me explore what it can do.
+
+</my_turn>
+
+--- Message 4 (user) ---
+hey
+
+--- Message 5 (assistant) ---
+<my_turn>
+
+@dispenser.dispense
+
+Let me try pressing the dispense button and see what happens!
+
+</my_turn>
+
+--- Message 6 (user) ---
+🎁 *WHIRRR* *CLICK* A new medium rainbow box materializes!
+<dispenser>(1 boxes created)</dispenser>
+
+This place exists between dream and algorithm, where intention meets creation.
+Each box that emerges carries something unique - a fragment of possibility made real.
+The dispenser seems to respond to your curiosity.
+
+Available actions:
+- @dispenser.dispense() - Press the button to dispense a new box
+- @dispenser.setSize("small"|"medium"|"large") - Change box size
+- @dispenser.setColor("red"|"blue"...
+
+--- Message 7 (assistant) ---
+<my_turn>
+
+
+--- End of context ---
+
+[90m[MockLLMProvider:generate] {"messageCount":7,"lastMessageRole":"assistant","lastMessagePreview":"<my_turn>\n"}[0m
+[90m[MockLLMProvider:generate] {"contentLength":84,"contentPreview":"Amazing! A rainbow box appeared! Let me open it to see what's inside.\n\n@box-1.open()","tokensUsed":21}[0m
+[36m[BasicAgent:runCycle] "Processing......"[0m
+[90m[BasicAgent:parseCompletion] {"operations":2,"hasMoreToSay":false}[0m
+[90m[BasicAgent:runCycle] {"spanId":"span-1757704334547-t2u9ght8l","duration":1,"type":"span-end"}[0m
+[System]: Agent is performing box-1.open
+[90m[Space:queueEvent] [0m
+[36m[ConsoleChat:handleAgentResponse] "Amazing! A rainbow box appeared! Let me open it to"[0m
+
+[Agent]: Amazing! A rainbow box appeared! Let me open it to see what's inside.
+> [90m[Space:processFrame] {"spanId":"span-1757704334545-3wfb622pj","duration":3,"type":"span-end"}[0m
+[90m[Space:processFrame] {"spanId":"span-1757704334548-22fqlf2l6","type":"span-start"}[0m
+[36m[Space:processFrame] frame=12[0m
+[36m[Space:processFrame] frame=12 ops=5[0m
+[36m[BasicAgent:onFrameComplete] {"frameSequence":12,"operations":5}[0m
+[HUD:renderIncomingFrame] Total parts: 1
+[HUD:renderIncomingFrame] Total parts: 3
+[HUD:renderIncomingFrame] Total parts: 1
+[HUD:changeState] {
+  updateMode: 'attributesOnly',
+  attributes: { boxesDispensed: 1 },
+  hasAttributeRenderers: true
+}
+[renderAttributeChanges] {
+  facetId: 'dispenser-state',
+  hasAttributeRenderers: true,
+  attributeRenderers: { boxesDispensed: [Function: boxesDispensed] },
+  newAttributes: { boxesDispensed: 1 }
+}
+[renderer] {
+  key: 'boxesDispensed',
+  newValue: 1,
+  oldValue: 1,
+  rendered: '(1 boxes created)'
+}
+[HUD:renderAttributeChanges] {
+  facetId: 'dispenser-state',
+  rendered: '<dispenser>(1 boxes created)</dispenser>'
+}
+[HUD:second-pass] Adding changeState rendering: {
+  facetId: 'dispenser-state',
+  rendering: '<dispenser>(1 boxes created)</dispenser>'
+}
+[HUD:renderIncomingFrame] Total parts: 2
+[HUD:renderIncomingFrame] Found boxes created in parts!
+[HUD:renderIncomingFrame] Total parts: 2
+[90m[BasicAgent:runCycle] {"spanId":"span-1757704334549-1h554cwt7","type":"span-start"}[0m
+[36m[BasicAgent:runCycle] {"messages":9,"totalTokens":420}[0m
+
+[MockLLMProvider] Full message context:
+
+--- Message 1 (user) ---
+<workshop>A workshop shimmers into existence around you. Light dances off crystalline surfaces, and in the center, an ornate dispenser hums with potential. It seems to sense your presence, waiting.</workshop>
+
+--- Message 2 (user) ---
+<control_panel>Control Panel Settings:
+- Size: medium
+- Color: rainbow
+
+You can change settings with:
+@dispenser.setSize("small"|"medium"|"large")
+@dispenser.setColor("red"|"blue"|"green"|"rainbow")</control_panel>
+<dispenser>A magical box dispenser with a big red button and a control panel.</dispenser>
+<button>A big, inviting red button labeled "DISPENSE"</button>
+
+--- Message 3 (assistant) ---
+<my_turn>
+
+Oh wow, a magical box dispenser! This is fascinating. Let me explore what it can do.
+
+</my_turn>
+
+--- Message 4 (user) ---
+hey
+
+--- Message 5 (assistant) ---
+<my_turn>
+
+@dispenser.dispense
+
+Let me try pressing the dispense button and see what happens!
+
+</my_turn>
+
+--- Message 6 (user) ---
+🎁 *WHIRRR* *CLICK* A new medium rainbow box materializes!
+<dispenser>(1 boxes created)</dispenser>
+
+--- Message 7 (assistant) ---
+<my_turn>
+
+@box-1.open
+
+Amazing! A rainbow box appeared! Let me open it to see what's inside.
+
+</my_turn>
+
+--- Message 8 (user) ---
+<box_info>The medium rainbow box is open, revealing a prismatic singing flower that sings a haunting melody!</box_info>
+💥 The rainbow box opens with a cascade of rainbow sparkles!
+
+This place exists between dream and algorithm, where intention meets creation.
+Each box that emerges carries something unique - a fragment of possibility made real.
+The dispenser seems to respond to your curiosity.
+
+Available actions:
+- @dispenser.dispense() - Press the button to dispense a new box
+- @dispenser.setSi...
+
+--- Message 9 (assistant) ---
+<my_turn>
+
+
+--- End of context ---
+
+[90m[MockLLMProvider:generate] {"messageCount":9,"lastMessageRole":"assistant","lastMessagePreview":"<my_turn>\n"}[0m
+[90m[MockLLMProvider:generate] {"contentLength":80,"contentPreview":"How magical! Let me try changing the size to small.\n\n@dispenser.setSize(\"small\")","tokensUsed":20}[0m
+[36m[BasicAgent:runCycle] "Processing......"[0m
+[90m[BasicAgent:parseCompletion] {"operations":2,"hasMoreToSay":false}[0m
+[90m[BasicAgent:runCycle] {"spanId":"span-1757704334549-1h554cwt7","duration":0,"type":"span-end"}[0m
+[System]: Agent is performing dispenser.setSize
+[90m[Space:queueEvent] [0m
+[36m[ConsoleChat:handleAgentResponse] "How magical! Let me try changing the size to small"[0m
+
+[Agent]: How magical! Let me try changing the size to small.
+> [90m[Space:processFrame] {"spanId":"span-1757704334548-22fqlf2l6","duration":1,"type":"span-end"}[0m
+[90m[Space:processFrame] {"spanId":"span-1757704334550-jpjlcs4p2","type":"span-start"}[0m
+[36m[Space:processFrame] frame=14[0m
+[90m[Space:queueEvent] [0m
+[36m[Space:processFrame] frame=14 ops=1[0m
+[36m[BasicAgent:onFrameComplete] {"frameSequence":14,"operations":1}[0m
+[90m[Space:processFrame] {"spanId":"span-1757704334550-jpjlcs4p2","duration":0,"type":"span-end"}[0m
+[90m[Space:processFrame] {"spanId":"span-1757704334550-d6ha3j6gq","type":"span-start"}[0m
+[36m[Space:processFrame] frame=15[0m
+[36m[Space:processFrame] frame=15 ops=1[0m
+[36m[BasicAgent:onFrameComplete] {"frameSequence":15,"operations":1}[0m
+[90m[Space:processFrame] {"spanId":"span-1757704334550-d6ha3j6gq","duration":0,"type":"span-end"}[0m
+
+[You]: tes?
+[36m[ConsoleChat:handleMessage] "tes?"[0m
+[90m[Space:queueEvent] [0m
+[90m[Space:processFrame] {"spanId":"span-1757704338753-mzhs9emcz","type":"span-start"}[0m
+[36m[Space:processFrame] frame=16[0m
+[36m[Space:processFrame] frame=16 ops=3[0m
+[36m[BasicAgent:onFrameComplete] {"frameSequence":16,"operations":3,"activeStream":"console:main"}[0m
+[HUD:renderIncomingFrame] Total parts: 1
+[HUD:renderIncomingFrame] Total parts: 3
+[HUD:renderIncomingFrame] Total parts: 1
+[HUD:changeState] {
+  updateMode: 'attributesOnly',
+  attributes: { boxesDispensed: 1 },
+  hasAttributeRenderers: true
+}
+[renderAttributeChanges] {
+  facetId: 'dispenser-state',
+  hasAttributeRenderers: true,
+  attributeRenderers: { boxesDispensed: [Function: boxesDispensed] },
+  newAttributes: { boxesDispensed: 1 }
+}
+[renderer] {
+  key: 'boxesDispensed',
+  newValue: 1,
+  oldValue: 1,
+  rendered: '(1 boxes created)'
+}
+[HUD:renderAttributeChanges] {
+  facetId: 'dispenser-state',
+  rendered: '<dispenser>(1 boxes created)</dispenser>'
+}
+[HUD:second-pass] Adding changeState rendering: {
+  facetId: 'dispenser-state',
+  rendering: '<dispenser>(1 boxes created)</dispenser>'
+}
+[HUD:renderIncomingFrame] Total parts: 2
+[HUD:renderIncomingFrame] Found boxes created in parts!
+[HUD:renderIncomingFrame] Total parts: 2
+[HUD:renderIncomingFrame] Total parts: 1
+[HUD:second-pass] Adding changeState rendering: {
+  facetId: 'control-panel-settings',
+  rendering: '<control_panel>Control Panel Settings:\n' +
+    '- Size: small\n' +
+    '- Color: rainbow\n' +
+    '\n' +
+    'You can change settings with:\n' +
+    '@dispenser.setSize("small"|"medium"|"large")\n' +
+    '@dispenser.setColor("red"|"blue"|"green"|"rainbow")</control_panel>'
+}
+[HUD:renderIncomingFrame] Total parts: 1
+[HUD:renderIncomingFrame] Total parts: 1
+[90m[BasicAgent:runCycle] {"spanId":"span-1757704338754-shu4c2w9b","type":"span-start"}[0m
+[36m[BasicAgent:runCycle] {"messages":13,"totalTokens":516,"activeStream":"console:main"}[0m
+
+[MockLLMProvider] Full message context:
+
+--- Message 1 (user) ---
+<workshop>A workshop shimmers into existence around you. Light dances off crystalline surfaces, and in the center, an ornate dispenser hums with potential. It seems to sense your presence, waiting.</workshop>
+
+--- Message 2 (user) ---
+<control_panel>Control Panel Settings:
+- Size: small
+- Color: rainbow
+
+You can change settings with:
+@dispenser.setSize("small"|"medium"|"large")
+@dispenser.setColor("red"|"blue"|"green"|"rainbow")</control_panel>
+<dispenser>A magical box dispenser with a big red button and a control panel.</dispenser>
+<button>A big, inviting red button labeled "DISPENSE"</button>
+
+--- Message 3 (assistant) ---
+<my_turn>
+
+Oh wow, a magical box dispenser! This is fascinating. Let me explore what it can do.
+
+</my_turn>
+
+--- Message 4 (user) ---
+hey
+
+--- Message 5 (assistant) ---
+<my_turn>
+
+@dispenser.dispense
+
+Let me try pressing the dispense button and see what happens!
+
+</my_turn>
+
+--- Message 6 (user) ---
+🎁 *WHIRRR* *CLICK* A new medium rainbow box materializes!
+<dispenser>(1 boxes created)</dispenser>
+
+--- Message 7 (assistant) ---
+<my_turn>
+
+@box-1.open
+
+Amazing! A rainbow box appeared! Let me open it to see what's inside.
+
+</my_turn>
+
+--- Message 8 (user) ---
+<box_info>The medium rainbow box is open, revealing a prismatic singing flower that sings a haunting melody!</box_info>
+💥 The rainbow box opens with a cascade of rainbow sparkles!
+
+--- Message 9 (assistant) ---
+<my_turn>
+
+@dispenser.setSize("small")
+
+How magical! Let me try changing the size to small.
+
+</my_turn>
+
+--- Message 10 (user) ---
+The control panel clicks as the size dial turns to "small".
+
+--- Message 11 (user) ---
+<control_panel>Control Panel Settings:
+- Size: small
+- Color: rainbow
+
+You can change settings with:
+@dispenser.setSize("small"|"medium"|"large")
+@dispenser.setColor("red"|"blue"|"green"|"rainbow")</control_panel>
+
+--- Message 12 (user) ---
+tes?
+
+This place exists between dream and algorithm, where intention meets creation.
+Each box that emerges carries something unique - a fragment of possibility made real.
+The dispenser seems to respond to your curiosity.
+
+Available actions:
+- @dispenser.dispense() - Press the button to dispense a new box
+- @dispenser.setSize("small"|"medium"|"large") - Change box size
+- @dispenser.setColor("red"|"blue"|"green"|"rainbow") - Change box color
+
+You can open this box with @box-1.open()
+
+--- Message 13 (assistant) ---
+<my_turn>
+
+
+--- End of context ---
+
+[90m[MockLLMProvider:generate] {"messageCount":13,"lastMessageRole":"assistant","lastMessagePreview":"<my_turn>\n"}[0m
+[90m[MockLLMProvider:generate] {"contentLength":67,"contentPreview":"And now I'll change the color to blue.\n\n@dispenser.setColor(\"blue\")","tokensUsed":17}[0m
+[36m[BasicAgent:runCycle] "Processing......"[0m
+[90m[BasicAgent:parseCompletion] {"operations":2,"hasMoreToSay":false}[0m
+[90m[BasicAgent:runCycle] {"spanId":"span-1757704338754-shu4c2w9b","duration":0,"type":"span-end"}[0m
+[System]: Agent is performing dispenser.setColor
+[90m[Space:queueEvent] [0m
+[36m[ConsoleChat:handleAgentResponse] "And now I'll change the color to blue."[0m
+
+[Agent]: And now I'll change the color to blue.
+> [90m[Space:processFrame] {"spanId":"span-1757704338753-mzhs9emcz","duration":2,"type":"span-end"}[0m
+[90m[Space:processFrame] {"spanId":"span-1757704338755-bw4o5yawm","type":"span-start"}[0m
+[36m[Space:processFrame] frame=18[0m
+[90m[Space:queueEvent] [0m
+[36m[Space:processFrame] frame=18 ops=1[0m
+[36m[BasicAgent:onFrameComplete] {"frameSequence":18,"operations":1}[0m
+[90m[Space:processFrame] {"spanId":"span-1757704338755-bw4o5yawm","duration":0,"type":"span-end"}[0m
+[90m[Space:processFrame] {"spanId":"span-1757704338755-mqqhwk7vv","type":"span-start"}[0m
+[36m[Space:processFrame] frame=19[0m
+[36m[Space:processFrame] frame=19 ops=1[0m
+[36m[BasicAgent:onFrameComplete] {"frameSequence":19,"operations":1}[0m
+[90m[Space:processFrame] {"spanId":"span-1757704338755-mqqhwk7vv","duration":0,"type":"span-end"}[0m

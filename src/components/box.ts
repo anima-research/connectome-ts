@@ -112,7 +112,28 @@ class BoxInteractionComponent extends InteractiveComponent {
     
     // Subscribe to action events
     this.element.subscribe('element:action');
+    this.element.subscribe('frame:start');
   }
+  
+  async handleEvent(event: SpaceEvent): Promise<void> {
+    await super.handleEvent(event);
+    
+    // Add ambient info on first frame
+    if (event.topic === 'frame:start' && !this._initialized) {
+      this._initialized = true;
+      const state = this.stateComponent.getState();
+      if (!state.isOpen) {
+        this.addFacet({
+          id: `${this.element.id}-actions`,
+          type: 'ambient',
+          scope: [this.element.id],
+          content: `You can open this box with @${this.element.id}.open()`
+        });
+      }
+    }
+  }
+  
+  private _initialized = false;
   
   private async openBox(method: string): Promise<void> {
     const state = this.stateComponent.getState();

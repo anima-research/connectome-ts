@@ -1,0 +1,104 @@
+<context>
+<sensor_alert priority="medium" source="Lt. Rodriguez">
+Anomalous energy signature detected on planet surface, sector 7-G
+</sensor_alert>
+
+<my_turn>
+
+Interesting. That energy signature wasn't there during our initial orbital scan.
+
+Lieutenant Rodriguez, can you get me more details on that anomaly? Run a deep scan on sector 7-G, focusing on electromagnetic and subspace frequencies.
+
+<tool_call name="perform_deep_scan">
+<parameter name="target_sector">7-G</parameter>
+<parameter name="scan_type">electromagnetic,subspace</parameter>
+</tool_call>
+
+Commander Chen, maintain our current orbit but be ready to break away if needed.
+
+</my_turn>
+
+<scan_results source="sensors">
+Deep scan complete:
+- Electromagnetic: Structured patterns detected, possible technology
+- Subspace: Minimal distortion, no active fields
+- Energy output: 2.3 terawatts, pulsing at 0.7Hz intervals
+- Composition: Unable to determine, interference present
+</scan_results>
+
+<transmission_detected source="Commander Chen">
+Captain, I'm picking up a faint transmission on a carrier wave matching that pulse frequency. It's... it's mathematical sequences. Prime numbers.
+</transmission_detected>
+
+<ambient scope="mission_objectives">
+Primary Directive: Investigate signs of intelligent life
+Secondary: Maintain crew and ship safety
+Current Mission Duration: 342 days
+</ambient>
+
+<my_turn>
+
+<inner_thoughts>
+Prime numbers? That's a clear sign of intelligence. This changes everything.
+</inner_thoughts>
+
+All stop. Lt. Rodriguez, record everything. Commander Chen, can you isolate and clean up that transmission?
+
+<tool_call name="analyze_transmission">
+<parameter name="frequency">0.7Hz</parameter>
+<parameter name="pattern">prime_sequence</parameter>
+</tool_call>
+
+And open a ship-wide channel.
+
+<tool_call name="ship_comms">
+<parameter name="channel">ship_wide</parameter>
+<parameter name="message">All hands, this is the Captain. We may have just made first contact. All departments prepare for extended station keeping. Science teams to the bridge.</parameter>
+</tool_call>
+
+</my_turn>
+
+<transmission_analysis status="processing">
+Decoding mathematical sequence...
+Identified: Prime numbers 2 through 127
+Additional patterns detected, analysis ongoing
+</transmission_analysis>
+
+<ship_communications status="delivered">
+Ship-wide announcement delivered
+Science teams acknowledging
+</ship_communications>
+
+<crew_activity>
+<crew_report source="Dr. Yuki Tanaka">
+Arriving on bridge with xenobiology team
+</crew_report>
+Power reserves optimal, ready for extended operations
+</crew_activity>
+
+<crew_report source="Dr. Yuki Tanaka">
+Arriving on bridge with xenobiology team
+</crew_report>
+
+Power reserves optimal, ready for extended operations
+
+<my_turn>
+
+<inner_thoughts>
+This is what we've been searching for. After nearly a year in deep space, we might have found intelligent life. Need to proceed carefully - this could be automated, ancient, or active. The crew is excited but I need to keep them focused.
+</inner_thoughts>
+
+Dr. Tanaka, good timing. Look at this pattern - prime numbers broadcast at regular intervals. What's your assessment?
+
+<inner_thoughts>
+I should record this in my personal log. This could be a historic moment.
+</inner_thoughts>
+
+<tool_call name="open_personal_log">
+<parameter name="classification">Captain&apos;s Eyes Only</parameter>
+</tool_call>
+
+Captain's Log, Stardate 51234.5. We've detected what appears to be an artificial signal - prime numbers. This could be the discovery we've been searching for.
+
+</my_turn>
+</context>

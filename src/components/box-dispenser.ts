@@ -50,6 +50,17 @@ class BoxDispenserComponent extends InteractiveComponent {
         content: 'A magical box dispenser with a big red button and a control panel.',
         attributes: {
           boxesDispensed: 0
+        },
+        attributeRenderers: {
+          boxesDispensed: (value: number) => value > 0 ? `(${value} boxes created)` : null
+        },
+        transitionRenderers: {
+          boxesDispensed: (newValue: number, oldValue: number) => {
+            if (newValue > oldValue) {
+              return `Box #${newValue} materializes with a soft whoosh! The dispenser hums with satisfaction. (${newValue} total)`;
+            }
+            return null;
+          }
         }
       });
       
@@ -92,19 +103,12 @@ class BoxDispenserComponent extends InteractiveComponent {
     // Add box to the space
     this.element.parent?.addChild(box);
     
-    // Emit events
-    this.addFacet({
-      id: `dispense-${this.boxCount}`,
-      type: 'event',
-      content: `🎁 *WHIRRR* *CLICK* A new ${settings.size} ${settings.color} box materializes!`
-    });
-    
-    // Update dispenser state
+    // Update dispenser state - the transition renderer will handle the narrative
     this.updateState('dispenser-state', {
       attributes: {
         boxesDispensed: this.boxCount
       }
-    });
+    }, 'attributesOnly');
     
     // Trigger agent activation
     this.addOperation({

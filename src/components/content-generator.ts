@@ -45,7 +45,7 @@ Respond with ONLY the contents description, no additional text.`
     try {
       const response = await this.llmProvider.generate(messages, {
         maxTokens: 50,
-        temperature: 1.2 // Higher temperature for more creativity
+        temperature: 1.0 // Maximum temperature for creativity (Anthropic range: 0-1)
       });
       
       const contents = response.content.trim();

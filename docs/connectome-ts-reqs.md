@@ -25,7 +25,7 @@ VEIL state is composed of facets. The order of facets in the VEIL document deter
 There are the following types of facets:
 
 Events: Have strict temporality - occur at one specific moment
-States: Have defined temporality at creation but remain valid until changed/invalidated
+States: Have defined temporality at creation but remain valid until changed/invalidated. Support optional attributeRenderers for granular updates and transitionRenderers for narrative state changes.
 Ambient: Has loose temporality - valid from creation until scope is destroyed. Ambient facets "float" in the context, preferring to be rendered at a fixed depth from the current moment (e.g., 3-5 messages back) to stay in the attention zone while respecting temporal constraints. Examples include mission objectives, tool instructions, or contextual reminders.
 Tool definitions: Tool definitions don't get rendered. Instructions for using tools are displayed using other facet types. Tool definitions allow the HUD to process completions and extract commands. Modern tool definitions support:
   - Element routing via elementPath/elementId
@@ -140,6 +140,8 @@ Key HUD behaviors:
 5. Facets with displayName use it as XML tags; those without displayName render as plain content
 6. Agent operations are wrapped in `<my_turn>` tags for prefill compatibility
 7. State is rebuilt incrementally by replaying operations from the beginning to ensure historical accuracy
+8. HUD maintains both before and after states when rendering frames, enabling transition-aware rendering
+9. State transitions can be rendered narratively using transitionRenderers instead of just showing value changes
 
 Rendered context for xml-style hud would look kind of like:
 
@@ -174,6 +176,14 @@ State preservation in compression:
 - The compressed frame should include a state delta showing the union of all changes from the beginning to end of the range
 - For example, if a facet's attributes change multiple times within the range, only the final values need to be preserved
 - This ensures the HUD can correctly track state evolution even when frames are compressed
+
+State transition rendering:
+- State facets can define attributeRenderers for individual attribute updates (e.g., showing "(3 items)" when count changes)
+- State facets can define transitionRenderers that provide narrative descriptions during state changes
+- Transition renderers receive both old and new values, allowing contextual narratives (e.g., "Box #3 materializes!")
+- When both are defined, transition renderers take priority during state changes
+- This reduces redundancy between state updates and event emissions while maintaining engaging context
+- The HUD tracks both before and after states for each frame to enable accurate transition detection
 
 Attention-aware compression:
 - Content to be compressed is wrapped in `<content_to_compress>` tags
@@ -217,6 +227,8 @@ Completed:
 - Event priority queue with immediate/high/normal/low priorities
 - Three-phase event propagation (capture, at-target, bubble)
 - Event control utilities (stopPropagation, stopImmediatePropagation, preventDefault)
+- State transition rendering with attributeRenderers and transitionRenderers
+- HUD before/after state tracking for transition detection
 
 Still Pending:
 - Stream reference tracking for communication routing

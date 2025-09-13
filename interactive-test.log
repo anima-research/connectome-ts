@@ -1,0 +1,27 @@
+
+> lightweight-connectome@0.1.0 test:interactive
+> ts-node examples/test-interactive-box.ts
+
+[dotenv@17.2.2] injecting env (0) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+=== Interactive Box Test ===
+Testing interactive elements with a mysterious box
+
+Tracing enabled - logs will be saved to ./traces directory
+To disable tracing, set ENABLE_TRACING=false
+
+Using anthropic provider (Claude 3.5 Sonnet)
+
+[Console Chat] Mounting...
+[Console Chat] Ready! Type messages to chat with the agent.
+[Console Chat] Commands: /quit to exit, /sleep to toggle agent sleep
+
+> 
+> System initialized with:
+- Space with VEIL state manager
+- Interactive agent with action capabilities
+- Mysterious box waiting to be discovered
+- Console chat interface
+
+The agent can discover and open the box on its own!
+You can also type "/open" to open it yourself.
+

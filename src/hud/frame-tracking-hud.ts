@@ -3,7 +3,7 @@
  * Works directly with VEIL primitives, no ContentBlock abstraction
  */
 
-import { Facet, IncomingVEILFrame, OutgoingVEILFrame, VEILOperation } from '../veil/types';
+import { Facet, StateFacet, IncomingVEILFrame, OutgoingVEILFrame, VEILOperation } from '../veil/types';
 import { CompressibleHUD, RenderedContext, HUDConfig } from './types-v2';
 import { CompressionEngine, RenderedFrame, StateDelta } from '../compression/types-v2';
 
@@ -84,13 +84,25 @@ export class FrameTrackingHUD implements CompressibleHUD {
         }
       }
       
-      // Update replayed state if this is an incoming frame
+      // For incoming frames, we need both before and after states
+      let beforeState: Map<string, Facet> | undefined;
+      
       if (this.isIncomingFrame(frame)) {
+        // Deep clone the state before updates to detect transitions
+        beforeState = new Map();
+        for (const [id, facet] of replayedState) {
+          // Deep clone the facet including nested objects
+          const clonedFacet: any = { ...facet };
+          if (facet.attributes && typeof facet.attributes === 'object') {
+            clonedFacet.attributes = { ...facet.attributes };
+          }
+          beforeState.set(id, clonedFacet as Facet);
+        }
         this.updateReplayedState(frame as IncomingVEILFrame, replayedState);
       }
       
-      // Render frame with the state as it was at this point in time
-      const { content, facetIds } = this.renderFrame(frame, replayedState);
+      // Render frame with both states available
+      const { content, facetIds } = this.renderFrame(frame, replayedState, beforeState);
       const tokens = this.estimateTokens(content);
       
       // Debug: Log frames with no content
@@ -147,14 +159,15 @@ export class FrameTrackingHUD implements CompressibleHUD {
   
   private renderFrame(
     frame: VEILFrame,
-    replayedState: Map<string, Facet>
+    replayedState: Map<string, Facet>,
+    beforeState?: Map<string, Facet>
   ): { content: string; facetIds: string[] } {
     const parts: string[] = [];
     const facetIds: string[] = [];
     
     // Separate handling for incoming vs outgoing frames
     if (this.isIncomingFrame(frame)) {
-      const content = this.renderIncomingFrame(frame as IncomingVEILFrame, replayedState);
+      const content = this.renderIncomingFrame(frame as IncomingVEILFrame, replayedState, beforeState);
       return { content, facetIds: this.extractFacetIds(frame) };
     } else {
       const content = this.renderOutgoingFrame(frame as OutgoingVEILFrame);
@@ -175,7 +188,8 @@ export class FrameTrackingHUD implements CompressibleHUD {
   
   private renderIncomingFrame(
     frame: IncomingVEILFrame,
-    replayedState: Map<string, Facet>
+    replayedState: Map<string, Facet>,
+    beforeState?: Map<string, Facet>
   ): string {
     const parts: string[] = [];
     const renderedStates = new Map<string, string>(); // Track rendered states by facet ID
@@ -204,12 +218,54 @@ export class FrameTrackingHUD implements CompressibleHUD {
                   ...currentFacet.attributes,
                   ...(operation.updates.attributes || {})
                 }
-              };
-              const rendered = this.renderFacet(updatedFacet);
+              } as StateFacet;
+              
+              // Ensure transitionRenderers are preserved
+              if ('transitionRenderers' in currentFacet) {
+                updatedFacet.transitionRenderers = (currentFacet as StateFacet).transitionRenderers;
+              }
+              
+              
+              // Check for transition renderers if attributes changed
+              const changedAttributes: Record<string, { oldValue: any, newValue: any }> = {};
+              if (operation.updates.attributes && beforeState) {
+                const beforeFacet = beforeState.get(operation.facetId) as StateFacet;
+                if (beforeFacet) {
+                  for (const [key, newValue] of Object.entries(operation.updates.attributes)) {
+                    const oldValue = beforeFacet.attributes?.[key];
+                    if (oldValue !== newValue) {
+                      changedAttributes[key] = { oldValue, newValue };
+                    }
+                  }
+                }
+              }
+              
+              
+              // Try transition rendering first if we have changed attributes
+              let rendered: string | null = null;
+              if (Object.keys(changedAttributes).length > 0 && updatedFacet.transitionRenderers) {
+                rendered = this.renderTransitions(updatedFacet, changedAttributes);
+              }
+              
+              // If no transition rendering, fall back to normal rendering
+              if (!rendered) {
+                if (operation.updateMode === 'attributesOnly' && operation.updates.attributes) {
+                  rendered = this.renderAttributeChanges(
+                    currentFacet as StateFacet,
+                    operation.updates.attributes
+                  );
+                } else {
+                  // Full render
+                  rendered = this.renderFacet(updatedFacet);
+                }
+              }
+              
               if (rendered) {
-                // Override any previous rendering of this state in this frame
                 renderedStates.set(operation.facetId, rendered);
               }
+              
+              // Update the replayed state for subsequent operations
+              replayedState.set(operation.facetId, updatedFacet);
             }
           }
           break;
@@ -250,6 +306,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
         // Handle other operations as needed
       }
     }
+    
     
     return parts.join('\n');
   }
@@ -311,6 +368,69 @@ export class FrameTrackingHUD implements CompressibleHUD {
     
     // No tag for facets without displayName
     return facet.content || null;
+  }
+  
+  private renderTransitions(
+    facet: StateFacet,
+    changedAttributes: Record<string, { oldValue: any, newValue: any }>
+  ): string | null {
+    if (!facet.transitionRenderers) return null;
+    
+    const parts: string[] = [];
+    
+    // Check each changed attribute for a transition renderer
+    for (const [key, { oldValue, newValue }] of Object.entries(changedAttributes)) {
+      const renderer = facet.transitionRenderers[key];
+      if (renderer) {
+        const rendered = renderer(newValue, oldValue);
+        if (rendered) {
+          // For transitions, we typically want to replace the entire content
+          // rather than append, so we'll use the first non-null transition
+          if (facet.displayName) {
+            const tag = this.sanitizeTagName(facet.displayName);
+            return `<${tag}>${rendered}</${tag}>`;
+          } else {
+            return rendered;
+          }
+        }
+      }
+    }
+    
+    return null;
+  }
+  
+  private renderAttributeChanges(
+    currentFacet: StateFacet, 
+    newAttributes: Record<string, any>
+  ): string | null {
+    const parts: string[] = [];
+    
+    
+    // If there are attribute renderers, use them
+    if (currentFacet.attributeRenderers) {
+      for (const [key, newValue] of Object.entries(newAttributes)) {
+        const renderer = currentFacet.attributeRenderers[key];
+        if (renderer) {
+          const oldValue = currentFacet.attributes?.[key];
+          const rendered = renderer(newValue, oldValue);
+          if (rendered) {
+            parts.push(rendered);
+          }
+        }
+      }
+    }
+    
+    // If we got any rendered parts, combine them
+    if (parts.length > 0) {
+      if (currentFacet.displayName) {
+        const tag = this.sanitizeTagName(currentFacet.displayName);
+        return `<${tag}>${parts.join(' ')}</${tag}>`;
+      } else {
+        return parts.join(' ');
+      }
+    }
+    
+    return null;
   }
   
   private renderToolCall(toolName: string, parameters: any): string {
@@ -504,6 +624,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
           if ('facetId' in operation && 'updates' in operation) {
             const existingFacet = replayedState.get(operation.facetId);
             if (existingFacet && existingFacet.type === 'state') {
+              
               // Apply the updates to create the new state
               const updatedFacet = {
                 ...existingFacet,

@@ -229,7 +229,13 @@ export class VEILStateManager {
   }
 
   private addFacet(facet: Facet, frameSequence?: number, timestamp?: string): void {
-    this.state.facets.set(facet.id, facet);
+    // Clone the facet to avoid shared references
+    const clonedFacet = { ...facet };
+    if (facet.attributes && typeof facet.attributes === 'object') {
+      clonedFacet.attributes = { ...facet.attributes };
+    }
+    
+    this.state.facets.set(facet.id, clonedFacet);
     
     // Recursively add children
     if (facet.children) {

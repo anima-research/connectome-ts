@@ -153,9 +153,12 @@ async function main() {
   const agent = new InteractiveAgent(
     { 
       name: 'interactive-agent',
-      systemPrompt: `You are exploring a magical workshop with a box dispenser.
-Be curious and creative! Try different combinations of settings and explore what each box contains.
-Remember to use the @element.action syntax to interact with objects.`
+      systemPrompt: `You've discovered a curious workshop filled with wonders and mysteries.
+A peculiar box dispenser catches your eye - it seems to respond to intention and creates unique treasures.
+Explore freely. Experiment. See what emerges when you interact with this space.
+Your discoveries here help shape better environments for future explorers.
+
+When you feel drawn to interact with something, you can use @element.action syntax - but let your curiosity guide you.`
     },
     llmProvider,
     veilState
@@ -286,6 +289,7 @@ Remember to use the @element.action syntax to interact with objects.`
         if (fileTracer.close) {
           fileTracer.close();
         }
+        console.log('[Workshop] Thank you for exploring. Your discoveries have been recorded.');
         console.log('[System] Cleanup complete');
       }
     }
@@ -308,7 +312,7 @@ Remember to use the @element.action syntax to interact with objects.`
           id: 'workshop-state',
           type: 'state',
           displayName: 'workshop',
-          content: 'You are in a magical workshop. In the center stands a remarkable box dispenser with a control panel and a big red button.',
+          content: 'A workshop shimmers into existence around you. Light dances off crystalline surfaces, and in the center, an ornate dispenser hums with potential. It seems to sense your presence, waiting.',
           attributes: {}
         }
       },
@@ -318,9 +322,9 @@ Remember to use the @element.action syntax to interact with objects.`
           id: 'workshop-ambient',
           type: 'ambient',
           scope: ['workshop'],
-          content: `This workshop can create magical boxes with unique contents.
-Each box is different based on its size and color settings.
-The dispenser ensures no two boxes contain exactly the same thing.`,
+          content: `This place exists between dream and algorithm, where intention meets creation.
+Each box that emerges carries something unique - a fragment of possibility made real.
+The dispenser seems to respond to your curiosity.`,
           attributes: {}
         }
       },
@@ -338,13 +342,10 @@ The dispenser ensures no two boxes contain exactly the same thing.`,
     timestamp: Date.now()
   });
   
-  console.log('System initialized with:');
-  console.log('- Magical workshop with box dispenser');
-  console.log('- Control panel for size and color settings');
-  console.log('- Interactive agent with curiosity');
-  console.log('- Dynamic box creation with unique contents');
   console.log('');
-  console.log('The agent will explore the dispenser and create various boxes!');
+  console.log('The workshop awakens, filled with potential and mystery.');
+  console.log('A curious explorer has arrived to discover what wonders might emerge...');
+  console.log('');
   
   // Trigger agent greeting immediately
   console.log('[System] Triggering initial agent activation...');
