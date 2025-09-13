@@ -1,0 +1,33 @@
+[Server] AXON test server running at http://localhost:8080
+[Server] Manifest: http://localhost:8080/axon-test
+[Server] Hot reload WebSocket: ws://localhost:8081
+[Server] Hot reload client connected
+[Server] Hot reload client disconnected
+[Server] Component changed, notifying clients...
+[Server] Component changed, notifying clients...
+[Server] Hot reload client connected
+[Server] Hot reload client disconnected
+[Server] Hot reload client connected
+[Server] Hot reload client disconnected
+[Server] Hot reload client connected
+[Server] Hot reload client disconnected
+[Server] Hot reload client connected
+[Server] Hot reload client disconnected
+[Server] Hot reload client connected
+[Server] Hot reload client disconnected
+[Server] Hot reload client connected
+[Server] Hot reload client disconnected
+[Server] Hot reload client connected
+[Server] Hot reload client disconnected
+[Server] Hot reload client connected
+[Server] Hot reload client disconnected
+[Server] Hot reload client connected
+[Server] Hot reload client disconnected
+[Server] Hot reload client connected
+[Server] Hot reload client disconnected
+[Server] Hot reload client connected
+[Server] Hot reload client disconnected
+[Server] Hot reload client connected
+[Server] Hot reload client disconnected
+[Server] Hot reload client connected
+[Server] Hot reload client disconnected
