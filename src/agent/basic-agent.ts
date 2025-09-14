@@ -8,7 +8,8 @@ import {
   AgentCommand, 
   ParsedCompletion,
   AgentConfig,
-  ToolDefinition
+  ToolDefinition,
+  ActionConfig
 } from './types';
 import { 
   IncomingVEILFrame, 
@@ -430,6 +431,88 @@ export class BasicAgent implements AgentInterface {
       case 'setThreshold':
         this.state.attentionThreshold = command.threshold;
         break;
+    }
+  }
+  
+  /**
+   * Enable automatic action registration for elements
+   * When enabled, elements with handleAction will have their actions registered automatically
+   */
+  enableAutoActionRegistration(): void {
+    this._autoActionRegistration = true;
+  }
+  
+  private _autoActionRegistration = false;
+  
+  /**
+   * Register an element's actions automatically
+   * Called by Space when elements are added
+   */
+  registerElementAutomatically(element: Element): void {
+    if (!this._autoActionRegistration) return;
+    
+    // Look for components with declared actions
+    const components = (element as any)._components || [];
+    
+    for (const component of components) {
+      const componentClass = component.constructor as any;
+      const declaredActions = componentClass.actions;
+      
+      if (declaredActions && Object.keys(declaredActions).length > 0) {
+        // Register all actions declared by this component
+        this.registerElementActions(element, declaredActions);
+      }
+    }
+    
+    // Special case: if it's a box with no declared actions, add a generic open action
+    if (element.id.startsWith('box-')) {
+      const hasOpenAction = this.tools.has(`${element.id}.open`);
+      if (!hasOpenAction) {
+        this.registerElementActions(element, {
+          open: 'Open this box'
+        });
+      }
+    }
+  }
+  
+  /**
+   * Register multiple actions for an element at once
+   */
+  registerElementActions(element: Element | string, actions: Record<string, string | ActionConfig>): void {
+    const elementId = typeof element === 'string' ? element : element.id;
+    
+    for (const [actionName, config] of Object.entries(actions)) {
+      const description = typeof config === 'string' ? config : config.description;
+      const params = typeof config === 'object' ? config.params : undefined;
+      
+      let parameters: any = {};
+      
+      // Auto-generate parameter schema from array of allowed values
+      if (params && Array.isArray(params)) {
+        parameters = {
+          type: 'object',
+          properties: {
+            value: { 
+              type: 'string', 
+              enum: params,
+              description: `One of: ${params.join(', ')}`
+            }
+          }
+        };
+      } else if (params && typeof params === 'object') {
+        parameters = params;
+      }
+      
+      this.registerTool({
+        name: `${elementId}.${actionName}`,
+        description,
+        parameters,
+        elementPath: [elementId],
+        emitEvent: {
+          topic: 'element:action',
+          payloadTemplate: {}
+        }
+      });
     }
   }
   

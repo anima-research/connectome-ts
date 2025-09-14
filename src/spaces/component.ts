@@ -1,4 +1,4 @@
-import { ComponentLifecycle, EventHandler, SpaceEvent } from './types';
+import { ComponentLifecycle, EventHandler, SpaceEvent, ElementRef } from './types';
 import type { Element } from './element';
 
 /**
@@ -15,6 +15,11 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
    * Whether this component is enabled
    */
   private _enabled: boolean = true;
+  
+  /**
+   * Track if we've seen the first frame
+   */
+  private _firstFrameSeen: boolean = false;
   
   get enabled(): boolean {
     return this._enabled;
@@ -64,8 +69,20 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
    * Override to process specific events
    */
   async handleEvent(event: SpaceEvent): Promise<void> {
-    // Override in subclasses
+    // Check for first frame
+    if (!this._firstFrameSeen && event.topic === 'frame:start') {
+      this._firstFrameSeen = true;
+      if (this.onFirstFrame) {
+        await this.onFirstFrame();
+      }
+    }
   }
+  
+  /**
+   * Called on the first frame after mounting
+   * Override to initialize facets, state, etc.
+   */
+  onFirstFrame?(): void | Promise<void>;
   
   /**
    * Internal method to attach to an element
@@ -93,10 +110,11 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
   /**
    * Emit an event from the parent element
    */
-  protected emit(event: Omit<SpaceEvent, 'source'>): void {
+  protected emit(event: Omit<SpaceEvent, 'source' | 'timestamp'> & { timestamp?: number }): void {
     this.element.emit({
       ...event,
-      source: this.element.getRef()
+      source: this.element.getRef(),
+      timestamp: event.timestamp || Date.now()
     });
   }
   

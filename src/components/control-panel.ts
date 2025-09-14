@@ -21,29 +21,24 @@ export class ControlPanelComponent extends StateComponent<ControlPanelSettings> 
   }
   
   onMount(): void {
-    // Subscribe to setting change events
-    this.element.subscribe('control:*');
-    this.element.subscribe('frame:start');
-    
-    // We'll add the facet on first frame
-    this._initialized = false;
+    // Subscribe to setting change events using convenience method
+    this.subscribe('control:*');
   }
   
-  private _initialized = false;
+  onFirstFrame(): void {
+    // Initialize state facet
+    this.addFacet({
+      id: this.stateId,
+      type: 'state',
+      displayName: 'control_panel',
+      content: this.getSettingsDescription(),
+      scope: ['dispenser'],
+      attributes: this.state
+    });
+  }
   
   async handleEvent(event: SpaceEvent): Promise<void> {
-    // Initialize on first frame
-    if (event.topic === 'frame:start' && !this._initialized) {
-      this._initialized = true;
-      this.addFacet({
-        id: this.stateId,
-        type: 'state',
-        displayName: 'control_panel',
-        content: this.getSettingsDescription(),
-        scope: ['dispenser'],
-        attributes: this.state
-      });
-    }
+    await super.handleEvent(event);
     
     if (event.topic === 'control:size') {
       const size = event.payload as any;

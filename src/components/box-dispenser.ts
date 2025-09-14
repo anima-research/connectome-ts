@@ -2,7 +2,7 @@ import { Element } from '../spaces/element';
 import { InteractiveComponent, VEILComponent } from './base-components';
 import { ControlPanelComponent } from './control-panel';
 import { ContentGeneratorComponent } from './content-generator';
-import { Box } from './box';
+import { createBox } from './box';
 import { SpaceEvent } from '../spaces/types';
 import { LLMProvider } from '../llm/llm-interface';
 
@@ -10,6 +10,19 @@ import { LLMProvider } from '../llm/llm-interface';
  * Component that handles box dispensing
  */
 class BoxDispenserComponent extends InteractiveComponent {
+  // Declare available actions for auto-registration
+  static actions = {
+    dispense: 'Press the button to dispense a new box',
+    setSize: {
+      description: 'Set the size for new boxes',
+      params: ['small', 'medium', 'large']
+    },
+    setColor: {
+      description: 'Set the color for new boxes', 
+      params: ['red', 'blue', 'green', 'rainbow']
+    }
+  };
+  
   private controlPanel!: ControlPanelComponent;
   private contentGenerator!: ContentGeneratorComponent;
   private boxCount = 0;
@@ -24,57 +37,49 @@ class BoxDispenserComponent extends InteractiveComponent {
     this.registerAction('setSize', async (params) => this.setSize(params?.value || params));
     this.registerAction('setColor', async (params) => this.setColor(params?.value || params));
     
-    // Subscribe to events
-    this.element.subscribe('element:action');
-    this.element.subscribe('button:pressed');
-    this.element.subscribe('frame:start');
-    
-    // We'll add initial facets on first frame
-    this._initialized = false;
+    // Subscribe to button press event using convenience method
+    this.subscribe('button:pressed');
   }
-  
-  private _initialized = false;
-  
-  async handleEvent(event: SpaceEvent): Promise<void> {
-    await super.handleEvent(event);
-    
-    // Initialize on first frame
-    if (event.topic === 'frame:start' && !this._initialized) {
-      this._initialized = true;
-      
-      // Add initial state
-      this.addFacet({
-        id: 'dispenser-state',
-        type: 'state',
-        displayName: 'dispenser',
-        content: 'A magical box dispenser with a big red button and a control panel.',
-        attributes: {
-          boxesDispensed: 0
-        },
-        attributeRenderers: {
-          boxesDispensed: (value: number) => value > 0 ? `(${value} boxes created)` : null
-        },
-        transitionRenderers: {
-          boxesDispensed: (newValue: number, oldValue: number) => {
-            if (newValue > oldValue) {
-              return `Box #${newValue} materializes with a soft whoosh! The dispenser hums with satisfaction. (${newValue} total)`;
-            }
-            return null;
-          }
-        }
-      });
-      
-      // Add ambient instructions
-      this.addFacet({
-        id: 'dispenser-instructions',
-        type: 'ambient',
-        scope: ['dispenser'],
-        content: `Available actions:
+  private initializeState(): void {
+    // Add initial state
+  }
+
+  async onFirstFrame(): Promise<void> {
+    // Add ambient instructions
+    this.addFacet({
+      id: 'dispenser-instructions',
+      type: 'ambient',
+      scope: ['dispenser'],
+      content: `Available actions:
 - @dispenser.dispense() - Press the button to dispense a new box
 - @dispenser.setSize("small"|"medium"|"large") - Change box size
 - @dispenser.setColor("red"|"blue"|"green"|"rainbow") - Change box color`
-      });
-    }
+    });
+    this.addFacet({
+      id: 'dispenser-state',
+      type: 'state',
+      displayName: 'dispenser',
+      content: 'A magical box dispenser with a big red button and a control panel.',
+      attributes: {
+        boxesDispensed: 0
+      },
+      attributeRenderers: {
+        boxesDispensed: (value: number) => value > 0 ? `(${value} boxes created)` : null
+      },
+      transitionRenderers: {
+        boxesDispensed: (newValue: number, oldValue: number) => {
+          if (newValue > oldValue) {
+            return `Box #${newValue} materializes with a soft whoosh! The dispenser hums with satisfaction. (${newValue} total)`;
+          }
+          return null;
+        }
+      }
+  });
+
+  }
+  
+  async handleEvent(event: SpaceEvent): Promise<void> {
+    await super.handleEvent(event);
     
     // Handle button press
     if (event.topic === 'button:pressed') {
@@ -93,7 +98,7 @@ class BoxDispenserComponent extends InteractiveComponent {
     );
     
     // Create new box
-    const box = new Box({
+    const box = createBox({
       id: `${this.boxCount}`,
       size: settings.size,
       color: settings.color,
@@ -121,11 +126,9 @@ class BoxDispenserComponent extends InteractiveComponent {
   
   private async setSize(size: string): Promise<void> {
     if (['small', 'medium', 'large'].includes(size)) {
-      this.element.emit({
+      this.emit({
         topic: 'control:size',
-        payload: size,
-        source: this.element.getRef(),
-        timestamp: Date.now()
+        payload: size
       });
       
       this.addFacet({
@@ -138,11 +141,9 @@ class BoxDispenserComponent extends InteractiveComponent {
   
   private async setColor(color: string): Promise<void> {
     if (['red', 'blue', 'green', 'rainbow'].includes(color)) {
-      this.element.emit({
+      this.emit({
         topic: 'control:color',
-        payload: color,
-        source: this.element.getRef(),
-        timestamp: Date.now()
+        payload: color
       });
       
       this.addFacet({
@@ -158,24 +159,13 @@ class BoxDispenserComponent extends InteractiveComponent {
  * Component that represents the dispense button
  */
 class DispenseButtonComponent extends VEILComponent {
-  onMount(): void {
-    // Subscribe to frame start
-    this.element.subscribe('frame:start');
-    this._initialized = false;
-  }
-  
-  private _initialized = false;
-  
-  async handleEvent(event: SpaceEvent): Promise<void> {
-    if (event.topic === 'frame:start' && !this._initialized) {
-      this._initialized = true;
-      this.addFacet({
-        id: 'dispense-button',
-        type: 'state',
-        displayName: 'button',
-        content: 'A big, inviting red button labeled "DISPENSE"'
-      });
-    }
+  async onFirstFrame(): Promise<void> {
+    this.addFacet({
+      id: 'dispense-button',
+      type: 'state',
+      displayName: 'button',
+      content: 'A big, inviting red button labeled "DISPENSE"'
+    });
   }
   
   /**
@@ -200,16 +190,16 @@ class DispenseButtonComponent extends VEILComponent {
 }
 
 /**
- * Box dispenser element that creates new boxes
+ * Create a box dispenser element with all necessary components
  */
-export class BoxDispenser extends Element {
-  constructor(llmProvider: LLMProvider) {
-    super('dispenser', 'dispenser'); // name and id both set to 'dispenser'
-    
-    // Add components
-    this.addComponent(new ControlPanelComponent());
-    this.addComponent(new ContentGeneratorComponent(llmProvider));
-    this.addComponent(new BoxDispenserComponent());
-    this.addComponent(new DispenseButtonComponent());
-  }
+export function createBoxDispenser(llmProvider: LLMProvider): Element {
+  const dispenser = new Element('dispenser', 'dispenser');
+  
+  // Add all components
+  dispenser.addComponent(new ControlPanelComponent());
+  dispenser.addComponent(new ContentGeneratorComponent(llmProvider));
+  dispenser.addComponent(new BoxDispenserComponent());
+  dispenser.addComponent(new DispenseButtonComponent());
+  
+  return dispenser;
 }

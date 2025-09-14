@@ -22,9 +22,15 @@ export abstract class VEILComponent extends Component {
     }
     
     const frame = space.getCurrentFrame ? space.getCurrentFrame() : undefined;
-    if (frame) {
-      frame.operations.push(operation);
+    if (!frame) {
+      throw new Error(
+        `VEIL operations are only allowed during frame processing. ` +
+        `Move this operation from onMount() to onFirstFrame() or an event handler. ` +
+        `Component: ${this.constructor.name}, Operation: ${operation.type}`
+      );
     }
+    
+    frame.operations.push(operation);
   }
   
   private _deferredOperations?: VEILOperation[];
@@ -44,6 +50,7 @@ export abstract class VEILComponent extends Component {
       this._deferredOperations = undefined;
     }
   }
+  
   
   /**
    * Add a facet to the current frame
@@ -120,6 +127,12 @@ export abstract class VEILComponent extends Component {
  * Base component for handling interactions
  */
 export abstract class InteractiveComponent extends VEILComponent {
+  /**
+   * Static property for declaring component actions
+   * Components should override this to declare their available actions
+   */
+  static actions?: Record<string, string | { description: string; params?: any }>;
+  
   protected actions: Map<string, (params?: any) => Promise<void>> = new Map();
   
   /**
@@ -130,31 +143,15 @@ export abstract class InteractiveComponent extends VEILComponent {
   }
   
   /**
-   * Handle incoming events - check for action events
+   * Handle incoming events
+   * Note: element:action events are now handled by Element class delegation
    */
   async handleEvent(event: SpaceEvent): Promise<void> {
-    // Check if this is an action event for us
-    if (event.topic === 'element:action') {
-      const payload = event.payload as any;
-      
-      // Check if this action is meant for this element
-      // The payload contains path (array) where the last element is the action name
-      const fullPath = payload.path?.join('.') || '';
-      const elementPath = payload.path?.slice(0, -1).join('.') || '';
-      const action = payload.action || payload.path?.[payload.path.length - 1];
-      const parameters = payload.parameters;
-      
-      // Check if this action is for us:
-      // The path is like ['dispenser', 'setSize'] or ['box-1', 'open']
-      // We check if the element part matches our ID
-      if (elementPath === this.element.id) {
-        // Look for a handler for just the action name
-        const handler = this.actions.get(action);
-        if (handler) {
-          await handler(parameters);
-        }
-      }
-    }
+    // Call parent to handle first frame
+    await super.handleEvent(event);
+    
+    // Element now handles element:action delegation to components
+    // so we don't need to process those events here
   }
 }
 

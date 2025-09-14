@@ -248,7 +248,8 @@ export class VEILStateManager {
   private changeState(facetId: string, updates: { content?: string; attributes?: Record<string, any> }): void {
     const facet = this.state.facets.get(facetId);
     if (!facet) {
-      console.warn(`Cannot change state of non-existent facet: ${facetId}`);
+      // This can happen if an action is executed before the facet is initialized
+      // Silently ignore for now as components will add their facets soon
       return;
     }
 

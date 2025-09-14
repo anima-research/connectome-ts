@@ -121,9 +121,16 @@ export class Element {
     this._children.push(child);
     child._parent = this;
     
-    // Auto-subscribe to element:action if the child has handleAction
-    if (child.handleAction) {
+    // Auto-subscribe to element:action if the child or its components can handle actions
+    if (child.handleAction || child._components.some((c: any) => c.actions && c.actions.size > 0)) {
       child.subscribe('element:action');
+    }
+    
+    // Auto-register element actions if agent supports it
+    const space = this.isSpace ? this : this.findSpace();
+    if (space && 'agent' in space && (space as any).agent && 
+        'registerElementAutomatically' in (space as any).agent) {
+      ((space as any).agent as any).registerElementAutomatically(child);
     }
     
     // Emit mount event
@@ -211,6 +218,21 @@ export class Element {
   }
   
   /**
+   * Check if this element is a Space
+   */
+  get isSpace(): boolean {
+    return this.constructor.name === 'Space';
+  }
+  
+  /**
+   * Find the root Space element by walking up the parent chain
+   */
+  findSpace(): Element | null {
+    if (this.isSpace) return this;
+    return this._parent?.findSpace() || null;
+  }
+  
+  /**
    * Subscribe to event topics
    */
   subscribe(topicPattern: string): void {
@@ -243,7 +265,7 @@ export class Element {
     event.currentTarget = this.getRef();
     
     // Check if this is an element:action event meant for us
-    if (event.topic === 'element:action' && this.handleAction) {
+    if (event.topic === 'element:action') {
       const payload = event.payload as any;
       const path = payload.path || [];
       const action = path[path.length - 1];
@@ -252,7 +274,20 @@ export class Element {
       // Check if this action is for this element
       // Handle both direct ID match and path match
       if (elementPath.length === 1 && elementPath[0] === this.id) {
-        await this.handleAction(action, payload.parameters);
+        // First try element's own handleAction
+        if (this.handleAction) {
+          await this.handleAction(action, payload.parameters);
+        } else {
+          // Otherwise delegate to InteractiveComponent if present
+          for (const component of this._components) {
+            const comp = component as any;
+            if (comp.actions && comp.actions.has(action)) {
+              const handler = comp.actions.get(action);
+              await handler(payload.parameters);
+              break;
+            }
+          }
+        }
       }
     }
     

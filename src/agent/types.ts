@@ -37,6 +37,14 @@ export interface ToolDefinition {
 }
 
 /**
+ * Configuration for bulk action registration
+ */
+export interface ActionConfig {
+  description: string;
+  params?: string[] | any;
+}
+
+/**
  * Agent configuration
  */
 export interface AgentConfig {

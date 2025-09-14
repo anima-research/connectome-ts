@@ -19,7 +19,7 @@ import { LLMProvider, LLMMessage } from '../src/llm/llm-interface';
 import { MockLLMProvider } from '../src/llm/mock-llm-provider';
 import { AnthropicProvider } from '../src/llm/anthropic-provider';
 import { ConsoleChatComponent } from '../src/elements/console-chat';
-import { BoxDispenser } from '../src/components/box-dispenser';
+import { createBoxDispenser } from '../src/components/box-dispenser';
 import { Box } from '../src/components/box';
 import { 
   createTracer,
@@ -164,88 +164,19 @@ When you feel drawn to interact with something, you can use @element.action synt
     veilState
   );
   
+  // Enable automatic action registration BEFORE adding elements!
+  agent.enableAutoActionRegistration();
+  
+  // Add agent to space (auto-wires the connection) BEFORE adding elements
+  space.setAgent(agent);
+  
   // Create workshop environment
   const workshop = new Element('workshop');
   space.addChild(workshop);
   
-  // Add box dispenser
-  const dispenser = new BoxDispenser(llmProvider);
+  // Add box dispenser - its component actions will be auto-registered
+  const dispenser = createBoxDispenser(llmProvider);
   workshop.addChild(dispenser);
-  
-  // Register tools for all dispenser actions
-  const dispenserTools: ToolDefinition[] = [
-    {
-      name: 'dispenser.dispense',
-      description: 'Press the button to dispense a new box',
-      parameters: {},
-      elementPath: ['dispenser'],
-      emitEvent: {
-        topic: 'element:action',
-        payloadTemplate: {}
-      }
-    },
-    {
-      name: 'dispenser.setSize',
-      description: 'Set the size for new boxes',
-      parameters: {
-        type: 'object',
-        properties: {
-          value: { type: 'string', enum: ['small', 'medium', 'large'] }
-        }
-      },
-      elementPath: ['dispenser'],
-      emitEvent: {
-        topic: 'element:action',
-        payloadTemplate: {}
-      }
-    },
-    {
-      name: 'dispenser.setColor',
-      description: 'Set the color for new boxes',
-      parameters: {
-        type: 'object',
-        properties: {
-          value: { type: 'string', enum: ['red', 'blue', 'green', 'rainbow'] }
-        }
-      },
-      elementPath: ['dispenser'],
-      emitEvent: {
-        topic: 'element:action',
-        payloadTemplate: {}
-      }
-    }
-  ];
-  
-  dispenserTools.forEach(tool => agent.registerTool(tool));
-  
-  // Register a dynamic tool handler for boxes
-  const boxOpenTool: ToolDefinition = {
-    name: 'box.open',
-    description: 'Open a box',
-    parameters: {},
-    handler: async (params: any) => {
-      // This is a fallback - real handling happens via events
-      console.log('[System]: Box open action triggered');
-    }
-  };
-  
-  // Register generic box patterns
-  for (let i = 1; i <= 10; i++) {
-    agent.registerTool({
-      name: `box-${i}.open`,
-      description: `Open box ${i}`,
-      parameters: {},
-      elementId: `box-${i}`,
-      emitEvent: {
-        topic: 'element:action',
-        payloadTemplate: {}
-      }
-    });
-  }
-  
-  // Add agent to space
-  space.setAgent(agent);
-  agent.setSpace(space, space.id);
   
   // Add agent component for automatic processing
   const agentComponent = new AgentComponent(agent);

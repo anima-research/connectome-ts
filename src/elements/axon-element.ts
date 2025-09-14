@@ -1,5 +1,6 @@
 import { Element } from '../spaces/element';
 import { Component } from '../spaces/component';
+import { SpaceEvent } from '../spaces/types';
 
 interface AxonManifest {
   main: string;
@@ -22,6 +23,8 @@ interface ModuleVersions {
  * component modules that generate VEIL and handle events.
  */
 export class AxonElement extends Element {
+  // AxonElement can't declare static actions since they're loaded dynamically
+  // Instead, loaded components will register their own actions
   private loadedComponent?: Component;
   private manifest?: AxonManifest;
   private manifestUrl?: string;
@@ -133,6 +136,20 @@ export class AxonElement extends Element {
       if (this.loadedComponent) {
         this.addComponent(this.loadedComponent);
         console.log(`[AxonElement] Component loaded and mounted`);
+        
+        // Notify space that we might have new actions (for auto-registration)
+        // Subscribe to element:action if the component has actions
+        const comp = this.loadedComponent as any;
+        if (comp.actions && comp.actions.size > 0) {
+          this.subscribe('element:action');
+          
+          // Trigger re-registration if agent supports auto-registration
+          const space = this.isSpace ? this : this.findSpace();
+          if (space && 'agent' in space && (space as any).agent && 
+              'registerElementAutomatically' in (space as any).agent) {
+            ((space as any).agent as any).registerElementAutomatically(this);
+          }
+        }
       } else {
         throw new Error('Failed to instantiate component');
       }
@@ -204,9 +221,23 @@ export class AxonElement extends Element {
   }
   
   /**
-   * Clean up when element is removed
+   * Override handleEvent to clean up on unmount
    */
-  async onUnmount(): Promise<void> {
+  async handleEvent(event: SpaceEvent): Promise<void> {
+    await super.handleEvent(event);
+    
+    // Clean up when element is unmounted
+    if (event.topic === 'element:unmount' && event.payload?.element?.id === this.id) {
+      this.cleanup();
+    }
+  }
+  
+  /**
+   * Clean up resources
+   */
+  private cleanup(): void {
+    console.log(`[AxonElement] Cleaning up`);
+    
     // Close WebSocket
     if (this.hotReloadWs) {
       this.hotReloadWs.close();
@@ -218,5 +249,12 @@ export class AxonElement extends Element {
       this.removeComponent(this.loadedComponent);
       this.loadedComponent = undefined;
     }
+  }
+  
+  /**
+   * Disconnect and clean up
+   */
+  disconnect(): void {
+    this.cleanup();
   }
 }

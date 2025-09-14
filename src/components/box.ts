@@ -36,25 +36,15 @@ class BoxStateComponent extends StateComponent<BoxState> {
     }, `box-${config.id}-state`);
   }
   
-  onMount(): void {
-    // We'll emit initial state on first frame
-    this.element.subscribe('frame:start');
-    this._initialized = false;
-  }
-  
-  private _initialized = false;
-  
-  async handleEvent(event: SpaceEvent): Promise<void> {
-    if (event.topic === 'frame:start' && !this._initialized) {
-      this._initialized = true;
-      this.addFacet({
-        id: this.stateId,
-        type: 'state',
-        displayName: 'box_info',
-        content: this.getStateDescription(),
-        attributes: this.state
-      });
-    }
+  onFirstFrame(): void {
+    // Initialize state facet
+    this.addFacet({
+      id: this.stateId,
+      type: 'state',
+      displayName: 'box_info',
+      content: this.getStateDescription(),
+      attributes: this.state
+    });
   }
   
   protected emitStateUpdate(): void {
@@ -100,6 +90,23 @@ class BoxStateComponent extends StateComponent<BoxState> {
  * Component that handles box interactions
  */
 class BoxInteractionComponent extends InteractiveComponent {
+  // Declare available actions for auto-registration
+  static actions = {
+    open: {
+      description: 'Open this mysterious box',
+      params: { 
+        type: 'object',
+        properties: {
+          method: { 
+            type: 'string', 
+            enum: ['gently', 'forcefully', 'carefully'],
+            description: 'How to open the box'
+          }
+        }
+      }
+    }
+  };
+  
   private stateComponent!: BoxStateComponent;
   
   onMount(): void {
@@ -110,32 +117,22 @@ class BoxInteractionComponent extends InteractiveComponent {
       await this.openBox(params?.method || 'normally');
     });
     
-    // Subscribe to action events
-    this.element.subscribe('element:action');
-    this.element.subscribe('frame:start');
+    // No need to subscribe to element:action - base Element handles this
   }
   
-  async handleEvent(event: SpaceEvent): Promise<void> {
-    await super.handleEvent(event);
-    
-    // Add ambient info on first frame
-    if (event.topic === 'frame:start' && !this._initialized) {
-      this._initialized = true;
-      const state = this.stateComponent.getState();
-      if (!state.isOpen) {
-        this.addFacet({
-          id: `${this.element.id}-actions`,
-          type: 'ambient',
-          scope: [this.element.id],
-          content: `You can open this box with @${this.element.id}.open()`
-        });
-      }
+  async onFirstFrame(): Promise<void> {
+    const state = this.stateComponent.getState();
+    if (!state.isOpen) {
+      this.addFacet({
+        id: `${this.element.id}-actions`,
+        type: 'ambient',
+        scope: [this.element.id],
+        content: `You can open this box with @${this.element.id}.open()`
+      });
     }
   }
   
-  private _initialized = false;
-  
-  private async openBox(method: string): Promise<void> {
+  async openBox(method: string): Promise<void> {
     const state = this.stateComponent.getState();
     
     if (state.isOpen) {
@@ -161,15 +158,18 @@ class BoxInteractionComponent extends InteractiveComponent {
 }
 
 /**
- * Box element that can be opened to reveal contents
+ * Create a box element with state and interaction components
  */
-export class Box extends Element {
-  constructor(config: BoxConfig) {
-    const boxId = `box-${config.id}`;
-    super(boxId, boxId); // name and id both set to same value
-    
-    // Add components
-    this.addComponent(new BoxStateComponent(config));
-    this.addComponent(new BoxInteractionComponent());
-  }
+export function createBox(config: BoxConfig): Element {
+  const boxId = `box-${config.id}`;
+  const box = new Element(boxId, boxId);
+  
+  // Add components
+  box.addComponent(new BoxStateComponent(config));
+  box.addComponent(new BoxInteractionComponent());
+  
+  return box;
 }
+
+// For backwards compatibility, export Box as the factory function
+export const Box = createBox;

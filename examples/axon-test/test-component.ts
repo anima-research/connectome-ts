@@ -12,18 +12,6 @@ class TestComponent extends VEILComponent {
   onMount() {
     console.log('[TestComponent] Mounting...');
     
-    // Add initial state
-    this.addFacet({
-      id: 'test-state',
-      type: 'state',
-      displayName: 'test',
-      content: 'Test component loaded successfully!',
-      attributes: {
-        mounted: true,
-        timestamp: new Date().toISOString()
-      }
-    });
-    
     // Listen for test events
     this.subscribe('test.ping');
     
@@ -38,10 +26,23 @@ class TestComponent extends VEILComponent {
       });
       this.emit({
         topic: 'test.pong',
-        payload: { count: this.counter },
-        timestamp: Date.now()
+        payload: { count: this.counter }
       });
     }, 5000);
+  }
+  
+  async onFirstFrame(): Promise<void> {
+    // Add initial state when first frame is processed
+    this.addFacet({
+      id: 'test-state',
+      type: 'state',
+      displayName: 'test',
+      content: 'Test component loaded successfully!',
+      attributes: {
+        mounted: true,
+        timestamp: new Date().toISOString()
+      }
+    });
   }
   
   async handleEvent(event) {
@@ -49,8 +50,7 @@ class TestComponent extends VEILComponent {
       console.log('[TestComponent] Received ping!');
       this.emit({
         topic: 'test.pong',
-        payload: { message: 'Pong from AXON component!' },
-        timestamp: Date.now()
+        payload: { message: 'Pong from AXON component!' }
       });
     }
   }

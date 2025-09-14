@@ -143,6 +143,7 @@ Observe how the component loads and maintains state. The component will send pon
   const shutdown = async () => {
     console.log('\n[Test] Shutting down...');
     if (shutdownTimer) clearTimeout(shutdownTimer);
+    axonElement.disconnect();  // Clean up WebSocket and component
     space.removeChild(axonElement);
     process.exit(0);
   };
