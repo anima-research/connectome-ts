@@ -408,4 +408,62 @@ export class Space extends Element {
   getVEILState(): VEILStateManager {
     return this.veilState;
   }
+  
+  /**
+   * Activate the agent with specified stream configuration
+   * Eliminates the need for manual ActivationHandler components
+   */
+  activateAgent(
+    streamId: string, 
+    options: {
+      source?: string;
+      reason?: string;
+      priority?: 'low' | 'normal' | 'high';
+      streamType?: string;
+      metadata?: Record<string, any>;
+    } = {}
+  ): void {
+    // Queue an event that will trigger activation in the next frame
+    this.emit({
+      topic: 'agent:activate',
+      source: this.getRef(),
+      payload: {
+        streamId,
+        ...options
+      },
+      timestamp: Date.now()
+    });
+    
+    // Subscribe to agent:activate if not already subscribed
+    if (!this.isSubscribedTo('agent:activate')) {
+      this.subscribe('agent:activate');
+    }
+  }
+  
+  /**
+   * Handle agent activation internally
+   */
+  async handleEvent(event: SpaceEvent): Promise<void> {
+    await super.handleEvent(event);
+    
+    // Handle agent:activate events
+    if (event.topic === 'agent:activate' && this.currentFrame) {
+      const payload = event.payload as any;
+      
+      // Add activation operation
+      this.currentFrame.operations.push({
+        type: 'agentActivation',
+        source: payload.source || 'system',
+        reason: payload.reason || 'requested',
+        priority: payload.priority || 'normal'
+      });
+      
+      // Set active stream for response routing
+      this.currentFrame.activeStream = {
+        streamId: payload.streamId,
+        streamType: payload.streamType || payload.streamId.split(':')[0],
+        metadata: payload.metadata || {}
+      };
+    }
+  }
 }
