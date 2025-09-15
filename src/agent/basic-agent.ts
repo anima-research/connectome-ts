@@ -54,12 +54,12 @@ export class BasicAgent implements AgentInterface {
   constructor(
     config: AgentConfig,
     llmProvider: LLMProvider,
-    veilStateManager: VEILStateManager,
+    veilStateManager?: VEILStateManager,  // Now optional for backward compatibility
     compressionEngine?: CompressionEngine
   ) {
     this.config = config;
     this.llmProvider = llmProvider;
-    this.veilStateManager = veilStateManager;
+    this.veilStateManager = veilStateManager!;  // Will be removed in future versions
     this.compressionEngine = compressionEngine;
     this.hud = new FrameTrackingHUD();
     this.tracer = getGlobalTracer();
@@ -103,14 +103,8 @@ export class BasicAgent implements AgentInterface {
           // Run cycle
           const response = await this.runCycle(context, frame.activeStream);
           
-          
-          // Record the response
-          this.veilStateManager.recordOutgoingFrame(response);
-          
-          // Process any tool calls
-          await this.processToolCalls(response.operations);
-          
-          // Return the response frame
+          // Return the response frame without recording or processing
+          // Space will handle sequencing, recording, and tool processing
           return response;
         } catch (error) {
           console.error('Agent cycle error:', error);
@@ -232,9 +226,9 @@ export class BasicAgent implements AgentInterface {
       // Apply stream routing to speak operations
       const operations = this.applyStreamRouting(parsed.operations, streamRef);
       
-      // Create outgoing frame
+      // Create outgoing frame without sequence (Space will assign it)
       const frame: OutgoingVEILFrame = {
-        sequence: this.veilStateManager.getNextSequence(),
+        sequence: -1, // Placeholder - Space will assign proper sequence
         timestamp: new Date().toISOString(),
         operations
       };
@@ -631,65 +625,6 @@ export class BasicAgent implements AgentInterface {
       }
       return op;
     });
-  }
-  
-  private async processToolCalls(operations: OutgoingVEILOperation[]): Promise<void> {
-    for (const op of operations) {
-      if (op.type === 'toolCall') {
-        const tool = this.tools.get(op.toolName);
-        if (tool && tool.handler) {
-          try {
-            await tool.handler(op.parameters);
-          } catch (error) {
-            console.error(`Tool ${op.toolName} error:`, error);
-          }
-        } else if (tool && !tool.handler) {
-          console.warn(`Tool ${op.toolName} has no handler`);
-        } else {
-          console.warn(`Unknown tool: ${op.toolName}`);
-        }
-      } else if (op.type === 'action') {
-        // Handle new @element.action syntax
-        await this.processAction(op as ActionOperation);
-      }
-    }
-  }
-  
-  private async processAction(action: ActionOperation): Promise<void> {
-    // Look for a registered tool that matches the full path
-    const toolName = action.path.join('.');
-    const tool = this.tools.get(toolName);
-    
-    if (tool && tool.handler) {
-      // Use legacy handler if available
-      try {
-        await tool.handler(action.parameters || {});
-      } catch (error) {
-        console.error(`Action ${toolName} error:`, error);
-      }
-    } else if (tool && tool.emitEvent && this.space) {
-      // Use generic event emission
-      const event: SpaceEvent = {
-        topic: tool.emitEvent.topic,
-        payload: {
-          ...tool.emitEvent.payloadTemplate,
-          parameters: action.parameters,
-          path: action.path,
-          action: action.path[action.path.length - 1] // Last part is the action
-        },
-        source: {
-          elementId: this.agentElementId || 'agent',
-          elementPath: []
-        },
-        timestamp: Date.now(),
-        priority: 'immediate' // Agent actions must complete atomically
-      };
-      
-      console.log(`[System]: Agent is performing ${toolName}`);
-      this.space.queueEvent(event);
-    } else {
-      console.warn(`Unknown action: ${toolName}`);
-    }
   }
   
   private parseParameterValue(value: string): any {

@@ -17,12 +17,7 @@ export class AgentComponent extends Component {
     // Subscribe to relevant events
     this.element.subscribe('frame:end');
     this.element.subscribe('agent:command');
-    
-    // Set the agent on the space if this is the root
-    const space = this.element.space;
-    if (space instanceof Space && space === this.element) {
-      space.setAgent(this.agent);
-    }
+    this.element.subscribe('agent:pending-activation');
   }
   
   async handleEvent(event: SpaceEvent): Promise<void> {
@@ -38,13 +33,52 @@ export class AgentComponent extends Component {
   }
   
   private async handleFrameEnd(event: FrameEndEvent): Promise<void> {
-    // Agent processing is handled by Space.setAgent()
-    // This is here for any additional component-level logic
+    // Handle agent processing directly in the component
+    const space = this.element.findSpace() as any;
+    if (!space) return;
     
-    // We could emit agent state changes, log activity, etc.
+    const frame = space.getCurrentFrame();
+    if (!frame || !event.payload.hasOperations) return;
+    
+    // Check if this agent should handle this frame
+    const activations = frame.operations.filter((op: any) => op.type === 'agentActivation');
+    if (activations.length === 0) return;
+    
+    // Check if any activation targets this agent (or no target specified)
+    const shouldHandle = activations.some((activation: any) => {
+      const targetAgent = activation.targetAgent;
+      return !targetAgent || targetAgent === this.element.id || targetAgent === this.element.name;
+    });
+    
+    if (!shouldHandle) return;
+    
+    
+    // Let the agent process the frame
+    const veilState = space.getVEILState();
+    const response = await this.agent.onFrameComplete(frame, veilState.getState());
+    
+    // If agent generated a response, process it synchronously
+    // This must happen within the current frame to maintain sequence order
+    if (response && space) {
+      // Use distributeEvent directly to maintain proper event flow
+      // while avoiding the queue (which would defer to next frame)
+      await (space as any).distributeEvent({
+        topic: 'agent:frame-ready',
+        source: this.element.getRef(),
+        payload: {
+          frame: response,
+          agentId: this.element.id,
+          agentName: this.element.name
+        },
+        priority: 'immediate',
+        timestamp: Date.now()
+      });
+    }
+    
+    // Log state for debugging
     const state = this.agent.getState();
     if (state.sleeping) {
-      console.log('[Agent] Currently sleeping, may ignore low-priority activations');
+      console.log(`[Agent ${this.element.name}] Currently sleeping, may have ignored low-priority activations`);
     }
   }
   
@@ -75,25 +109,4 @@ export class AgentComponent extends Component {
     }
   }
   
-  /**
-   * Helper to emit agent response events for routing
-   */
-  private emitAgentResponse(operations: OutgoingVEILOperation[]): void {
-    for (const op of operations) {
-      if (op.type === 'speak') {
-        this.element.emit({
-          topic: 'agent:response',
-          payload: {
-            content: op.content,
-            streamRef: op.target ? {
-              streamId: op.target,
-              streamType: 'unknown', // Would need more context
-              metadata: {}
-            } : undefined
-          },
-          timestamp: Date.now()
-        } as AgentResponseEvent);
-      }
-    }
-  }
 }

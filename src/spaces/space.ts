@@ -1,5 +1,5 @@
 import { Element } from './element';
-import { SpaceEvent, AgentInterface, FrameStartEvent, FrameEndEvent, StreamRef, EventPhase, ElementRef } from './types';
+import { SpaceEvent, FrameStartEvent, FrameEndEvent, StreamRef, EventPhase, ElementRef } from './types';
 import { VEILStateManager } from '../veil/veil-state';
 import { IncomingVEILFrame } from '../veil/types';
 import { matchesTopic } from './utils';
@@ -35,10 +35,6 @@ export class Space extends Element {
    */
   private activeStream?: StreamRef;
   
-  /**
-   * Agent interface (optional)
-   */
-  private agent?: AgentInterface;
   
   /**
    * Whether we're currently processing a frame
@@ -54,18 +50,11 @@ export class Space extends Element {
     super('root');
     this.veilState = veilState;
     this.tracer = getGlobalTracer();
+    
+    // Subscribe to agent frame events
+    this.subscribe('agent:frame-ready');
   }
   
-  /**
-   * Set the agent interface
-   */
-  setAgent(agent: AgentInterface): void {
-    this.agent = agent;
-    // Auto-wire bidirectional connection if agent supports it
-    if ('setSpace' in agent && typeof (agent as any).setSpace === 'function') {
-      (agent as any).setSpace(this, this.id);
-    }
-  }
   
   /**
    * Get the current active stream
@@ -168,15 +157,8 @@ export class Space extends Element {
         op => op.type === 'agentActivation'
       );
       
-      // Emit frame:end
-      await this.distributeEvent({
-        topic: 'frame:end',
-        source: this.getRef(),
-        payload: { frameId, hasOperations, hasActivation },
-        timestamp: Date.now()
-      } as FrameEndEvent);
-      
-      // Finalize frame
+      // Apply frame BEFORE emitting frame:end
+      // This ensures sequence is updated before agents respond
       if (hasOperations || hasActivation) {
         this.tracer?.record({
           id: `frame-end-${frameId}`,
@@ -202,31 +184,7 @@ export class Space extends Element {
         // Record the frame
         this.veilState.applyIncomingFrame(this.currentFrame);
         
-        // Let agent process if available
-        if (this.agent) {
-          const agentResponse = await this.agent.onFrameComplete(
-            this.currentFrame,
-            this.veilState.getState()
-          );
-          
-          // If agent generated a response, emit events for routing
-          if (agentResponse) {
-            for (const op of agentResponse.operations) {
-              if (op.type === 'speak') {
-                const responseStream = this.currentFrame.activeStream || this.activeStream;
-                await this.distributeEvent({
-                  topic: 'agent:response',
-                  source: this.getRef(),
-                  payload: {
-                    content: op.content,
-                    stream: responseStream
-                  },
-                  timestamp: Date.now()
-                });
-              }
-            }
-          }
-        }
+        // Agent processing is handled by AgentComponent(s) listening to frame:end
       } else {
         // Still record empty frames to maintain sequence continuity
         this.veilState.applyIncomingFrame(this.currentFrame);
@@ -246,15 +204,28 @@ export class Space extends Element {
         });
       }
       
+      // Emit frame:end AFTER applying the frame
+      await this.distributeEvent({
+        topic: 'frame:end',
+        source: this.getRef(),
+        payload: { frameId, hasOperations, hasActivation },
+        timestamp: Date.now()
+      } as FrameEndEvent);
+      
     } finally {
       this.currentFrame = undefined;
-      this.processingFrame = false;
+      
       if (frameSpan) {
         this.tracer?.endSpan(frameSpan.id);
       }
       
       // Process next frame if events are queued
-      if (this.eventQueue.length > 0) {
+      // IMPORTANT: Check queue before setting processingFrame to false
+      // to prevent race conditions with queueEvent
+      const hasMore = this.eventQueue.length > 0;
+      this.processingFrame = false;
+      
+      if (hasMore) {
         setImmediate(() => this.processFrame());
       }
     }
@@ -279,7 +250,7 @@ export class Space extends Element {
    */
   private isBroadcastEvent(topic: string): boolean {
     // These events should reach all subscribers regardless of tree position
-    const broadcastTopics = ['agent:response', 'frame:start', 'frame:end', 'element:action'];
+    const broadcastTopics = ['agent:response', 'agent:frame-ready', 'frame:start', 'frame:end', 'element:action'];
     return broadcastTopics.some(t => topic.startsWith(t));
   }
   
@@ -456,7 +427,7 @@ export class Space extends Element {
         source: payload.source || 'system',
         reason: payload.reason || 'requested',
         priority: payload.priority || 'normal'
-      });
+      } as any);
       
       // Set active stream for response routing
       this.currentFrame.activeStream = {
@@ -465,5 +436,71 @@ export class Space extends Element {
         metadata: payload.metadata || {}
       };
     }
+    
+    // Handle agent:frame-ready events
+    if (event.topic === 'agent:frame-ready') {
+      const { frame: agentFrame, agentId, agentName } = event.payload as any;
+      
+      // Clone the frame to avoid mutating the agent's original
+      const frame = {
+        ...agentFrame,
+        operations: [...agentFrame.operations],
+        sequence: this.veilState.getNextSequence()
+      };
+      
+      // Record the frame
+      this.veilState.recordOutgoingFrame(frame);
+      
+      // Process tool calls synchronously to avoid starting new frames
+      for (const op of frame.operations) {
+        if (op.type === 'action') {
+          // Process action directly instead of emitting events
+          const targetElement = this.findElementByIdInTree(this, op.elementId);
+          if (targetElement) {
+            await targetElement.handleEvent({
+              topic: 'element:action',
+              source: this.getRef(),
+              payload: {
+                path: [...op.path, op.action],
+                parameters: op.parameters
+              },
+              timestamp: Date.now()
+            });
+          }
+        }
+      }
+      
+      // Emit agent responses (these are broadcast and don't trigger new frames)
+      for (const op of frame.operations) {
+        if (op.type === 'speak') {
+          await this.distributeEvent({
+            topic: 'agent:response',
+            source: this.getRef(),
+            payload: {
+              content: op.content,
+              stream: frame.activeStream || this.activeStream,
+              agentId,
+              agentName
+            },
+            timestamp: Date.now()
+          });
+        }
+      }
+    }
+  }
+  
+  /**
+   * Find element by path (helper for tool processing)
+   */
+  private findElementByPath(path: string[]): Element | null {
+    if (path.length === 0) return this;
+    
+    let current: Element = this;
+    for (const segment of path) {
+      const child = current.children.find(c => c.name === segment || c.id === segment);
+      if (!child) return null;
+      current = child;
+    }
+    return current;
   }
 }

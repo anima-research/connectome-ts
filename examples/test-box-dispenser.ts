@@ -167,8 +167,10 @@ When you feel drawn to interact with something, you can use @element.action synt
   // Enable automatic action registration BEFORE adding elements!
   agent.enableAutoActionRegistration();
   
-  // Add agent to space (auto-wires the connection) BEFORE adding elements
-  space.setAgent(agent);
+  // Create agent element with AgentComponent
+  const agentElement = new Element('main-agent', 'main-agent');
+  agentElement.addComponent(new AgentComponent(agent));
+  space.addChild(agentElement);
   
   // Create workshop environment
   const workshop = new Element('workshop');
@@ -177,35 +179,6 @@ When you feel drawn to interact with something, you can use @element.action synt
   // Add box dispenser - its component actions will be auto-registered
   const dispenser = createBoxDispenser(llmProvider);
   workshop.addChild(dispenser);
-  
-  // Add agent component for automatic processing
-  const agentComponent = new AgentComponent(agent);
-  space.addComponent(agentComponent);
-  
-  // Add activation handler
-  space.addComponent(new (class extends Component {
-    onMount(): void {
-      this.element.subscribe('agent:activate');
-    }
-    
-    async handleEvent(event: SpaceEvent): Promise<void> {
-      if (event.topic === 'agent:activate') {
-        const activation = (event.payload as any)?.activation;
-        if (activation) {
-          console.log('[System] Adding activation to current frame');
-          const frame = (this.element as Space).getCurrentFrame();
-          if (frame) {
-            frame.operations.push(activation);
-            // Set the active stream for agent response routing
-            frame.activeStream = {
-              streamId: 'console:main',
-              streamType: 'console'
-            };
-          }
-        }
-      }
-    }
-  })());
   
   // Add console interface
   const consoleElement = new Element('console-chat');
@@ -280,19 +253,10 @@ The dispenser seems to respond to your curiosity.`,
   
   // Trigger agent greeting immediately
   console.log('[System] Triggering initial agent activation...');
-  space.queueEvent({
-    topic: 'agent:activate',
-    source: space.getRef(),
-    payload: {
-      activation: {
-        type: 'agentActivation',
-        source: 'system',
-        reason: 'Initial greeting',
-        priority: 'normal'
-      }
-    },
-    timestamp: Date.now(),
-    priority: 'high'
+  space.activateAgent('console:main', {
+    source: 'system',
+    reason: 'Initial greeting',
+    priority: 'normal'
   });
 }
 
