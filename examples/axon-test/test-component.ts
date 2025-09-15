@@ -14,21 +14,6 @@ class TestComponent extends VEILComponent {
     
     // Listen for test events
     this.subscribe('test.ping');
-    
-    // Update state periodically
-    this.intervalId = setInterval(() => {
-      this.counter++;
-      this.updateState('test-state', {
-        attributes: {
-          counter: this.counter,
-          lastUpdate: new Date().toISOString()
-        }
-      });
-      this.emit({
-        topic: 'test.pong',
-        payload: { count: this.counter }
-      });
-    }, 5000);
   }
   
   async onFirstFrame(): Promise<void> {
@@ -43,14 +28,39 @@ class TestComponent extends VEILComponent {
         timestamp: new Date().toISOString()
       }
     });
+    
+    // Set up periodic updates using events
+    this.subscribe('test.update');
+    this.intervalId = setInterval(() => {
+      // Emit an event that we'll handle in frame context
+      this.emit({
+        topic: 'test.update',
+        payload: {}
+      });
+    }, 5000);
   }
   
   async handleEvent(event) {
+    await super.handleEvent(event);
+    
     if (event.topic === 'test.ping') {
       console.log('[TestComponent] Received ping!');
       this.emit({
         topic: 'test.pong',
         payload: { message: 'Pong from AXON component!' }
+      });
+    } else if (event.topic === 'test.update') {
+      // Handle periodic updates in frame context
+      this.counter++;
+      this.updateState('test-state', {
+        attributes: {
+          counter: this.counter,
+          lastUpdate: new Date().toISOString()
+        }
+      });
+      this.emit({
+        topic: 'test.pong',
+        payload: { count: this.counter }
       });
     }
   }

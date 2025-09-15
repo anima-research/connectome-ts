@@ -7,7 +7,9 @@ import {
   BasicAgent,
   MockLLMProvider,
   ConsoleChatComponent,
-  Component
+  Component,
+  AgentComponent,
+  Element
 } from '../src';
 
 async function main() {
@@ -85,38 +87,11 @@ Observe how the component loads and maintains state. The component will send pon
   }
   space.addComponent(new TestListener());
   
-  // Component to handle agent activation
-  class ActivationHandler extends Component {
-    onMount() {
-      this.subscribe('agent:activate');  // Using convenience method
-    }
-    
-    async handleEvent(event: any): Promise<void> {
-      if (event.topic === 'agent:activate') {
-        const frame = space.getCurrentFrame();
-        if (frame) {
-          frame.operations.push({
-            type: 'agentActivation',
-            source: 'test:console',
-            reason: 'test-interaction'
-          });
-          
-          // Set active stream
-          frame.activeStream = {
-            streamId: 'console:main',
-            streamType: 'console',
-            metadata: {
-              channel: 'console'
-            }
-          };
-        }
-      }
-    }
-  }
-  space.addComponent(new ActivationHandler());
   
-  // Set agent (auto-wires the bidirectional connection)
-  space.setAgent(agent);
+  // Create agent element with AgentComponent
+  const agentElement = new Element('axon-agent', 'axon-agent');
+  agentElement.addComponent(new AgentComponent(agent));
+  space.addChild(agentElement);
   
   // Connect to AXON service
   console.log('[Test] Connecting to AXON service...');
@@ -131,11 +106,9 @@ Observe how the component loads and maintains state. The component will send pon
   }
   
   // Trigger agent activation
-  space.emit({
-    topic: 'agent:activate',
-    source: space.getRef(),
-    payload: {},
-    timestamp: Date.now()
+  space.activateAgent('console:main', {
+    source: 'test:console',
+    reason: 'test-interaction'
   });
   
   // Set up graceful shutdown
