@@ -74,14 +74,10 @@ class TestComponent extends VEILComponent {
       this.intervalId = undefined;
     }
     
-    // Add farewell event
-    this.addOperation({
-      type: 'addFacet',
-      facet: {
-        id: `test-farewell-${Date.now()}`,
-        type: 'event',
-        content: 'Test component unmounted gracefully'
-      }
+    // Emit farewell event (no VEIL operations during unmount)
+    this.emit({
+      topic: 'test.farewell',
+      payload: { message: 'Test component unmounted gracefully' }
     });
   }
 }

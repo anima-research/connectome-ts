@@ -135,14 +135,10 @@ var TestComponent = /** @class */ (function (_super) {
             clearInterval(this.intervalId);
             this.intervalId = undefined;
         }
-        // Add farewell event
-        this.addOperation({
-            type: 'addFacet',
-            facet: {
-                id: "test-farewell-".concat(Date.now()),
-                type: 'event',
-                content: 'Test component unmounted gracefully'
-            }
+        // Emit farewell event (no VEIL operations during unmount)
+        this.emit({
+            topic: 'test.farewell',
+            payload: { message: 'Test component unmounted gracefully' }
         });
     };
     return TestComponent;
