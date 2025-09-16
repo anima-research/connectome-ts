@@ -172,6 +172,18 @@ export interface IncomingVEILFrame {
   timestamp: string;
   activeStream?: StreamRef; // Active stream reference with metadata
   operations: VEILOperation[];
+  transition?: FrameTransition; // Mutable transition object for persistence
+}
+
+// Import at usage site to avoid circular dependencies
+export interface FrameTransition {
+  sequence: number;
+  timestamp: string;
+  elementOps: any[];
+  componentOps: any[];
+  componentChanges: any[];
+  veilOps: VEILOperation[];
+  extensions?: Record<string, any>;
 }
 
 export interface ToolCallOperation {

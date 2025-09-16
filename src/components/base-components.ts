@@ -2,11 +2,15 @@ import { Component } from '../spaces/component';
 import { SpaceEvent } from '../spaces/types';
 import { Space } from '../spaces/space';
 import { IncomingVEILFrame, VEILOperation, Facet } from '../veil/types';
+import { ComponentChange } from '../persistence/transition-types';
 
 /**
  * Base component for producing VEIL operations
  */
 export abstract class VEILComponent extends Component {
+  // Track previous values for change detection
+  private _previousValues: Map<string, any> = new Map();
+  
   /**
    * Add an operation to the current frame
    */
@@ -31,6 +35,41 @@ export abstract class VEILComponent extends Component {
     }
     
     frame.operations.push(operation);
+  }
+  
+  /**
+   * Track property change in transition
+   */
+  protected trackPropertyChange(propertyName: string, oldValue: any, newValue: any): void {
+    const space = this.element?.space as Space | undefined;
+    if (!space) return;
+    
+    const frame = space.getCurrentFrame ? space.getCurrentFrame() : undefined;
+    if (!frame?.transition) return;
+    
+    // Get component index in element
+    const componentIndex = this.element.components.indexOf(this);
+    if (componentIndex === -1) return;
+    
+    frame.transition.componentChanges.push({
+      elementRef: this.element.getRef(),
+      componentClass: this.constructor.name,
+      componentIndex,
+      property: propertyName,
+      oldValue,
+      newValue
+    });
+  }
+  
+  /**
+   * Set a tracked property value
+   */
+  protected setTrackedProperty<K extends keyof this>(key: K, value: this[K]): void {
+    const oldValue = this[key];
+    if (oldValue !== value) {
+      this[key] = value;
+      this.trackPropertyChange(key as string, oldValue, value);
+    }
   }
   
   private _deferredOperations?: VEILOperation[];
@@ -172,6 +211,14 @@ export abstract class StateComponent<T = any> extends VEILComponent {
    * Update state and emit VEIL operation
    */
   protected setState(updates: Partial<T>): void {
+    // Track individual property changes
+    for (const [key, newValue] of Object.entries(updates)) {
+      const oldValue = this.state[key as keyof T];
+      if (oldValue !== newValue) {
+        this.trackPropertyChange(`state.${key}`, oldValue, newValue);
+      }
+    }
+    
     this.state = { ...this.state, ...updates };
     this.emitStateUpdate();
   }

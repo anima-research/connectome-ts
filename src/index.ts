@@ -1,3 +1,6 @@
+// Register core components
+import './core-components';
+
 // VEIL exports
 export * from './veil/types';
 export { VEILStateManager } from './veil/veil-state';
@@ -47,3 +50,9 @@ export { AxonElement } from './elements/axon-element';
 
 // Tracing exports
 export * from './tracing';
+
+// Persistence exports
+export * from './persistence';
+
+// Component Registry
+export { ComponentRegistry } from './persistence/component-registry';

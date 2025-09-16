@@ -173,6 +173,21 @@ export class VEILStateManager {
       }
     };
   }
+  
+  /**
+   * Restore state from a snapshot (used by persistence system)
+   */
+  setState(newState: VEILState): void {
+    this.state = {
+      facets: new Map(newState.facets),
+      scopes: new Set(newState.scopes),
+      streams: new Map(newState.streams),
+      currentStream: newState.currentStream,
+      frameHistory: newState.frameHistory || [],
+      currentSequence: newState.currentSequence
+    };
+    this.notifyListeners();
+  }
 
   /**
    * Get the current focus

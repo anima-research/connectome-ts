@@ -16,6 +16,13 @@ interface ModuleVersions {
   [module: string]: string;
 }
 
+interface ParsedAxonUrl {
+  protocol: string;
+  host: string;
+  path: string;
+  params: Record<string, string>;
+}
+
 /**
  * AxonElement - Dynamically loads components from external URLs
  * 
@@ -31,19 +38,45 @@ export class AxonElement extends Element {
   private moduleUrl?: string;
   private moduleVersions: ModuleVersions = {};
   private hotReloadWs?: WebSocket;
+  private parsedUrl?: ParsedAxonUrl;
   
   constructor(config: { id: string }) {
     super(config.id, config.id);  // Pass id as both name and id
   }
   
   /**
+   * Parse AXON URL into components
+   */
+  static parseUrl(url: string): ParsedAxonUrl {
+    const match = url.match(/^axon:\/\/([^/?]+)(\/[^?]*)?\??(.*)$/);
+    if (!match) {
+      throw new Error(`Invalid AXON URL: ${url}`);
+    }
+    
+    const [, host, path = '/', queryString] = match;
+    const params: Record<string, string> = {};
+    
+    if (queryString) {
+      const searchParams = new URLSearchParams(queryString);
+      searchParams.forEach((value, key) => {
+        params[key] = value;
+      });
+    }
+    
+    return { protocol: 'axon', host, path, params };
+  }
+  
+  /**
    * Connect to an AXON service
-   * @param axonUrl - The AXON URL (e.g., "axon://game.server/spacegame")
+   * @param axonUrl - The AXON URL (e.g., "axon://game.server/spacegame?token=xyz")
    */
   async connect(axonUrl: string): Promise<void> {
     try {
-      // Convert axon:// to http://
-      const httpUrl = axonUrl.replace(/^axon:/, 'http:');
+      // Parse the URL
+      this.parsedUrl = AxonElement.parseUrl(axonUrl);
+      
+      // Build HTTP URL without parameters
+      const httpUrl = `http://${this.parsedUrl.host}${this.parsedUrl.path}`;
       this.manifestUrl = httpUrl;
       
       // Fetch manifest
@@ -137,6 +170,16 @@ export class AxonElement extends Element {
         this.addComponent(this.loadedComponent);
         console.log(`[AxonElement] Component loaded and mounted`);
         
+        // Pass parameters to component if it has setConnectionParams method
+        if (this.parsedUrl && 'setConnectionParams' in this.loadedComponent) {
+          console.log(`[AxonElement] Passing parameters to component:`, this.parsedUrl.params);
+          (this.loadedComponent as any).setConnectionParams({
+            host: this.parsedUrl.host,
+            path: this.parsedUrl.path,
+            ...this.parsedUrl.params
+          });
+        }
+        
         // Notify space that we might have new actions (for auto-registration)
         // Subscribe to element:action if the component has actions
         const comp = this.loadedComponent as any;
@@ -227,7 +270,7 @@ export class AxonElement extends Element {
     await super.handleEvent(event);
     
     // Clean up when element is unmounted
-    if (event.topic === 'element:unmount' && event.payload?.element?.id === this.id) {
+    if (event.topic === 'element:unmount' && (event.payload as any)?.element?.id === this.id) {
       this.cleanup();
     }
   }

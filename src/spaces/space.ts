@@ -53,6 +53,10 @@ export class Space extends Element {
     
     // Subscribe to agent frame events
     this.subscribe('agent:frame-ready');
+    
+    // Subscribe to element lifecycle events for transition tracking
+    this.subscribe('element:mount');
+    this.subscribe('element:unmount');
   }
   
   
@@ -61,6 +65,13 @@ export class Space extends Element {
    */
   getActiveStream(): StreamRef | undefined {
     return this.activeStream;
+  }
+  
+  /**
+   * Get the current frame (for components to add operations)
+   */
+  getCurrentFrame(): IncomingVEILFrame | undefined {
+    return this.currentFrame;
   }
   
   /**
@@ -114,7 +125,16 @@ export class Space extends Element {
       this.currentFrame = {
         sequence: frameId,
         timestamp: new Date().toISOString(),
-        operations: []
+        operations: [],
+        transition: {
+          sequence: frameId,
+          timestamp: new Date().toISOString(),
+          elementOps: [],
+          componentOps: [],
+          componentChanges: [],
+          veilOps: [],  // Will be populated from operations at frame end
+          extensions: {}
+        }
       };
       
       this.tracer?.record({
@@ -179,6 +199,11 @@ export class Space extends Element {
         // Update active stream if provided
         if (this.currentFrame.activeStream) {
           this.activeStream = this.currentFrame.activeStream;
+        }
+        
+        // Copy VEIL operations to transition before applying
+        if (this.currentFrame.transition) {
+          this.currentFrame.transition.veilOps = [...this.currentFrame.operations];
         }
         
         // Record the frame
@@ -366,12 +391,6 @@ export class Space extends Element {
     return null;
   }
   
-  /**
-   * Get the current VEIL frame being built
-   */
-  getCurrentFrame(): IncomingVEILFrame | undefined {
-    return this.currentFrame;
-  }
   
   /**
    * Get the VEIL state manager
@@ -485,6 +504,30 @@ export class Space extends Element {
             timestamp: Date.now()
           });
         }
+      }
+    }
+    
+    // Track element operations in transition
+    if (this.currentFrame?.transition) {
+      if (event.topic === 'element:mount') {
+        const { element } = event.payload as any;
+        this.currentFrame.transition.elementOps.push({
+          type: 'add-element',
+          parentRef: event.source,
+          element: {
+            id: element.elementId,
+            name: element.elementPath[element.elementPath.length - 1],
+            type: element.elementType || 'Element'
+          }
+        });
+      }
+      
+      if (event.topic === 'element:unmount') {
+        const { element } = event.payload as any;
+        this.currentFrame.transition.elementOps.push({
+          type: 'remove-element',
+          elementRef: element
+        });
       }
     }
   }

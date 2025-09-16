@@ -85,6 +85,13 @@ export class Element {
   }
   
   /**
+   * Get the element's subscriptions
+   */
+  get subscriptions(): ReadonlyArray<string> {
+    return this._subscriptions;
+  }
+  
+  /**
    * Get the path from root to this element
    */
   getPath(): string[] {

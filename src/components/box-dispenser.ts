@@ -9,7 +9,7 @@ import { LLMProvider } from '../llm/llm-interface';
 /**
  * Component that handles box dispensing
  */
-class BoxDispenserComponent extends InteractiveComponent {
+export class BoxDispenserComponent extends InteractiveComponent {
   // Declare available actions for auto-registration
   static actions = {
     dispense: 'Press the button to dispense a new box',
@@ -89,7 +89,11 @@ class BoxDispenserComponent extends InteractiveComponent {
   
   private async dispenseBox(): Promise<void> {
     const settings = this.controlPanel.getSettings();
+    
+    // Track box count change
+    const oldBoxCount = this.boxCount;
     this.boxCount++;
+    this.trackPropertyChange('boxCount', oldBoxCount, this.boxCount);
     
     // Generate unique contents
     const contents = await this.contentGenerator.generateContents(
@@ -158,7 +162,7 @@ class BoxDispenserComponent extends InteractiveComponent {
 /**
  * Component that represents the dispense button
  */
-class DispenseButtonComponent extends VEILComponent {
+export class DispenseButtonComponent extends VEILComponent {
   async onFirstFrame(): Promise<void> {
     this.addFacet({
       id: 'dispense-button',
