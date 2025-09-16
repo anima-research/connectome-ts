@@ -10,3 +10,8 @@ docs/opus41_1.md
 docs/opus41_2.md
 docs/opus41_3_transition_rendering.md
 docs/opus-notes-for-self.md
+test-persistence-data
+test-persistence-data/*
+examples/test-restore-data/
+examples/test-restore-data/*
+examples/test-restore-final/snapshots/*
