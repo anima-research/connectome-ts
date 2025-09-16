@@ -31,15 +31,16 @@ export class DiscordAxonComponent extends InteractiveComponent {
   @persistent() private connectionParams: Record<string, any> = {};
   
   // Discord-specific state
-  @persistent() private botToken: string = '';
-  @persistent() private guildId: string = '';
-  @persistent() private agentName: string = 'Connectome Agent';
+  @persistent() protected botToken: string = '';
+  @persistent() protected guildId: string = '';
+  @persistent() protected agentName: string = 'Connectome Agent';
+  @persistent() protected botUserId: string = '';
   
   // Persistent state
   @persistent() private connectionState: 'disconnected' | 'connecting' | 'connected' | 'error' = 'disconnected';
   @persistent() private lastError?: string;
   @persistent() private connectionAttempts: number = 0;
-  @persistent() private joinedChannels: string[] = [];
+  @persistent() protected joinedChannels: string[] = [];
   @persistent() private lastRead: Record<string, string> = {};
   @persistent() private scrollbackLimit: number = 50;
   
@@ -89,12 +90,14 @@ export class DiscordAxonComponent extends InteractiveComponent {
    * Called by AxonElement to set connection parameters
    */
   setConnectionParams(params: DiscordConnectionParams): void {
+    console.log('[Discord] Setting connection params:', params);
+    
     const oldParams = this.connectionParams;
     this.connectionParams = params;
     this.trackPropertyChange('connectionParams', oldParams, params);
     
     const oldUrl = this.serverUrl;
-    this.serverUrl = `ws://${params.host}${params.path || ''}/ws`;
+    this.serverUrl = `ws://${params.host}${params.path || '/ws'}`;
     this.trackPropertyChange('serverUrl', oldUrl, this.serverUrl);
     
     // Extract Discord-specific params
@@ -115,6 +118,24 @@ export class DiscordAxonComponent extends InteractiveComponent {
       this.agentName = params.agent;
       this.trackPropertyChange('agentName', old, this.agentName);
     }
+    
+    console.log('[Discord] Params set - serverUrl:', this.serverUrl, 'botToken:', this.botToken ? 'set' : 'not set');
+    
+    // If we're already in a frame context and have all params, start connection
+    if (this.serverUrl && this.botToken && this.element) {
+      console.log('[Discord] Scheduling connection start');
+      // Start connection in next tick to ensure we're in a frame context
+      setTimeout(() => {
+        if (this.element) {
+          this.element.emit({
+            topic: 'discord:start-connection',
+            source: this.element.getRef(),
+            payload: {},
+            timestamp: Date.now()
+          });
+        }
+      }, 0);
+    }
   }
   
   async onMount(): Promise<void> {
@@ -129,10 +150,13 @@ export class DiscordAxonComponent extends InteractiveComponent {
     this.subscribe('discord:history-received');
     this.subscribe('discord:message');
     this.subscribe('discord:websocket-message');
+    this.subscribe('discord:start-connection');
     
   }
   
   async onFirstFrame(): Promise<void> {
+    console.log('[Discord] onFirstFrame - serverUrl:', this.serverUrl, 'botToken:', this.botToken ? 'set' : 'not set');
+    
     // Add Discord state facet
     this.addFacet({
       id: 'discord-state',
@@ -150,7 +174,10 @@ export class DiscordAxonComponent extends InteractiveComponent {
     
     // Start connection if we have parameters (from restoration or setConnectionParams)
     if (this.serverUrl && this.botToken) {
+      console.log('[Discord] Starting connection in onFirstFrame');
       this.startConnection();
+    } else {
+      console.log('[Discord] Not starting connection - missing params');
     }
   }
   
@@ -246,6 +273,15 @@ export class DiscordAxonComponent extends InteractiveComponent {
           
           if (msg.type === 'authenticated') {
             console.log('[Discord] Authenticated successfully');
+            
+            // Store bot user ID if provided
+            if (msg.botUserId) {
+              const old = this.botUserId;
+              this.botUserId = msg.botUserId;
+              this.trackPropertyChange('botUserId', old, this.botUserId);
+              console.log(`[Discord] Received bot user ID: ${this.botUserId}`);
+            }
+            
             this.setupWebSocketHandlers();
             
             // Request history for joined channels
@@ -431,7 +467,13 @@ export class DiscordAxonComponent extends InteractiveComponent {
         // Retry if needed
         if ((event.payload as any).willRetry) {
           this.reconnectTimeout = setTimeout(() => {
-            this.startConnection();
+            // Emit event to trigger reconnection within frame context
+            this.element.emit({
+              topic: 'discord:start-connection',
+              source: this.element.getRef(),
+              payload: {},
+              timestamp: Date.now()
+            });
           }, 5000);
         }
         break;
@@ -441,22 +483,55 @@ export class DiscordAxonComponent extends InteractiveComponent {
         const { channelId, messages, channelName } = event.payload as any;
         
         if (messages && messages.length > 0) {
-          this.addFacet({
-            id: `discord-history-${channelId}-${Date.now()}`,
-            type: 'event',
-            displayName: 'channel-history',
-            content: `Channel #${channelName} history (${messages.length} messages since last read)`,
-            attributes: {
-              channelId,
-              channelName,
-              messageCount: messages.length,
-              messages: messages.map((m: DiscordMessage) => ({
-                author: m.author,
-                content: m.content,
-                timestamp: m.timestamp
-              }))
+          // Filter out messages we've already seen in VEIL
+          const space = this.element?.space;
+          const veilState = space && 'getVEILState' in space ? (space as any).getVEILState() : null;
+          const existingMessageIds = new Set<string>();
+          
+          if (veilState) {
+            // Look through VEIL facets for existing Discord messages
+            for (const facet of veilState.getState().facets.values()) {
+              if (facet.id.startsWith('discord-msg-')) {
+                const messageId = facet.id.replace('discord-msg-', '');
+                existingMessageIds.add(messageId);
+              }
             }
-          });
+          }
+          
+          // Filter to only new messages
+          const newMessages = messages.filter((msg: DiscordMessage) => 
+            !existingMessageIds.has(msg.messageId)
+          );
+          
+          if (newMessages.length > 0) {
+            // Create a single event facet containing message facets as children
+            this.addFacet({
+              id: `discord-history-${channelId}-${Date.now()}`,
+              type: 'event',
+              displayName: 'channel-history',
+              content: `Channel #${channelName} history (${newMessages.length} new messages)`,
+              attributes: {
+                channelId,
+                channelName,
+                messageCount: newMessages.length
+              },
+              children: newMessages.map((msg: DiscordMessage) => ({
+                id: `discord-msg-${msg.messageId}`,
+                type: 'event',
+                displayName: 'discord-message',
+                content: `[Discord] ${msg.author}: ${msg.content}`,
+                attributes: {
+                  channelId: msg.channelId,
+                  messageId: msg.messageId,
+                  author: msg.author,
+                  content: msg.content,
+                  timestamp: msg.timestamp
+                }
+              }))
+            });
+          } else {
+            console.log(`[Discord] All ${messages.length} history messages already in VEIL`);
+          }
           
           // Update last read
           const lastMsg = messages[messages.length - 1];
@@ -492,6 +567,14 @@ export class DiscordAxonComponent extends InteractiveComponent {
       case 'discord:websocket-message':
         // Handle WebSocket message within frame context
         this.handleWebSocketMessage(event.payload);
+        break;
+        
+      case 'discord:start-connection':
+        // Start connection in frame context
+        console.log('[Discord] Starting connection from event handler');
+        if (this.serverUrl && this.botToken) {
+          this.startConnection();
+        }
         break;
     }
   }
@@ -544,7 +627,7 @@ export class DiscordAxonComponent extends InteractiveComponent {
     }
   }
   
-  private async send(channelId: string, message: string): Promise<void> {
+  protected async send(channelId: string, message: string): Promise<void> {
     if (!this.ws || this.connectionState !== 'connected') {
       throw new Error('Not connected to Discord');
     }

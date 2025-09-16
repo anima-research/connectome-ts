@@ -7,10 +7,21 @@ import { SpaceEvent, FrameEndEvent, AgentResponseEvent } from '../spaces/types';
 import { AgentInterface, AgentCommand } from './types';
 import { Space } from '../spaces/space';
 import { OutgoingVEILOperation } from '../veil/types';
+import { persistable } from '../persistence/decorators';
 
+@persistable(1)
 export class AgentComponent extends Component {
-  constructor(private agent: AgentInterface) {
+  private agent?: AgentInterface;
+  
+  constructor(agent?: AgentInterface) {
     super();
+    if (agent) {
+      this.agent = agent;
+    }
+  }
+  
+  setAgent(agent: AgentInterface) {
+    this.agent = agent;
   }
   
   onMount(): void {
@@ -21,6 +32,10 @@ export class AgentComponent extends Component {
   }
   
   async handleEvent(event: SpaceEvent): Promise<void> {
+    if (!this.agent) {
+      return; // Skip if agent not set yet (during restoration)
+    }
+    
     switch (event.topic) {
       case 'frame:end':
         await this.handleFrameEnd(event as FrameEndEvent);
@@ -52,6 +67,10 @@ export class AgentComponent extends Component {
     
     if (!shouldHandle) return;
     
+    if (!this.agent) {
+      console.warn('[AgentComponent] No agent set');
+      return;
+    }
     
     // Let the agent process the frame
     const veilState = space.getVEILState();
@@ -83,6 +102,11 @@ export class AgentComponent extends Component {
   }
   
   private handleAgentCommand(command: AgentCommand): void {
+    if (!this.agent) {
+      console.warn('[AgentComponent] No agent set');
+      return;
+    }
+    
     this.agent.handleCommand(command);
     
     // Log state changes

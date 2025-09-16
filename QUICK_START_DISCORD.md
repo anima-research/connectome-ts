@@ -7,7 +7,7 @@ Your Guild ID: **1289595876716707911** ✅
 ```bash
 cd examples/discord-axon-server
 npm install
-DISCORD_BOT_TOKEN="MTM4Mjg5MTcwODUxMzEyODQ4NQ.GtEgv8.EHaWjyEtv3TFd4xsqEBxyn-kilw0PQViQm3AaE" npm start
+DISCORD_BOT_TOKEN="MTM4M...w0PQViQm3AaE" npm start
 ```
 
 Wait until you see:

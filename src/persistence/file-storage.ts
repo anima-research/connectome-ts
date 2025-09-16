@@ -27,6 +27,10 @@ export class FileStorageAdapter implements StorageAdapter {
     this.snapshotDir = path.join(basePath, 'snapshots');
     this.deltaDir = path.join(basePath, 'deltas');
     
+    console.log('[FileStorageAdapter] Created with basePath:', this.basePath);
+    console.log('[FileStorageAdapter] snapshotDir:', this.snapshotDir);
+    console.log('[FileStorageAdapter] deltaDir:', this.deltaDir);
+    
     // Ensure directories exist
     this.ensureDirectories();
   }
@@ -212,10 +216,13 @@ export class FileStorageAdapter implements StorageAdapter {
    */
   async listFiles(relativePath: string): Promise<string[]> {
     const fullPath = path.join(this.basePath, relativePath);
+    console.log('[FileStorageAdapter] Listing files in:', fullPath);
     try {
       const files = await readdir(fullPath);
+      console.log('[FileStorageAdapter] Found files:', files);
       return files;
     } catch (error) {
+      console.log('[FileStorageAdapter] Error listing files:', error);
       return [];
     }
   }

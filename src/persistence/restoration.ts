@@ -13,7 +13,8 @@ import {
   SerializedComponent,
   PersistenceSnapshot
 } from './types';
-import { deserializeValue, ComponentRegistry } from './serialization';
+import { deserializeValue } from './serialization';
+import { ComponentRegistry } from './component-registry';
 
 /**
  * Restore VEIL state from serialized format
@@ -48,8 +49,8 @@ export async function restoreVEILState(
     newState.streams.set(id, stream);
   }
   
-  // Apply the state - we need to add a method to VEILStateManager for this
-  (veilManager as any).setState(newState);
+  // Apply the restored state
+  veilManager.setState(newState);
 }
 
 /**
@@ -175,7 +176,19 @@ async function restoreElement(data: SerializedElement): Promise<Element | null> 
  * Restore a component from serialized data
  */
 async function restoreComponent(data: SerializedComponent): Promise<Component | null> {
-  return ComponentRegistry.createInstance(data);
+  // Create component instance
+  const component = ComponentRegistry.create(data.className);
+  if (!component) {
+    console.warn(`No constructor registered for component class: ${data.className}`);
+    return null;
+  }
+  
+  // Restore persistent properties
+  if (data.properties) {
+    Object.assign(component, data.properties);
+  }
+  
+  return component;
 }
 
 /**

@@ -26,7 +26,7 @@ interface BoxState {
 /**
  * Component that manages box state and VEIL
  */
-class BoxStateComponent extends StateComponent<BoxState> {
+export class BoxStateComponent extends StateComponent<BoxState> {
   constructor(config: BoxConfig) {
     super({
       isOpen: false,

@@ -25,6 +25,8 @@ import {
 import { ControlPanelComponent } from './components/control-panel';
 import { ContentGeneratorComponent } from './components/content-generator';
 import { BoxStateComponent } from './components/box';
+import { DiscordAxonComponent } from './components/discord-axon';
+import { DiscordChatComponent } from './components/discord-chat';
 
 // These should be AXON components in the future
 ComponentRegistry.register('BoxDispenserComponent', BoxDispenserComponent);
@@ -32,5 +34,7 @@ ComponentRegistry.register('ControlPanelComponent', ControlPanelComponent);
 ComponentRegistry.register('ContentGeneratorComponent', ContentGeneratorComponent);
 ComponentRegistry.register('DispenseButtonComponent', DispenseButtonComponent);
 ComponentRegistry.register('BoxStateComponent', BoxStateComponent);
+ComponentRegistry.register('DiscordAxonComponent', DiscordAxonComponent);
+ComponentRegistry.register('DiscordChatComponent', DiscordChatComponent);
 
 console.log('Core components registered:', ComponentRegistry.getRegisteredNames());

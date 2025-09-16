@@ -183,7 +183,7 @@ export class VEILStateManager {
       scopes: new Set(newState.scopes),
       streams: new Map(newState.streams),
       currentStream: newState.currentStream,
-      frameHistory: newState.frameHistory || [],
+      frameHistory: [...newState.frameHistory],
       currentSequence: newState.currentSequence
     };
     this.notifyListeners();

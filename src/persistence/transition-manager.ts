@@ -55,6 +55,7 @@ export class TransitionManager {
       ...config
     };
     
+    console.log('[TransitionManager] Creating storage with path:', this.config.storagePath);
     this.storage = new FileStorageAdapter(this.config.storagePath);
     
     // Subscribe to frame:end events
@@ -162,10 +163,13 @@ export class TransitionManager {
    */
   async restore(targetSequence?: number, branch: string = 'main'): Promise<void> {
     // Find the nearest snapshot
+    console.log('[TransitionManager] Looking for snapshots in snapshots/ directory');
     const snapshots = await this.storage.listFiles('snapshots/');
+    console.log('[TransitionManager] Found files:', snapshots);
     const branchSnapshots = snapshots
       .filter(f => f.includes(`-${branch}.json`))
       .sort();
+    console.log('[TransitionManager] Branch snapshots:', branchSnapshots);
     
     if (branchSnapshots.length === 0) {
       throw new Error(`No snapshots found for branch ${branch}`);

@@ -21,6 +21,7 @@
     "test:axon": "ts-node examples/test-axon.ts",
     "discord:server": "cd examples/discord-axon-server && npm start",
     "discord:live": "cd examples && ts-node discord-live-test.ts",
+    "discord:persist": "ts-node examples/discord-persistent-test.ts",
     "test": "jest",
     "lint": "eslint src --ext .ts"
   },

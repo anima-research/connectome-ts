@@ -6,6 +6,7 @@
 import { Facet, StateFacet, IncomingVEILFrame, OutgoingVEILFrame, VEILOperation } from '../veil/types';
 import { CompressibleHUD, RenderedContext, HUDConfig } from './types-v2';
 import { CompressionEngine, RenderedFrame, StateDelta } from '../compression/types-v2';
+import { getGlobalTracer, TraceCategory } from '../tracing';
 
 // Union type for frames
 type VEILFrame = IncomingVEILFrame | OutgoingVEILFrame;
@@ -36,6 +37,23 @@ export class FrameTrackingHUD implements CompressibleHUD {
     context: RenderedContext;
     frameRenderings: RenderedFrame[];
   } {
+    const tracer = getGlobalTracer();
+    const traceId = `hud-render-${Date.now()}`;
+    
+    tracer?.record({
+      id: traceId,
+      timestamp: Date.now(),
+      level: 'info',
+      category: TraceCategory.HUD_RENDER,
+      component: 'FrameTrackingHUD',
+      operation: 'renderWithFrameTracking',
+      data: {
+        frameCount: frames.length,
+        currentFacetCount: currentFacets.size,
+        config
+      }
+    });
+    
     const frameRenderings: RenderedFrame[] = [];
     const frameContents: Array<{ 
       type: 'incoming' | 'outgoing' | 'compressed';
@@ -104,6 +122,28 @@ export class FrameTrackingHUD implements CompressibleHUD {
       // Render frame with both states available
       const { content, facetIds } = this.renderFrame(frame, replayedState, beforeState);
       const tokens = this.estimateTokens(content);
+      
+      // Trace each frame rendering
+      tracer?.record({
+        id: `${traceId}-frame-${frame.sequence}`,
+        timestamp: Date.now(),
+        level: 'debug',
+        category: TraceCategory.HUD_RENDER,
+        component: 'FrameTrackingHUD',
+        operation: 'renderFrame',
+        data: {
+          frameSequence: frame.sequence,
+          frameType: this.isIncomingFrame(frame) ? 'incoming' : 'outgoing',
+          operationCount: frame.operations.length,
+          operations: frame.operations.map(op => op.type),
+          contentLength: content.length,
+          contentPreview: content.substring(0, 200) + (content.length > 200 ? '...' : ''),
+          tokens,
+          facetIds,
+          isEmpty: !content.trim()
+        },
+        parentId: traceId
+      });
       
       // Debug: Log frames with no content
       if ((config as any).name === 'interactive-explorer' && !content.trim()) {
@@ -354,20 +394,86 @@ export class FrameTrackingHUD implements CompressibleHUD {
   }
   
   private renderFacet(facet: Facet): string | null {
+    const tracer = getGlobalTracer();
+    
     // Skip tool facets and empty facets
     if (facet.type === 'tool') return null;
     if (!facet.content && (!facet.children || facet.children.length === 0)) {
       return null;
     }
     
+    const parts: string[] = [];
+    
+    // Trace facet rendering
+    const facetTraceId = `facet-render-${facet.id}-${Date.now()}`;
+    tracer?.record({
+      id: facetTraceId,
+      timestamp: Date.now(),
+      level: 'trace',
+      category: TraceCategory.HUD_RENDER,
+      component: 'FrameTrackingHUD',
+      operation: 'renderFacet',
+      data: {
+        facetId: facet.id,
+        facetType: facet.type,
+        displayName: facet.displayName,
+        hasContent: !!facet.content,
+        contentPreview: facet.content ? facet.content.substring(0, 100) + (facet.content.length > 100 ? '...' : '') : null,
+        childCount: facet.children?.length || 0,
+        attributes: facet.attributes
+      }
+    });
+    
     // Use displayName as tag if available
     if (facet.displayName) {
       const tag = this.sanitizeTagName(facet.displayName);
-      return `<${tag}>${facet.content || ''}</${tag}>`;
+      
+      // Render the facet's own content
+      if (facet.content) {
+        parts.push(`<${tag}>${facet.content}</${tag}>`);
+      }
+      
+      // Render child facets
+      if (facet.children && facet.children.length > 0) {
+        const childParts: string[] = [];
+        for (const child of facet.children) {
+          const rendered = this.renderFacet(child);
+          if (rendered) {
+            childParts.push(rendered);
+          }
+        }
+        if (childParts.length > 0) {
+          // If facet has both content and children, wrap children
+          if (facet.content) {
+            parts.push(`<${tag}-children>`);
+            parts.push(...childParts);
+            parts.push(`</${tag}-children>`);
+          } else {
+            // If only children, include them in the main tag
+            return `<${tag}>\n${childParts.join('\n')}\n</${tag}>`;
+          }
+        }
+      }
+      
+      return parts.join('\n');
     }
     
     // No tag for facets without displayName
-    return facet.content || null;
+    if (facet.content) {
+      parts.push(facet.content);
+    }
+    
+    // Still render children even without displayName
+    if (facet.children && facet.children.length > 0) {
+      for (const child of facet.children) {
+        const rendered = this.renderFacet(child);
+        if (rendered) {
+          parts.push(rendered);
+        }
+      }
+    }
+    
+    return parts.length > 0 ? parts.join('\n') : null;
   }
   
   private renderTransitions(

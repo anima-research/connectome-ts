@@ -22,7 +22,7 @@ else
     echo "In another terminal, run:"
     echo "cd examples/discord-axon-server"
     echo "npm install"
-    echo 'DISCORD_BOT_TOKEN="MTM4Mjg5MTcwODUxMzEyODQ4NQ.GtEgv8.EHaWjyEtv3TFd4xsqEBxyn-kilw0PQViQm3AaE" npm start'
+    echo 'DISCORD_BOT_TOKEN="...xaE" npm start'
     echo ""
     echo "Press Enter when server is running..."
     read

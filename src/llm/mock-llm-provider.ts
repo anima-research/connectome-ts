@@ -122,6 +122,95 @@ export class MockLLMProvider implements LLMProvider {
       }
     }
     
+    // Smart mock: Check if asked about first message or memory
+    const lastUserMsg = processableMessages.filter(m => m.role === 'user').pop();
+    if (lastUserMsg && 
+        (lastUserMsg.content.toLowerCase().includes('first message') ||
+         lastUserMsg.content.toLowerCase().includes('first thing') ||
+         lastUserMsg.content.toLowerCase().includes('remember'))) {
+      
+      // Find Discord messages in the full context
+      const fullContext = processableMessages.map(m => m.content).join('\n');
+      
+      // Discord messages appear as <discord-message>[Discord] author: content</discord-message>
+      // or sometimes just as [Discord] author: content
+      const patterns = [
+        /<discord-message>\[Discord\] ([^:]+): (.+?)<\/discord-message>/g,
+        /\[Discord\] ([^:]+): (.+?)(?=\n|\[|<|$)/g
+      ];
+      
+      const discordMessages: Array<{author: string, content: string, inHistory: boolean}> = [];
+      const seenMessages = new Set<string>();
+      
+      // Parse the context to find frame boundaries and restorations
+      // Look for patterns that indicate this is a restored session
+      const restorationPattern = /Welcome back!|I remember our conversation from before/;
+      const isRestoredSession = restorationPattern.test(fullContext);
+      
+      // Check if message is from channel-history
+      const historyPattern = /<channel-history>[\s\S]*?<\/channel-history-children>/s;
+      const historyMatch = historyPattern.exec(fullContext);
+      const historyContent = historyMatch ? historyMatch[0] : '';
+      
+      // If we're in a restored session and see channel-history, those messages are from VEIL
+      const historyIsFromVEIL = isRestoredSession && historyContent.length > 0;
+      
+      for (const pattern of patterns) {
+        let match;
+        while ((match = pattern.exec(fullContext)) !== null) {
+          const key = `${match[1]}:${match[2]}`;
+          if (!seenMessages.has(key)) {
+            seenMessages.add(key);
+            const fullMatch = match[0];
+            const inHistorySection = historyContent.includes(fullMatch);
+            // Message is "new from Discord" only if it's in a history section that's NOT from VEIL
+            const inHistory = inHistorySection && !historyIsFromVEIL;
+            discordMessages.push({
+              author: match[1].trim(),
+              content: match[2].trim(),
+              inHistory
+            });
+          }
+        }
+      }
+      
+      // Count messages from history vs already in VEIL
+      const historyMessages = discordMessages.filter(m => m.inHistory);
+      const veilMessages = discordMessages.filter(m => !m.inHistory);
+      
+      console.log(`[MockLLM] Found ${discordMessages.length} Discord messages in context`);
+      console.log(`[MockLLM]   - Restored session: ${isRestoredSession}`);
+      console.log(`[MockLLM]   - History section found: ${historyContent.length > 0}`);
+      console.log(`[MockLLM]   - History is from VEIL: ${historyIsFromVEIL}`);
+      console.log(`[MockLLM]   - ${historyMessages.length} from Discord history (new)` );
+      console.log(`[MockLLM]   - ${veilMessages.length} already in VEIL frames`);
+      
+      if (discordMessages.length > 0) {
+        // Filter to user messages only (not bot messages)
+        const userMessages = discordMessages.filter(msg => 
+          !msg.author.includes('Connectome') && 
+          !msg.content.includes('role-playing')
+        );
+        
+        const userHistoryMessages = userMessages.filter(m => m.inHistory);
+        const userVeilMessages = userMessages.filter(m => !m.inHistory);
+        
+        console.log(`[MockLLM] Found ${userMessages.length} user messages:`);
+        console.log(`[MockLLM]   - ${userHistoryMessages.length} from Discord history`);
+        console.log(`[MockLLM]   - ${userVeilMessages.length} already in VEIL`);
+        console.log(`[MockLLM] First few messages:`, userMessages.slice(0, 5).map(m => `${m.author}: ${m.content.substring(0, 50)}...`));
+        
+        if (userMessages.length > 0) {
+          const firstMsg = userMessages[0];
+          const historyInfo = firstMsg.inHistory ? " (from Discord history)" : " (already in VEIL)";
+          return this.traceAndReturn({
+            content: `Looking at our conversation history, the first message I received from you was: "${firstMsg.content}"${historyInfo} - I can see all ${userMessages.length} messages we've exchanged (${userHistoryMessages.length} from Discord history, ${userVeilMessages.length} already in VEIL), demonstrating that I have full memory of our past interactions even after restarting!`,
+            tokensUsed: 100
+          });
+        }
+      }
+    }
+    
     // Return next response in sequence or default
     if (this.responseIndex < this.responses.length) {
       const response = this.responses[this.responseIndex++];

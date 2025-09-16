@@ -103,6 +103,7 @@ export abstract class VEILComponent extends Component {
     attributes?: Record<string, any>;
     attributeRenderers?: Record<string, (value: any, oldValue?: any) => string | null>;
     transitionRenderers?: Record<string, (newValue: any, oldValue: any) => string | null>;
+    children?: Facet[];
   }): void {
     // Create proper facet based on type
     let facet: Facet;
@@ -114,7 +115,8 @@ export abstract class VEILComponent extends Component {
           type: 'event',
           content: facetDef.content,
           displayName: facetDef.displayName,
-          attributes: facetDef.attributes || {}
+          attributes: facetDef.attributes || {},
+          children: facetDef.children
         };
         break;
       case 'state':
@@ -125,7 +127,8 @@ export abstract class VEILComponent extends Component {
           displayName: facetDef.displayName,
           attributes: facetDef.attributes || {},
           attributeRenderers: facetDef.attributeRenderers,
-          transitionRenderers: facetDef.transitionRenderers
+          transitionRenderers: facetDef.transitionRenderers,
+          children: facetDef.children
         };
         break;
       case 'ambient':
@@ -135,7 +138,8 @@ export abstract class VEILComponent extends Component {
           content: facetDef.content,
           displayName: facetDef.displayName,
           scope: facetDef.scope || [],
-          attributes: facetDef.attributes || {}
+          attributes: facetDef.attributes || {},
+          children: facetDef.children
         };
         break;
     }
