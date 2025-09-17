@@ -8,8 +8,6 @@ import {
   watch
 } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.js';
 
-const API_BASE = '';
-
 function normalizeFrame(frame) {
   return {
     events: [],
@@ -44,8 +42,7 @@ function formatTime(value) {
   if (!value) return '—';
   try {
     const date = new Date(value);
-    const time = date.toLocaleTimeString();
-    return time;
+    return date.toLocaleTimeString();
   } catch {
     if (typeof value === 'number') {
       return `${value} ms`;
@@ -54,28 +51,16 @@ function formatTime(value) {
   }
 }
 
-function renderTree(node, depth = 0) {
-  if (!node) return '';
-  const indent = '  '.repeat(depth);
-  let output = `${indent}- ${node.name} (${node.type}) [${node.id} ]`;
-  if (node.subscriptions && node.subscriptions.length) {
-    output += `\n${indent}  subscriptions: ${node.subscriptions.join(', ')}`;
-  }
-  if (node.components && node.components.length) {
-    for (const component of node.components) {
-      output += `\n${indent}  • ${component.type}`;
-      const keys = Object.keys(component.state || {});
-      if (keys.length) {
-        output += `\n${indent}     ${stringify(component.state)}`;
-      }
-    }
-  }
-  if (node.children && node.children.length) {
-    for (const child of node.children) {
-      output += `\n${renderTree(child, depth + 1)}`;
-    }
-  }
-  return output;
+function shorten(value, max = 28) {
+  if (value === null || value === undefined) return '';
+  const str = String(value);
+  return str.length > max ? `${str.slice(0, max - 1)}…` : str;
+}
+
+function truncate(value, max = 160) {
+  if (!value && value !== 0) return '';
+  const str = String(value);
+  return str.length > max ? `${str.slice(0, max - 1)}…` : str;
 }
 
 function summarizeFacet(facet) {
@@ -106,11 +91,164 @@ function summarizeOperation(op) {
   }
 }
 
+function operationMeta(op) {
+  if (!op) return '';
+  switch (op.type) {
+    case 'addFacet':
+      return shorten(op.facet?.displayName || op.facet?.type || '', 32);
+    case 'changeState': {
+      const keys = Object.keys(op.updates?.attributes || {});
+      return keys.length ? `attrs: ${shorten(keys.join(', '), 36)}` : '';
+    }
+    case 'agentActivation':
+      return shorten(op.reason || op.source || '', 36);
+    case 'addStream':
+      return shorten(op.stream?.name || op.stream?.id || '', 36);
+    case 'speak':
+      return shorten(op.target || (op.targets && op.targets.join(', ')) || '', 36);
+    default:
+      return '';
+  }
+}
+
 function summarizeEvent(event) {
   if (!event) return '';
   const target = event.target?.elementId || event.source?.elementId;
   return target ? `${event.topic} → ${target}` : event.topic || 'event';
 }
+
+function eventMeta(event) {
+  if (!event) return '';
+  const parts = [];
+  if (event.phase && event.phase !== 'none') parts.push(event.phase);
+  if (event.payload && typeof event.payload === 'object') {
+    if (event.payload.reason) parts.push(event.payload.reason);
+    if (event.payload.priority) parts.push(`priority ${event.payload.priority}`);
+  }
+  return shorten(parts.join(' · '), 40);
+}
+
+function formatComponentSummary(state) {
+  if (!state || typeof state !== 'object') return '';
+  const entries = Object.entries(state)
+    .slice(0, 2)
+    .map(([key, value]) => {
+      const formatted = typeof value === 'object' ? JSON.stringify(value) : value;
+      return `${key}: ${shorten(formatted, 36)}`;
+    });
+  return entries.join(' · ');
+}
+
+const ElementTree = {
+  name: 'ElementTree',
+  props: {
+    node: { type: Object, required: true },
+    depth: { type: Number, default: 0 },
+    expanded: { type: Object, required: true }
+  },
+  emits: ['toggle', 'show-detail'],
+  setup(props, { emit }) {
+    const hasChildren = computed(() => props.node.children && props.node.children.length > 0);
+    const isExpanded = computed(() => {
+      if (!hasChildren.value) return false;
+      const current = props.expanded[props.node.id];
+      return current === undefined ? false : current;
+    });
+
+    const toggle = () => {
+      if (!hasChildren.value) return;
+      emit('toggle', props.node.id);
+    };
+
+    const showElementDetail = () => {
+      emit('show-detail', {
+        title: `Element · ${props.node.name}`,
+        subtitle: props.node.type,
+        payload: props.node
+      });
+    };
+
+    const showComponentDetail = comp => {
+      emit('show-detail', {
+        title: `Component · ${comp.type}`,
+        subtitle: props.node.name,
+        payload: comp
+      });
+    };
+
+    const componentSummary = comp => formatComponentSummary(comp.state);
+
+    return {
+      hasChildren,
+      isExpanded,
+      toggle,
+      showElementDetail,
+      showComponentDetail,
+      componentSummary,
+      shorten,
+      truncate
+    };
+  },
+  template: `
+    <li class="tree-item" :style="{ '--depth': depth }">
+      <div class="tree-row">
+        <button
+          v-if="hasChildren"
+          class="tree-toggle"
+          @click.stop="toggle"
+        >
+          {{ isExpanded ? '▾' : '▸' }}
+        </button>
+        <div class="tree-info" @click="showElementDetail">
+          <span class="tree-name">{{ node.name }}</span>
+          <span class="tree-type">{{ node.type }}</span>
+          <span
+            v-if="node.subscriptions && node.subscriptions.length"
+            class="tree-meta"
+          >
+            {{ shorten(node.subscriptions.join(', '), 40) }}
+          </span>
+          <span
+            v-if="node.content"
+            class="tree-content"
+          >
+            {{ truncate(node.content, 80) }}
+          </span>
+        </div>
+      </div>
+      <div
+        v-if="node.components && node.components.length"
+        class="tree-components"
+      >
+        <div
+          v-for="(comp, index) in node.components"
+          :key="index"
+          class="tree-component"
+          @click.stop="showComponentDetail(comp)"
+        >
+          <span class="comp-name">{{ comp.type }}</span>
+          <span
+            v-if="componentSummary(comp)"
+            class="comp-summary"
+          >
+            {{ componentSummary(comp) }}
+          </span>
+        </div>
+      </div>
+      <ul v-if="hasChildren && isExpanded" class="tree-children">
+        <element-tree
+          v-for="child in node.children"
+          :key="child.id"
+          :node="child"
+          :depth="depth + 1"
+          :expanded="expanded"
+          @toggle="$emit('toggle', $event)"
+          @show-detail="$emit('show-detail', $event)"
+        />
+      </ul>
+    </li>
+  `
+};
 
 const App = {
   setup() {
@@ -133,12 +271,14 @@ const App = {
       loadingFrame: false,
       error: null,
       selectedOperationIndex: null,
-      selectedEventIndex: null
+      selectedEventIndex: null,
+      activeDetail: null
     });
 
     const socketRef = ref(null);
     const reconnectTimer = ref(null);
     const refreshTimer = ref(null);
+    const expandedElements = reactive({});
 
     function upsertFrame(frameData) {
       if (!frameData || !frameData.uuid) return;
@@ -170,14 +310,13 @@ const App = {
         events
       };
       if (state.selectedFrameId === frameId) {
-        // force computed update by reassigning
-        state.selectedFrameId = frameId;
+        state.selectedEventIndex = events.length - 1;
       }
     }
 
     async function loadFrames(limit = 150) {
       try {
-        const response = await fetch(`${API_BASE}/api/frames?limit=${limit}`);
+        const response = await fetch(`/api/frames?limit=${limit}`);
         if (!response.ok) throw new Error(`frames request failed: ${response.status}`);
         const payload = await response.json();
         (payload.frames || []).forEach(upsertFrame);
@@ -191,12 +330,25 @@ const App = {
       }
     }
 
+    function initializeElementExpansion(node, depth = 0) {
+      if (!node) return;
+      if (expandedElements[node.id] === undefined) {
+        expandedElements[node.id] = depth < 1;
+      }
+      if (node.children) {
+        node.children.forEach(child => initializeElementExpansion(child, depth + 1));
+      }
+    }
+
     async function loadSystemState() {
       try {
-        const response = await fetch(`${API_BASE}/api/state`);
+        const response = await fetch('/api/state');
         if (!response.ok) throw new Error(`state request failed: ${response.status}`);
         const payload = await response.json();
         state.elementTree = payload.space || null;
+        if (state.elementTree) {
+          initializeElementExpansion(state.elementTree);
+        }
         state.facets = payload.veil?.facets || [];
         if (payload.metrics) {
           state.metrics = {
@@ -213,7 +365,7 @@ const App = {
       if (!uuid) return;
       state.loadingFrame = true;
       try {
-        const response = await fetch(`${API_BASE}/api/frames/${uuid}`);
+        const response = await fetch(`/api/frames/${uuid}`);
         if (!response.ok) throw new Error(`frame request failed: ${response.status}`);
         const payload = await response.json();
         upsertFrame(payload);
@@ -336,7 +488,7 @@ const App = {
     watch(
       () => state.filters.search,
       () => {
-        // trigger recompute
+        // computed handles filtering reactively
       }
     );
 
@@ -346,9 +498,35 @@ const App = {
         const frame = state.frames.find(f => f.uuid === state.selectedFrameId);
         state.selectedOperationIndex = frame?.operations?.length ? 0 : null;
         state.selectedEventIndex = frame?.events?.length ? 0 : null;
-      },
-      { immediate: true }
+        state.activeDetail = null;
+      }
     );
+
+    function openDetail(title, payload, subtitle) {
+      state.activeDetail = { title, payload, subtitle };
+    }
+
+    function closeDetail() {
+      state.activeDetail = null;
+    }
+
+    function selectOperation(op, idx) {
+      state.selectedOperationIndex = idx;
+      openDetail(`Operation · ${op.type}`, op, operationMeta(op));
+    }
+
+    function selectEvent(event, idx) {
+      state.selectedEventIndex = idx;
+      openDetail(`Event · ${event.topic}`, event, eventMeta(event));
+    }
+
+    function toggleElement(id) {
+      expandedElements[id] = !expandedElements[id];
+    }
+
+    function handleTreeDetail(detail) {
+      openDetail(detail.title, detail.payload, detail.subtitle);
+    }
 
     const filteredFrames = computed(() => {
       const query = state.filters.search.trim().toLowerCase();
@@ -384,8 +562,8 @@ const App = {
 
     const timelineFrames = computed(() => {
       const frames = [...state.frames];
-      frames.sort((a, b) => a.sequence - b.sequence);
-      return frames.slice(-24);
+      frames.sort((a, b) => b.sequence - a.sequence);
+      return frames.slice(0, 24);
     });
 
     return {
@@ -397,12 +575,20 @@ const App = {
       timelineFrames,
       formatTime,
       formatTimestamp,
-      renderTree,
+      shorten,
       summarizeFacet,
       summarizeOperation,
       summarizeEvent,
+      operationMeta,
+      eventMeta,
       stringify,
       selectFrame,
+      selectOperation,
+      selectEvent,
+      closeDetail,
+      expandedElements,
+      toggleElement,
+      handleTreeDetail,
       refresh
     };
   },
@@ -432,7 +618,7 @@ const App = {
       </div>
       <div class="layout">
         <aside class="sidebar">
-          <section class="panel">
+          <section class="panel frame-panel">
             <div class="panel-header">
               <h2>Frames</h2>
               <span class="badge" v-if="filteredFrames.length">{{ filteredFrames.length }}</span>
@@ -484,7 +670,7 @@ const App = {
           <section class="panel timeline-panel" v-if="timelineFrames.length">
             <div class="panel-header">
               <h2>Frame Timeline</h2>
-              <span class="badge">Last {{ timelineFrames.length }}</span>
+              <span class="badge">Newest {{ timelineFrames.length }}</span>
             </div>
             <div class="timeline-body">
               <div
@@ -499,22 +685,15 @@ const App = {
             </div>
           </section>
           <section class="panel frame-detail" v-if="selectedFrame">
-            <div class="panel-header">
+            <div class="panel-header frame-header">
               <h2>Frame {{ selectedFrame.sequence }}</h2>
+              <div class="frame-meta">
+                <span class="meta-pill">UUID: {{ shorten(selectedFrame.uuid, 18) }}</span>
+                <span class="meta-pill">{{ formatTimestamp(selectedFrame.timestamp) }}</span>
+                <span class="meta-pill kind" :class="selectedFrame.kind">{{ selectedFrame.kind }}</span>
+              </div>
             </div>
             <div class="info-grid">
-              <div class="info-card">
-                <h4>UUID</h4>
-                <span>{{ selectedFrame.uuid }}</span>
-              </div>
-              <div class="info-card">
-                <h4>Timestamp</h4>
-                <span>{{ formatTimestamp(selectedFrame.timestamp) }}</span>
-              </div>
-              <div class="info-card">
-                <h4>Kind</h4>
-                <span class="pill" :class="selectedFrame.kind">{{ selectedFrame.kind }}</span>
-              </div>
               <div class="info-card" v-if="selectedFrame.activeStream">
                 <h4>Active Stream</h4>
                 <span>{{ selectedFrame.activeStream.streamId }}</span>
@@ -541,6 +720,12 @@ const App = {
                 </div>
               </div>
             </div>
+            <div class="section" v-if="selectedFrame.renderedContext">
+              <h3>LLM Request JSON</h3>
+              <div class="section-body">
+                <pre class="code-block">{{ stringify(selectedFrame.renderedContext) }}</pre>
+              </div>
+            </div>
             <div class="section">
               <h3>Operations</h3>
               <div class="section-body pills">
@@ -550,13 +735,17 @@ const App = {
                     v-for="(op, idx) in selectedFrame.operations"
                     :key="idx"
                     :class="['pill-item', { active: state.selectedOperationIndex === idx }]"
-                    @click="state.selectedOperationIndex = idx"
+                    @click="selectOperation(op, idx)"
                   >
                     <span class="pill-title">{{ summarizeOperation(op) }}</span>
-                    <span class="pill-meta" v-if="op.facet?.id">{{ op.facet.id }}</span>
+                    <span
+                      v-if="operationMeta(op)"
+                      class="pill-meta"
+                    >
+                      {{ operationMeta(op) }}
+                    </span>
                   </div>
                 </div>
-                <pre class="code-block" v-if="selectedOperation">{{ stringify(selectedOperation) }}</pre>
               </div>
             </div>
             <div class="section">
@@ -568,13 +757,17 @@ const App = {
                     v-for="(event, idx) in selectedFrame.events"
                     :key="event.id || idx"
                     :class="['pill-item', { active: state.selectedEventIndex === idx }]"
-                    @click="state.selectedEventIndex = idx"
+                    @click="selectEvent(event, idx)"
                   >
                     <span class="pill-title">{{ summarizeEvent(event) }}</span>
-                    <span class="pill-meta">{{ formatTime(event.timestamp) }}</span>
+                    <span
+                      v-if="eventMeta(event)"
+                      class="pill-meta"
+                    >
+                      {{ eventMeta(event) }}
+                    </span>
                   </div>
                 </div>
-                <pre class="code-block" v-if="selectedEvent">{{ stringify(selectedEvent) }}</pre>
               </div>
             </div>
           </section>
@@ -590,13 +783,41 @@ const App = {
             <div class="panel-header">
               <h2>Element Tree</h2>
             </div>
-            <pre v-if="state.elementTree">{{ renderTree(state.elementTree) }}</pre>
+            <ul v-if="state.elementTree" class="tree-view">
+              <element-tree
+                :node="state.elementTree"
+                :depth="0"
+                :expanded="expandedElements"
+                @toggle="toggleElement"
+                @show-detail="handleTreeDetail"
+              />
+            </ul>
             <div v-else class="text-muted">Tree not available yet.</div>
           </section>
         </section>
+        <aside class="inspector" :class="{ 'inspector-visible': state.activeDetail }">
+          <section class="panel inspector-panel">
+            <div class="panel-header inspector-header">
+              <h2>Inspector</h2>
+              <button class="button" v-if="state.activeDetail" @click="closeDetail">Close</button>
+            </div>
+            <div v-if="state.activeDetail" class="inspector-body">
+              <div class="inspector-title">{{ state.activeDetail.title }}</div>
+              <div v-if="state.activeDetail.subtitle" class="inspector-subtitle">{{ state.activeDetail.subtitle }}</div>
+              <div class="inspector-json">
+                <pre class="code-block">{{ stringify(state.activeDetail.payload) }}</pre>
+              </div>
+            </div>
+            <div v-else class="inspector-placeholder">
+              Select an operation, event, or element to inspect.
+            </div>
+          </section>
+        </aside>
       </div>
     </div>
   `
 };
 
-createApp(App).mount('#app');
+const app = createApp(App);
+app.component('element-tree', ElementTree);
+app.mount('#app');
