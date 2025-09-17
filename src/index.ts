@@ -56,3 +56,7 @@ export * from './persistence';
 
 // Component Registry
 export { ComponentRegistry } from './persistence/component-registry';
+
+// Debug exports
+export { DebugServer } from './debug';
+export type { DebugServerConfig } from './debug';

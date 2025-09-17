@@ -1,7 +1,7 @@
 // Complete VEIL frames for the starship scenario
 // This file shows all VEIL frames that produce the rendered context
 
-import { IncomingVEILFrame, OutgoingVEILFrame } from '../src/veil/types';
+import { IncomingVEILFrame, OutgoingVEILFrame } from '../veil/types';
 
 export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] = [
   // Frame 1: Initial state setup

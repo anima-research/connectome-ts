@@ -99,6 +99,15 @@ export class BasicAgent implements AgentInterface {
         try {
           // Build context
           const context = this.buildContext(state, frame.activeStream);
+
+          // Surface rendered context to debug observers when available
+          if (this.space && typeof this.space.recordRenderedContext === 'function') {
+            this.space.recordRenderedContext(frame, context, {
+              agentId: this.agentElementId,
+              agentName: this.config.name,
+              streamRef: frame.activeStream
+            });
+          }
           
           // Run cycle
           const response = await this.runCycle(context, frame.activeStream);

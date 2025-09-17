@@ -78,6 +78,10 @@ async function createNewAgent() {
   const veilState = new VEILStateManager();
   const space = new Space(veilState);
   
+  // Enable debug server
+  space.enableDebugServer({ port: 8889 });
+  console.log('🔍 Debug UI available at http://localhost:8889\n');
+  
   // Create persistence manager with correct storage path (must be absolute)
   const persistence = new TransitionManager(space, veilState, {
     storagePath: path.resolve(storageDir)
@@ -259,6 +263,11 @@ async function restoreAgent() {
   // Create systems
   const veilState = new VEILStateManager();
   const space = new Space(veilState);
+  
+  // Enable debug server
+  space.enableDebugServer({ port: 8889 });
+  console.log('🔍 Debug UI available at http://localhost:8889\n');
+  
   const persistence = new TransitionManager(space, veilState, {
     storagePath: path.resolve(storageDir)
   });

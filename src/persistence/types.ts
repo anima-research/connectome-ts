@@ -2,8 +2,9 @@
  * Persistence system types and interfaces
  */
 
-import { VEILState, OutgoingVEILFrame, IncomingVEILFrame } from '../veil/types';
+import { VEILState, OutgoingVEILFrame, IncomingVEILFrame, StreamRef } from '../veil/types';
 import { ElementRef } from '../spaces/types';
+import type { RenderedContext } from '../hud/types-v2';
 
 /**
  * Serialization types
@@ -117,6 +118,17 @@ export interface FrameDelta {
   timestamp: string;
   frame: IncomingVEILFrame | OutgoingVEILFrame;
   elementOperations?: ElementOperation[];
+  renderedContext?: RenderedContextSnapshot;
+}
+
+export interface RenderedContextSnapshot {
+  sequence: number;
+  recordedAt: string;
+  context: RenderedContext;
+  agentId?: string;
+  agentName?: string;
+  streamRef?: StreamRef;
+  frameUUID?: string;
 }
 
 /**
@@ -148,6 +160,9 @@ export interface PersistenceConfig {
   // Memory system
   enableMemoryCompression?: boolean;  // Enable frame batch compression
   compressionBatchSize?: number;      // Frames per compression batch
+
+  // Rendered context persistence
+  persistRenderedContext?: boolean;   // Persist rendered context snapshots (default: true)
 }
 
 /**

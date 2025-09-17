@@ -1,7 +1,7 @@
 import { Element } from './element';
 import { SpaceEvent, FrameStartEvent, FrameEndEvent, StreamRef, EventPhase, ElementRef } from './types';
 import { VEILStateManager } from '../veil/veil-state';
-import { IncomingVEILFrame } from '../veil/types';
+import { IncomingVEILFrame, OutgoingVEILFrame } from '../veil/types';
 import { matchesTopic } from './utils';
 import { 
   TraceStorage, 
@@ -10,6 +10,28 @@ import {
 } from '../tracing';
 import { EventPriorityQueue } from './priority-queue';
 import { eventBubbles } from './event-utils';
+import type { 
+  DebugObserver,
+  DebugFrameStartContext,
+  DebugFrameCompleteContext,
+  DebugEventContext,
+  DebugOutgoingFrameContext,
+  DebugRenderedContextInfo
+} from '../debug/types';
+import { DebugServer, DebugServerConfig } from '../debug/debug-server';
+import { deterministicUUID } from '../utils/uuid';
+import { performance } from 'perf_hooks';
+import type { RenderedContext } from '../hud/types-v2';
+import type { RenderedContextSnapshot } from '../persistence/types';
+
+interface RenderedContextRecord {
+  context: RenderedContext;
+  agentId?: string;
+  agentName?: string;
+  streamRef?: StreamRef;
+  recordedAt: string;
+  frameUUID?: string;
+}
 
 /**
  * The root Space element that orchestrates the entire system
@@ -46,6 +68,15 @@ export class Space extends Element {
    */
   private tracer: TraceStorage | undefined;
   
+  /**
+   * Registered debug observers that mirror internal activity to external tooling
+   */
+  private debugObservers: DebugObserver[] = [];
+
+  private debugServerInstance?: DebugServer;
+
+  private renderedContextLog: Map<number, RenderedContextRecord> = new Map();
+  
   constructor(veilState: VEILStateManager) {
     super('root');
     this.veilState = veilState;
@@ -59,6 +90,97 @@ export class Space extends Element {
     this.subscribe('element:unmount');
   }
   
+  /**
+   * Attach an external debug observer. Observers are notified about frame
+   * lifecycle events and outgoing agent frames to feed the debug UI.
+   */
+  addDebugObserver(observer: DebugObserver): void {
+    this.debugObservers.push(observer);
+  }
+  
+  /**
+   * Convenience helper for spinning up the embedded debug server.
+   */
+  enableDebugServer(config?: Partial<DebugServerConfig>): void {
+    if (this.debugServerInstance) {
+      return;
+    }
+    this.debugServerInstance = new DebugServer(this, config);
+    this.debugServerInstance.start();
+  }
+
+  /**
+   * Record the rendered context produced for an agent cycle so the debug UI
+   * can display exactly what the LLM saw.
+   */
+  recordRenderedContext(
+    frame: IncomingVEILFrame,
+    context: RenderedContext,
+    metadata: { agentId?: string; agentName?: string; streamRef?: StreamRef } = {}
+  ): void {
+    const record: RenderedContextRecord = {
+      context,
+      agentId: metadata.agentId,
+      agentName: metadata.agentName,
+      streamRef: metadata.streamRef || frame.activeStream,
+      recordedAt: new Date().toISOString(),
+      frameUUID: frame.uuid
+    };
+
+    this.renderedContextLog.set(frame.sequence, record);
+    this.pruneRenderedContexts();
+
+    this.notifyDebugRenderedContext({
+      frameSequence: frame.sequence,
+      frameUUID: frame.uuid,
+      context,
+      agentId: record.agentId,
+      agentName: record.agentName,
+      streamRef: record.streamRef
+    });
+  }
+
+  getRenderedContextSnapshot(sequence: number): RenderedContextRecord | undefined {
+    return this.renderedContextLog.get(sequence);
+  }
+
+  clearRenderedContext(sequence: number): void {
+    this.renderedContextLog.delete(sequence);
+  }
+
+  pruneRenderedContexts(maxEntries: number = 200): void {
+    if (this.renderedContextLog.size <= maxEntries) {
+      return;
+    }
+    const sequences = Array.from(this.renderedContextLog.keys()).sort((a, b) => a - b);
+    while (this.renderedContextLog.size > maxEntries && sequences.length) {
+      const seq = sequences.shift();
+      if (typeof seq === 'number') {
+        this.renderedContextLog.delete(seq);
+      }
+    }
+  }
+
+  replayRenderedContextFromSnapshot(snapshot: RenderedContextSnapshot): void {
+    const record: RenderedContextRecord = {
+      context: snapshot.context,
+      agentId: snapshot.agentId,
+      agentName: snapshot.agentName,
+      streamRef: snapshot.streamRef,
+      recordedAt: snapshot.recordedAt,
+      frameUUID: snapshot.frameUUID
+    };
+    this.renderedContextLog.set(snapshot.sequence, record);
+    this.notifyDebugRenderedContext({
+      frameSequence: snapshot.sequence,
+      frameUUID: snapshot.frameUUID,
+      context: snapshot.context,
+      agentId: snapshot.agentId,
+      agentName: snapshot.agentName,
+      streamRef: snapshot.streamRef
+    });
+  }
+
   
   /**
    * Get the current active stream
@@ -118,6 +240,7 @@ export class Space extends Element {
     this.processingFrame = true;
     
     const frameId = this.veilState.getNextSequence();
+    const frameStartClock = performance.now();
     const frameSpan = this.tracer?.startSpan('processFrame', 'Space');
 
     try {
@@ -136,6 +259,10 @@ export class Space extends Element {
           extensions: {}
         }
       };
+      this.currentFrame.uuid = deterministicUUID(`incoming-${frameId}`);
+      this.notifyDebugFrameStart(this.currentFrame, {
+        queuedEvents: this.eventQueue.length
+      });
       
       this.tracer?.record({
         id: `frame-start-${frameId}`,
@@ -169,6 +296,12 @@ export class Space extends Element {
       
       for (const event of events) {
         await this.distributeEvent(event);
+        if (this.currentFrame) {
+          this.notifyDebugFrameEvent(this.currentFrame, event, {
+            phase: event.eventPhase ?? EventPhase.NONE,
+            targetId: event.target?.elementId
+          });
+        }
       }
       
       // Check if frame has content
@@ -208,11 +341,19 @@ export class Space extends Element {
         
         // Record the frame
         this.veilState.applyIncomingFrame(this.currentFrame);
+        this.notifyDebugFrameComplete(this.currentFrame, {
+          durationMs: performance.now() - frameStartClock,
+          processedEvents: events.length
+        });
         
         // Agent processing is handled by AgentComponent(s) listening to frame:end
       } else {
         // Still record empty frames to maintain sequence continuity
         this.veilState.applyIncomingFrame(this.currentFrame);
+        this.notifyDebugFrameComplete(this.currentFrame, {
+          durationMs: performance.now() - frameStartClock,
+          processedEvents: events.length
+        });
         
         this.tracer?.record({
           id: `frame-empty-${frameId}`,
@@ -398,6 +539,36 @@ export class Space extends Element {
   getVEILState(): VEILStateManager {
     return this.veilState;
   }
+
+  private notifyDebugFrameStart(frame: IncomingVEILFrame, context: DebugFrameStartContext): void {
+    for (const observer of this.debugObservers) {
+      observer.onFrameStart?.(frame, context);
+    }
+  }
+
+  private notifyDebugFrameEvent(frame: IncomingVEILFrame, event: SpaceEvent, context: DebugEventContext): void {
+    for (const observer of this.debugObservers) {
+      observer.onFrameEvent?.(frame, event, context);
+    }
+  }
+
+  private notifyDebugFrameComplete(frame: IncomingVEILFrame, context: DebugFrameCompleteContext): void {
+    for (const observer of this.debugObservers) {
+      observer.onFrameComplete?.(frame, context);
+    }
+  }
+
+  private notifyDebugOutgoingFrame(frame: OutgoingVEILFrame, context: DebugOutgoingFrameContext): void {
+    for (const observer of this.debugObservers) {
+      observer.onOutgoingFrame?.(frame, context);
+    }
+  }
+
+  private notifyDebugRenderedContext(info: DebugRenderedContextInfo): void {
+    for (const observer of this.debugObservers) {
+      observer.onRenderedContext?.(info);
+    }
+  }
   
   /**
    * Activate the agent with specified stream configuration
@@ -461,26 +632,32 @@ export class Space extends Element {
       const { frame: agentFrame, agentId, agentName } = event.payload as any;
       
       // Clone the frame to avoid mutating the agent's original
-      const frame = {
+      const nextSequence = this.veilState.getNextSequence();
+      const frame: OutgoingVEILFrame = {
         ...agentFrame,
         operations: [...agentFrame.operations],
-        sequence: this.veilState.getNextSequence()
+        sequence: nextSequence,
+        timestamp: agentFrame.timestamp || new Date().toISOString(),
+        activeStream: agentFrame.activeStream || this.activeStream,
+        uuid: deterministicUUID(`outgoing-${nextSequence}`)
       };
-      
+
       // Record the frame
       this.veilState.recordOutgoingFrame(frame);
+      this.notifyDebugOutgoingFrame(frame, { agentId, agentName });
       
       // Process tool calls synchronously to avoid starting new frames
       for (const op of frame.operations) {
         if (op.type === 'action') {
           // Process action directly instead of emitting events
-          const targetElement = this.findElementByIdInTree(this, op.elementId);
+          const targetId = op.elementId || (op.path && op.path.length > 0 ? op.path[0] : undefined);
+          const targetElement = targetId ? this.findElementByIdInTree(this, targetId) : null;
           if (targetElement) {
             await targetElement.handleEvent({
               topic: 'element:action',
               source: this.getRef(),
               payload: {
-                path: [...op.path, op.action],
+                path: op.path,
                 parameters: op.parameters
               },
               timestamp: Date.now()

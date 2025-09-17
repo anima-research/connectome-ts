@@ -38,15 +38,17 @@ export class PersistenceManager {
     this.veilState = veilState;
     
     // Apply defaults
+    const storagePath = config?.storagePath || './persistence';
     this.config = {
       snapshotInterval: 100,
       maxSnapshots: 10,
       maxDeltasPerSnapshot: 500,
       compressDeltas: true,
-      storagePath: './persistence',
-      storageAdapter: config?.storageAdapter || new FileStorageAdapter(config?.storagePath || './persistence'),
+      storagePath,
+      storageAdapter: config?.storageAdapter || new FileStorageAdapter(storagePath),
       enableMemoryCompression: false,
       compressionBatchSize: 50,
+      persistRenderedContext: config?.persistRenderedContext ?? true,
       ...config
     };
     
@@ -127,6 +129,21 @@ export class PersistenceManager {
       frame,
       elementOperations: this.elementOperations.length > 0 ? [...this.elementOperations] : undefined
     };
+
+    if (this.config.persistRenderedContext) {
+      const renderedSnapshot = this.space.getRenderedContextSnapshot(sequence);
+      if (renderedSnapshot) {
+        delta.renderedContext = {
+          sequence,
+          recordedAt: renderedSnapshot.recordedAt,
+          context: renderedSnapshot.context,
+          agentId: renderedSnapshot.agentId,
+          agentName: renderedSnapshot.agentName,
+          streamRef: renderedSnapshot.streamRef,
+          frameUUID: renderedSnapshot.frameUUID
+        };
+      }
+    }
     
     // Clear tracked operations
     this.elementOperations = [];
@@ -283,12 +300,16 @@ export class PersistenceManager {
       // Outgoing frame
       this.veilState.recordOutgoingFrame(delta.frame as OutgoingVEILFrame);
     }
-    
+
     // Apply element operations
     if (delta.elementOperations) {
       for (const op of delta.elementOperations) {
         await this.applyElementOperation(op);
       }
+    }
+
+    if (this.config.persistRenderedContext !== false && delta.renderedContext) {
+      this.space.replayRenderedContextFromSnapshot(delta.renderedContext);
     }
   }
   

@@ -170,6 +170,7 @@ export interface StreamRef {
 export interface IncomingVEILFrame {
   sequence: number;
   timestamp: string;
+  uuid?: string;
   activeStream?: StreamRef; // Active stream reference with metadata
   operations: VEILOperation[];
   transition?: FrameTransition; // Mutable transition object for persistence
@@ -213,6 +214,8 @@ export interface SpeakOperation {
 export interface ActionOperation {
   type: 'action';
   path: string[];        // Full path (e.g., ['chat', 'general', 'say'])
+  elementId?: string;    // Optional explicit element identifier
+  action?: string;       // Optional explicit action (fallback when path is split)
   parameters?: Record<string, any>;  // Named parameters
   rawSyntax?: string;    // Original @element.method syntax for reference
 }
@@ -227,6 +230,8 @@ export type OutgoingVEILOperation =
 export interface OutgoingVEILFrame {
   sequence: number;
   timestamp: string;
+  uuid?: string;
+  activeStream?: StreamRef;
   operations: OutgoingVEILOperation[];
 }
 
