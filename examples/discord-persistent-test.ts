@@ -86,6 +86,8 @@ async function createNewAgent() {
   const persistence = new TransitionManager(space, veilState, {
     storagePath: path.resolve(storageDir)
   });
+  globalPersistence = persistence; // Set global reference
+  globalPersistence = persistence; // Set global reference
   
   // Create LLM provider
   let llm: LLMProvider;
@@ -231,8 +233,11 @@ Keep your responses concise and friendly. You're a helpful Discord bot, so engag
     console.log('   - Responds to mentions');
     console.log('   - Responds to keywords: hi, hello, help, ?, connectome\n');
     
-    // Save state periodically
-    setInterval(async () => {
+    // Save state periodically (clear any existing interval first)
+    if (snapshotIntervalId) {
+      clearInterval(snapshotIntervalId);
+    }
+    snapshotIntervalId = setInterval(async () => {
       const snapshot = await persistence.createSnapshot();
       console.log(`💾 Saved state (${state.facets.size} facets, ${state.frameHistory.length} frames)`);
     }, 30000); // Every 30 seconds
@@ -271,6 +276,7 @@ async function restoreAgent() {
   const persistence = new TransitionManager(space, veilState, {
     storagePath: path.resolve(storageDir)
   });
+  globalPersistence = persistence; // Set global reference
   
   // Get latest snapshot
   const latestSnapshot = snapshots[snapshots.length - 1];
@@ -450,11 +456,14 @@ async function restoreAgent() {
     console.log('💭 Agent has full memory of previous conversations');
     console.log('🎯 Continue chatting - the agent remembers you!\n');
     
-    // Save state periodically
-    setInterval(async () => {
+    // Save state periodically (clear any existing interval first)
+    if (snapshotIntervalId) {
+      clearInterval(snapshotIntervalId);
+    }
+    snapshotIntervalId = setInterval(async () => {
       const snapshot = await persistence.createSnapshot();
       console.log(`💾 Saved state (${state.facets.size} facets, ${state.frameHistory.length} frames)`);
-    }, 30000);
+    }, 30000); // Every 30 seconds
     
     return { space, veilState, persistence };
   } else {
@@ -467,10 +476,16 @@ async function restoreAgent() {
 
 // Global persistence reference
 let globalPersistence: TransitionManager | null = null;
+let snapshotIntervalId: NodeJS.Timeout | null = null;
 
 // Handle graceful shutdown
 process.on('SIGINT', async () => {
   console.log('\n\n👋 Shutting down gracefully...');
+  
+  // Clear interval timer
+  if (snapshotIntervalId) {
+    clearInterval(snapshotIntervalId);
+  }
   
   // Save final state if we have persistence
   if (globalPersistence) {

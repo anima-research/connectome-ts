@@ -374,7 +374,12 @@ export class Space extends Element {
       await this.distributeEvent({
         topic: 'frame:end',
         source: this.getRef(),
-        payload: { frameId, hasOperations, hasActivation },
+        payload: { 
+          frameId, 
+          hasOperations, 
+          hasActivation,
+          transition: this.currentFrame?.transition 
+        },
         timestamp: Date.now()
       } as FrameEndEvent);
       

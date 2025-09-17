@@ -2,6 +2,8 @@
  * Core types for the Space/Element system
  */
 
+import { FrameTransition } from '../persistence/transition-types';
+
 /**
  * Element reference that can survive serialization
  */
@@ -74,6 +76,7 @@ export interface FrameEndEvent extends SpaceEvent<{
   frameId: number; 
   hasOperations: boolean;
   hasActivation: boolean;
+  transition?: FrameTransition;
 }> {
   topic: 'frame:end';
 }

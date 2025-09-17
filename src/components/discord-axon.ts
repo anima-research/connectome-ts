@@ -346,7 +346,13 @@ export class DiscordAxonComponent extends InteractiveComponent {
         // Schedule reconnect
         if (this.connectionAttempts < 3) {
           this.reconnectTimeout = setTimeout(() => {
-            this.startConnection();
+            // Emit event to trigger reconnection within frame context
+            this.element.emit({
+              topic: 'discord:start-connection',
+              source: this.element.getRef(),
+              payload: {},
+              timestamp: Date.now()
+            });
           }, 5000);
         }
       }

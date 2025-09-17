@@ -578,7 +578,14 @@ const App = {
           state.frameFacets = cloneFacetsTree(facetsTree);
           debugLog('fetchFrameDetail applied to state', {
             uuid,
-            facetsCount: facetsTree.length
+            facetsCount: facetsTree.length,
+            facets: facetsTree.map(f => ({
+              id: f.id,
+              type: f.type,
+              displayName: f.displayName,
+              content: f.content,
+              children: f.children?.length || 0
+            }))
           });
         } else {
           debugLog('fetchFrameDetail ignored (stale request)', {
@@ -663,7 +670,14 @@ const App = {
         state.frameFacets = cloneFacetsTree(cached.facetsTree || []);
         debugLog('setSelectedFrame using cached facets', {
           uuid,
-          facetsCount: cached.facetsTree?.length || 0
+          facetsCount: cached.facetsTree?.length || 0,
+          facets: cached.facetsTree?.map(f => ({
+            id: f.id,
+            type: f.type,
+            displayName: f.displayName,
+            content: f.content,
+            children: f.children?.length || 0
+          }))
         });
       } else {
         state.frameFacets = [];

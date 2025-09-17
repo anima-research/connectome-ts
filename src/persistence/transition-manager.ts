@@ -77,11 +77,11 @@ export class TransitionManager {
    * Handle frame end - save transition
    */
   private async onFrameEnd(event: FrameEndEvent) {
-    // Get the transition from the current frame
-    const frame = (this.space as any).currentFrame;
-    if (!frame?.transition) return;
+    // Get the transition from the event payload
+    const payload = event.payload as any;
+    if (!payload?.transition) return;
     
-    const transition = frame.transition;
+    const transition = payload.transition;
     
     // Create transition node
     const node: TransitionNode = {
@@ -108,7 +108,7 @@ export class TransitionManager {
   private async saveTransition(node: TransitionNode) {
     const filename = `transition-${node.sequence}-${this.currentBranch}.json`;
     await this.storage.writeFile(
-      `transitions/${filename}`,
+      `deltas/${filename}`,
       JSON.stringify(node, null, 2)
     );
   }
@@ -141,8 +141,9 @@ export class TransitionManager {
       veilState: serializeVEILState(this.veilState.getState())
     };
     
-    // Save snapshot
-    const filename = `snapshot-${currentSequence}-${this.currentBranch}.json`;
+    // Save snapshot with timestamp to avoid overwriting
+    const timestamp = Date.now();
+    const filename = `snapshot-${currentSequence}-${this.currentBranch}-${timestamp}.json`;
     await this.storage.writeFile(
       `snapshots/${filename}`,
       JSON.stringify(snapshot, null, 2)
@@ -173,9 +174,28 @@ export class TransitionManager {
     const snapshots = await this.storage.listFiles('snapshots/');
     console.log('[TransitionManager] Found files:', snapshots);
     const branchSnapshots = snapshots
-      .filter(f => f.includes(`-${branch}.json`))
-      .sort();
-    console.log('[TransitionManager] Branch snapshots:', branchSnapshots);
+      .filter(f => f.includes(`-${branch}.json`) || f.includes(`-${branch}-`))
+      .sort((a, b) => {
+        // Extract sequence numbers for proper numeric sorting
+        const matchA = a.match(/snapshot-(\d+)-/);
+        const matchB = b.match(/snapshot-(\d+)-/);
+        if (!matchA || !matchB) return 0;
+        
+        const seqA = parseInt(matchA[1]);
+        const seqB = parseInt(matchB[1]);
+        
+        // If sequences are the same, sort by timestamp (if present)
+        if (seqA === seqB) {
+          const timestampA = a.match(/-(\d+)\.json$/);
+          const timestampB = b.match(/-(\d+)\.json$/);
+          if (timestampA && timestampB) {
+            return parseInt(timestampA[1]) - parseInt(timestampB[1]);
+          }
+        }
+        
+        return seqA - seqB;
+      });
+    console.log('[TransitionManager] Branch snapshots (sorted by sequence):', branchSnapshots);
     
     if (branchSnapshots.length === 0) {
       throw new Error(`No snapshots found for branch ${branch}`);
@@ -186,7 +206,8 @@ export class TransitionManager {
     if (targetSequence !== undefined) {
       // Find the latest snapshot before target
       for (const file of branchSnapshots.reverse()) {
-        const match = file.match(/snapshot-(\d+)-/);
+        // Updated regex to handle optional timestamp: snapshot-SEQUENCE-BRANCH[-TIMESTAMP].json
+        const match = file.match(/snapshot-(\d+)-[^-]+(-.+)?\.json$/);
         if (match && parseInt(match[1]) <= targetSequence) {
           snapshotFile = file;
           break;
@@ -223,7 +244,7 @@ export class TransitionManager {
     toSequence?: number,
     branch: string = 'main'
   ): Promise<TransitionNode[]> {
-    const files = await this.storage.listFiles('transitions/');
+    const files = await this.storage.listFiles('deltas/');
     const transitions: TransitionNode[] = [];
     
     for (const file of files) {
@@ -234,7 +255,7 @@ export class TransitionManager {
       if (sequence < fromSequence) continue;
       if (toSequence !== undefined && sequence > toSequence) continue;
       
-      const data = await this.storage.readFile(`transitions/${file}`);
+      const data = await this.storage.readFile(`deltas/${file}`);
       transitions.push(JSON.parse(data));
     }
     
@@ -432,8 +453,9 @@ export class TransitionManager {
     const snapshot = await this.createSnapshot(currentSequence);
     snapshot.branchName = branchName;
     
-    // Save as new branch snapshot
-    const filename = `snapshot-${currentSequence}-${branchName}.json`;
+    // Save as new branch snapshot with timestamp
+    const timestamp = Date.now();
+    const filename = `snapshot-${currentSequence}-${branchName}-${timestamp}.json`;
     await this.storage.writeFile(
       `snapshots/${filename}`,
       JSON.stringify(snapshot, null, 2)
