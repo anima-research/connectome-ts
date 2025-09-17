@@ -28,6 +28,23 @@ function stringify(value) {
   }
 }
 
+function cloneFacetsTree(tree) {
+  if (!tree) return [];
+  return JSON.parse(JSON.stringify(tree));
+}
+
+const DEBUG_LOGGING = true;
+
+function debugLog(...args) {
+  if (!DEBUG_LOGGING) return;
+  try {
+    console.log('[DebugUI]', ...args);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.log('[DebugUI]', args);
+  }
+}
+
 function formatTimestamp(value) {
   if (!value) return '—';
   try {
@@ -85,7 +102,7 @@ function summarizeOperation(op) {
     case 'agentActivation':
       return `agentActivation (${op.priority || 'normal'})`;
     case 'speak':
-      return `speak: ${(op.content || '').slice(0, 32)}${op.content && op.content.length > 32 ? '…' : ''}`;
+      return `speak → ${shorten(op.content || '', 80)}`;
     default:
       return op.type;
   }
@@ -162,6 +179,7 @@ const ElementTree = {
 
     const showElementDetail = () => {
       emit('show-detail', {
+        type: 'element',
         title: `Element · ${props.node.name}`,
         subtitle: props.node.type,
         payload: props.node
@@ -170,6 +188,7 @@ const ElementTree = {
 
     const showComponentDetail = comp => {
       emit('show-detail', {
+        type: 'component',
         title: `Component · ${comp.type}`,
         subtitle: props.node.name,
         payload: comp
@@ -248,7 +267,114 @@ const ElementTree = {
       </ul>
     </li>
   `
+}; 
+
+const FacetNode = {
+  name: 'FacetNode',
+  props: {
+    facet: { type: Object, required: true },
+    depth: { type: Number, default: 0 },
+    expandedDepth: { type: Number, default: 1 }
+  },
+  emits: ['show-detail'],
+  setup(props, { emit }) {
+    const hasChildren = computed(() => props.facet.children && props.facet.children.length > 0);
+    const isExpanded = ref(props.depth < props.expandedDepth);
+
+    watch(
+      () => props.expandedDepth,
+      value => {
+        if (props.depth < value) {
+          isExpanded.value = true;
+        }
+      }
+    );
+
+    const toggle = () => {
+      if (!hasChildren.value) return;
+      isExpanded.value = !isExpanded.value;
+    };
+
+    const showFacetDetail = () => {
+      emit('show-detail', {
+        type: 'facet',
+        title: `Facet · ${props.facet.displayName || props.facet.id}`,
+        subtitle: props.facet.type,
+        payload: props.facet
+      });
+    };
+
+    return {
+      hasChildren,
+      isExpanded,
+      toggle,
+      showFacetDetail,
+      truncate,
+      shorten
+    };
+  },
+  template: `
+    <li class="facet-node" :style="{ '--depth': depth }">
+      <div class="facet-row">
+        <button
+          v-if="hasChildren"
+          class="facet-toggle"
+          @click.stop="toggle"
+        >
+          {{ isExpanded ? '▾' : '▸' }}
+        </button>
+        <div class="facet-info" @click="showFacetDetail">
+          <span class="facet-name">{{ facet.displayName || facet.id }}</span>
+          <span class="facet-type">{{ facet.type }}</span>
+          <span v-if="facet.content" class="facet-content">{{ truncate(facet.content, 120) }}</span>
+        </div>
+      </div>
+      <div v-if="facet.attributes" class="facet-attributes">
+        <div
+          v-for="(value, key) in facet.attributes"
+          :key="key"
+          class="facet-attribute"
+        >
+          <span class="attr-key">{{ key }}</span>
+          <span class="attr-value">{{ truncate(value, 80) }}</span>
+        </div>
+      </div>
+      <ul v-if="hasChildren && isExpanded" class="facet-children">
+        <facet-node
+          v-for="child in facet.children"
+          :key="child.id"
+          :facet="child"
+          :depth="depth + 1"
+          :expanded-depth="expandedDepth"
+          @show-detail="$emit('show-detail', $event)"
+        />
+      </ul>
+    </li>
+  `
 };
+
+const FacetTree = {
+  name: 'FacetTree',
+  props: {
+    facets: { type: Array, required: true },
+    expandedDepth: { type: Number, default: 1 }
+  },
+  emits: ['show-detail'],
+  components: { FacetNode },
+  template: `
+    <ul class="facet-tree">
+      <facet-node
+        v-for="facet in facets"
+        :key="facet.id"
+        :facet="facet"
+        :depth="0"
+        :expanded-depth="expandedDepth"
+        @show-detail="$emit('show-detail', $event)"
+      />
+    </ul>
+  `
+};
+
 
 const App = {
   setup() {
@@ -260,7 +386,7 @@ const App = {
         totalEvents: 0,
         averageDurationMs: 0
       },
-      facets: [],
+      frameFacets: [],
       elementTree: null,
       selectedFrameId: null,
       filters: {
@@ -269,16 +395,27 @@ const App = {
       connectionStatus: 'connecting',
       lastUpdated: null,
       loadingFrame: false,
+      framePagination: {
+        limit: 150,
+        nextOffset: 0,
+        hasMore: true,
+        loading: false
+      },
       error: null,
       selectedOperationIndex: null,
       selectedEventIndex: null,
-      activeDetail: null
+      activeDetail: null,
+      inspectorWidth: 360
     });
 
     const socketRef = ref(null);
     const reconnectTimer = ref(null);
     const refreshTimer = ref(null);
     const expandedElements = reactive({});
+    const layoutRef = ref(null);
+    const isResizingInspector = ref(false);
+    const frameDetailCache = new Map();
+    let frameLoadSequence = 0;
 
     function upsertFrame(frameData) {
       if (!frameData || !frameData.uuid) return;
@@ -297,6 +434,7 @@ const App = {
         };
       }
       state.frames.sort((a, b) => b.sequence - a.sequence);
+      state.framePagination.nextOffset = state.frames.length;
     }
 
     function applyEventToFrame(frameId, eventRecord) {
@@ -314,19 +452,62 @@ const App = {
       }
     }
 
-    async function loadFrames(limit = 150) {
+    async function loadFrames({ reset = false, append = false } = {}) {
+      if (state.framePagination.loading) {
+        debugLog('loadFrames skip (already loading)', { reset, append });
+        return;
+      }
+      const { limit, nextOffset } = state.framePagination;
+      const params = new URLSearchParams();
+      params.set('limit', String(limit));
+      const offset = append ? nextOffset : 0;
+      if (append && offset > 0) {
+        params.set('offset', String(offset));
+      }
+
+      if (reset) {
+        debugLog('loadFrames reset state');
+        state.frames = [];
+        state.framePagination.nextOffset = 0;
+        state.framePagination.hasMore = true;
+        frameDetailCache.clear();
+        state.frameFacets = [];
+      }
+
+      state.framePagination.loading = true;
+      debugLog('loadFrames request', { reset, append, limit, offset, url: `/api/frames?${params.toString()}` });
+      let frames = [];
+
       try {
-        const response = await fetch(`/api/frames?limit=${limit}`);
+        const response = await fetch(`/api/frames?${params.toString()}`);
         if (!response.ok) throw new Error(`frames request failed: ${response.status}`);
         const payload = await response.json();
-        (payload.frames || []).forEach(upsertFrame);
+        frames = payload.frames || [];
+        frames.forEach(upsertFrame);
         state.metrics = {
           ...state.metrics,
           ...(payload.metrics || {})
         };
         state.lastUpdated = new Date().toISOString();
+        if (append) {
+          if (frames.length < limit) {
+            state.framePagination.hasMore = false;
+          }
+        } else {
+          state.framePagination.hasMore = frames.length === limit;
+        }
       } catch (err) {
         state.error = `Failed to load frames: ${err.message}`;
+        debugLog('loadFrames error', { error: err });
+      } finally {
+        state.framePagination.loading = false;
+        debugLog('loadFrames complete', {
+          reset,
+          append,
+          received: frames.length,
+          totalFrames: state.frames.length,
+          hasMore: state.framePagination.hasMore
+        });
       }
     }
 
@@ -349,7 +530,6 @@ const App = {
         if (state.elementTree) {
           initializeElementExpansion(state.elementTree);
         }
-        state.facets = payload.veil?.facets || [];
         if (payload.metrics) {
           state.metrics = {
             ...state.metrics,
@@ -361,36 +541,181 @@ const App = {
       }
     }
 
-    async function loadFrame(uuid) {
-      if (!uuid) return;
-      state.loadingFrame = true;
+    async function fetchFrameDetail(uuid) {
+      if (!uuid) return null;
+
+      const requestId = ++frameLoadSequence;
+      const showSpinner = state.selectedFrameId === uuid;
+      if (showSpinner) {
+        state.loadingFrame = true;
+      }
+
+      debugLog('fetchFrameDetail start', {
+        uuid,
+        requestId,
+        selectedFrameId: state.selectedFrameId,
+        showSpinner
+      });
+
       try {
         const response = await fetch(`/api/frames/${uuid}`);
         if (!response.ok) throw new Error(`frame request failed: ${response.status}`);
         const payload = await response.json();
+
+        const facetsTree = payload.facetsTree || [];
+        frameDetailCache.set(uuid, { facetsTree });
+        debugLog('fetchFrameDetail response', {
+          uuid,
+          requestId,
+          facetsCount: facetsTree.length,
+          frameLoadSequence,
+          selectedFrameId: state.selectedFrameId
+        });
+
         upsertFrame(payload);
+
+        if (requestId === frameLoadSequence && state.selectedFrameId === uuid) {
+          state.frameFacets = cloneFacetsTree(facetsTree);
+          debugLog('fetchFrameDetail applied to state', {
+            uuid,
+            facetsCount: facetsTree.length
+          });
+        } else {
+          debugLog('fetchFrameDetail ignored (stale request)', {
+            uuid,
+            requestId,
+            frameLoadSequence,
+            selectedFrameId: state.selectedFrameId
+          });
+        }
+
+        return payload;
       } catch (err) {
-        state.error = `Failed to load frame ${uuid}: ${err.message}`;
+        if (requestId === frameLoadSequence && state.selectedFrameId === uuid) {
+          state.error = `Failed to load frame ${uuid}: ${err.message}`;
+        }
+        debugLog('fetchFrameDetail error', { uuid, error: err });
+        throw err;
       } finally {
+        if (showSpinner && requestId === frameLoadSequence && state.selectedFrameId === uuid) {
+          state.loadingFrame = false;
+        }
+        debugLog('fetchFrameDetail complete', {
+          uuid,
+          requestId,
+          selectedFrameId: state.selectedFrameId,
+          loading: state.loadingFrame
+        });
+      }
+    }
+
+    async function setSelectedFrame(uuid, { forceReload = false } = {}) {
+      if (!uuid) {
+        state.selectedFrameId = null;
+        state.selectedOperationIndex = null;
+        state.selectedEventIndex = null;
+        state.activeDetail = null;
+        state.frameFacets = [];
         state.loadingFrame = false;
+        debugLog('setSelectedFrame cleared');
+        return;
+      }
+
+      const changed = state.selectedFrameId !== uuid;
+      state.selectedFrameId = uuid;
+      debugLog('setSelectedFrame', {
+        uuid,
+        forceReload,
+        changed,
+        cached: frameDetailCache.has(uuid),
+        cachedFacets: frameDetailCache.get(uuid)?.facetsTree?.length || 0
+      });
+
+      const frame = state.frames.find(f => f.uuid === uuid);
+      if (changed) {
+        state.selectedOperationIndex = frame?.operations?.length ? 0 : null;
+        state.selectedEventIndex = frame?.events?.length ? 0 : null;
+      } else {
+        if (frame?.operations?.length) {
+          if (state.selectedOperationIndex == null) {
+            state.selectedOperationIndex = 0;
+          } else if (state.selectedOperationIndex >= frame.operations.length) {
+            state.selectedOperationIndex = frame.operations.length - 1;
+          }
+        } else {
+          state.selectedOperationIndex = null;
+        }
+
+        if (frame?.events?.length) {
+          if (state.selectedEventIndex == null) {
+            state.selectedEventIndex = 0;
+          } else if (state.selectedEventIndex >= frame.events.length) {
+            state.selectedEventIndex = frame.events.length - 1;
+          }
+        } else {
+          state.selectedEventIndex = null;
+        }
+      }
+      state.activeDetail = null;
+
+      const cached = frameDetailCache.get(uuid);
+      if (cached && !forceReload) {
+        state.frameFacets = cloneFacetsTree(cached.facetsTree || []);
+        debugLog('setSelectedFrame using cached facets', {
+          uuid,
+          facetsCount: cached.facetsTree?.length || 0
+        });
+      } else {
+        state.frameFacets = [];
+        debugLog('setSelectedFrame cleared facets pending fetch', { uuid, forceReload, cached: !!cached });
+      }
+
+      if (!cached || forceReload || changed) {
+        try {
+          await fetchFrameDetail(uuid);
+        } catch (err) {
+          // error already surfaced via state.error
+          debugLog('setSelectedFrame fetch failed', { uuid, error: err });
+        }
       }
     }
 
     async function refresh() {
       state.error = null;
-      await Promise.all([loadFrames(), loadSystemState()]);
-      if (!state.selectedFrameId && state.frames.length) {
-        state.selectedFrameId = state.frames[0].uuid;
-        await loadFrame(state.selectedFrameId);
+      debugLog('refresh start', { existingFrames: state.frames.length, selectedFrameId: state.selectedFrameId });
+      await Promise.all([loadFrames({ reset: true }), loadSystemState()]);
+      if (!state.frames.length) {
+        await setSelectedFrame(null);
+        return;
       }
+
+      const hasSelected = state.selectedFrameId && state.frames.some(f => f.uuid === state.selectedFrameId);
+      const initialId = hasSelected ? state.selectedFrameId : state.frames[0].uuid;
+      debugLog('refresh selecting initial frame', { initialId, hasSelected, framesLoaded: state.frames.length });
+      await setSelectedFrame(initialId, { forceReload: true });
+      debugLog('refresh complete', { selectedFrameId: state.selectedFrameId });
     }
 
-    function selectFrame(uuid) {
-      state.selectedFrameId = uuid;
-      loadFrame(uuid);
+    async function selectFrame(uuid) {
+      if (!uuid) return;
+      const forceReload = state.selectedFrameId === uuid;
+      debugLog('selectFrame invoked', { uuid, forceReload });
+      await setSelectedFrame(uuid, { forceReload });
+    }
+
+    async function loadOlderFrames() {
+      if (!state.framePagination.hasMore || state.framePagination.loading) {
+        debugLog('loadOlderFrames skipped', {
+          hasMore: state.framePagination.hasMore,
+          loading: state.framePagination.loading
+        });
+        return;
+      }
+      await loadFrames({ append: true });
     }
 
     function handleSocketMessage(message) {
+      debugLog('handleSocketMessage', { type: message.type });
       switch (message.type) {
         case 'hello': {
           (message.payload?.frames || []).forEach(upsertFrame);
@@ -400,11 +725,8 @@ const App = {
               ...message.payload.metrics
             };
           }
-          if (message.payload?.state?.facets) {
-            state.facets = message.payload.state.facets;
-          }
           if (!state.selectedFrameId && state.frames.length) {
-            state.selectedFrameId = state.frames[0].uuid;
+            setSelectedFrame(state.frames[0].uuid, { forceReload: true });
           }
           break;
         }
@@ -412,22 +734,31 @@ const App = {
         case 'frame:complete':
         case 'frame:outgoing':
         case 'frame:context': {
+          if (message.payload?.uuid) {
+            debugLog('handleSocketMessage invalidate cache', { uuid: message.payload.uuid });
+            frameDetailCache.delete(message.payload.uuid);
+          }
           upsertFrame(message.payload);
           if (!state.selectedFrameId && state.frames.length) {
-            state.selectedFrameId = state.frames[0].uuid;
+            setSelectedFrame(state.frames[0].uuid, { forceReload: true });
+          } else if (message.payload?.uuid && message.payload.uuid === state.selectedFrameId) {
+            setSelectedFrame(state.selectedFrameId, { forceReload: true });
           }
           break;
         }
         case 'frame:event': {
           const { frameId, event } = message.payload || {};
           if (frameId && event) {
+            debugLog('handleSocketMessage frame:event', {
+              frameId,
+              eventTopic: event.topic,
+              selectedFrameId: state.selectedFrameId
+            });
+            frameDetailCache.delete(frameId);
             applyEventToFrame(frameId, event);
-          }
-          break;
-        }
-        case 'state:changed': {
-          if (message.payload?.facets) {
-            state.facets = message.payload.facets;
+            if (frameId === state.selectedFrameId) {
+              setSelectedFrame(state.selectedFrameId, { forceReload: true });
+            }
           }
           break;
         }
@@ -443,10 +774,12 @@ const App = {
       const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
       const socket = new WebSocket(`${protocol}://${window.location.host}`);
       socketRef.value = socket;
+      debugLog('connectSocket', { url: `${protocol}://${window.location.host}` });
 
       socket.addEventListener('open', () => {
         state.connectionStatus = 'live';
         state.error = null;
+        debugLog('socket open');
       });
 
       socket.addEventListener('close', () => {
@@ -455,11 +788,13 @@ const App = {
           clearTimeout(reconnectTimer.value);
         }
         reconnectTimer.value = setTimeout(connectSocket, 2000);
+        debugLog('socket close - will retry');
       });
 
       socket.addEventListener('message', event => {
         try {
           const payload = JSON.parse(event.data);
+          debugLog('socket message', payload?.type ? { type: payload.type } : {});
           handleSocketMessage(payload);
         } catch (err) {
           console.warn('Failed to process debug message', err);
@@ -492,18 +827,8 @@ const App = {
       }
     );
 
-    watch(
-      () => state.selectedFrameId,
-      () => {
-        const frame = state.frames.find(f => f.uuid === state.selectedFrameId);
-        state.selectedOperationIndex = frame?.operations?.length ? 0 : null;
-        state.selectedEventIndex = frame?.events?.length ? 0 : null;
-        state.activeDetail = null;
-      }
-    );
-
-    function openDetail(title, payload, subtitle) {
-      state.activeDetail = { title, payload, subtitle };
+    function setDetail(detail) {
+      state.activeDetail = detail;
     }
 
     function closeDetail() {
@@ -512,12 +837,24 @@ const App = {
 
     function selectOperation(op, idx) {
       state.selectedOperationIndex = idx;
-      openDetail(`Operation · ${op.type}`, op, operationMeta(op));
+      setDetail({
+        type: 'operation',
+        title: `Operation · ${op.type}`,
+        subtitle: operationMeta(op),
+        operation: op,
+        payload: op
+      });
     }
 
     function selectEvent(event, idx) {
       state.selectedEventIndex = idx;
-      openDetail(`Event · ${event.topic}`, event, eventMeta(event));
+      setDetail({
+        type: 'event',
+        title: `Event · ${event.topic}`,
+        subtitle: eventMeta(event),
+        event,
+        payload: event
+      });
     }
 
     function toggleElement(id) {
@@ -525,8 +862,47 @@ const App = {
     }
 
     function handleTreeDetail(detail) {
-      openDetail(detail.title, detail.payload, detail.subtitle);
+      setDetail({
+        type: detail.type || 'element',
+        title: detail.title,
+        subtitle: detail.subtitle,
+        payload: detail.payload
+      });
     }
+
+    function startResize(event) {
+      isResizingInspector.value = true;
+      event.preventDefault();
+      document.body.style.cursor = 'col-resize';
+      window.addEventListener('mousemove', onResize);
+      window.addEventListener('mouseup', stopResize);
+    }
+
+    function onResize(event) {
+      if (!isResizingInspector.value) return;
+      const layout = layoutRef.value;
+      if (!layout) return;
+      const rect = layout.getBoundingClientRect();
+      const minWidth = 260;
+      const maxWidth = 600;
+      const gap = 18; // matches CSS grid gap
+      const handleWidth = 10;
+      const rightEdge = rect.right;
+      const newWidth = rightEdge - event.clientX - gap - handleWidth / 2;
+      state.inspectorWidth = Math.min(maxWidth, Math.max(minWidth, newWidth));
+    }
+
+    function stopResize() {
+      if (!isResizingInspector.value) return;
+      isResizingInspector.value = false;
+      document.body.style.cursor = '';
+      window.removeEventListener('mousemove', onResize);
+      window.removeEventListener('mouseup', stopResize);
+    }
+
+    onBeforeUnmount(() => {
+      stopResize();
+    });
 
     const filteredFrames = computed(() => {
       const query = state.filters.search.trim().toLowerCase();
@@ -566,6 +942,10 @@ const App = {
       return frames.slice(0, 24);
     });
 
+    const layoutStyle = computed(() => ({
+      '--inspector-width': `${state.inspectorWidth}px`
+    }));
+
     return {
       state,
       filteredFrames,
@@ -576,6 +956,7 @@ const App = {
       formatTime,
       formatTimestamp,
       shorten,
+      truncate,
       summarizeFacet,
       summarizeOperation,
       summarizeEvent,
@@ -589,7 +970,11 @@ const App = {
       expandedElements,
       toggleElement,
       handleTreeDetail,
-      refresh
+      refresh,
+      loadOlderFrames,
+      layoutRef,
+      layoutStyle,
+      startResize
     };
   },
   template: `
@@ -616,7 +1001,7 @@ const App = {
       <div class="error-banner" v-if="state.error">
         {{ state.error }}
       </div>
-      <div class="layout">
+      <div class="layout" :style="layoutStyle" ref="layoutRef">
         <aside class="sidebar">
           <section class="panel frame-panel">
             <div class="panel-header">
@@ -650,20 +1035,39 @@ const App = {
                 </div>
               </div>
               <div v-if="!filteredFrames.length" class="text-muted">No frames yet.</div>
+              <div
+                v-else-if="state.framePagination.hasMore"
+                class="frame-load-more"
+              >
+                <button
+                  class="button"
+                  :disabled="state.framePagination.loading"
+                  @click="loadOlderFrames"
+                >
+                  {{ state.framePagination.loading ? 'Loading…' : 'Load Older Frames' }}
+                </button>
+              </div>
+              <div
+                v-else
+                class="frame-load-more text-muted"
+              >
+                Start of retained history
+              </div>
             </div>
           </section>
-          <section class="panel">
+          <section class="panel veil-panel">
             <div class="panel-header">
-              <h2>Active Facets</h2>
-              <span class="badge" v-if="state.facets.length">{{ state.facets.length }}</span>
+              <h2>VEIL Snapshot</h2>
+              <span class="badge" v-if="state.frameFacets.length">{{ state.frameFacets.length }}</span>
             </div>
-            <div class="facet-list">
-              <div v-for="facet in state.facets" :key="facet.facetId" class="facet-item">
-                <h3>{{ facet.displayName || facet.id }}</h3>
-                <div class="facet-body">{{ summarizeFacet(facet) }}</div>
-              </div>
-              <div v-if="!state.facets.length" class="text-muted">No active facets.</div>
+            <div class="veil-tree" v-if="state.frameFacets.length">
+              <facet-tree
+                :facets="state.frameFacets"
+                :expanded-depth="1"
+                @show-detail="handleTreeDetail"
+              />
             </div>
+            <div v-else class="text-muted">No active facets for this frame.</div>
           </section>
         </aside>
         <section class="content-area">
@@ -691,16 +1095,18 @@ const App = {
                 <span class="meta-pill">UUID: {{ shorten(selectedFrame.uuid, 18) }}</span>
                 <span class="meta-pill">{{ formatTimestamp(selectedFrame.timestamp) }}</span>
                 <span class="meta-pill kind" :class="selectedFrame.kind">{{ selectedFrame.kind }}</span>
-              </div>
-            </div>
-            <div class="info-grid">
-              <div class="info-card" v-if="selectedFrame.activeStream">
-                <h4>Active Stream</h4>
-                <span>{{ selectedFrame.activeStream.streamId }}</span>
-              </div>
-              <div class="info-card" v-if="selectedFrame.agent">
-                <h4>Agent</h4>
-                <span>{{ selectedFrame.agent.name || selectedFrame.agent.id }}</span>
+                <span
+                  class="meta-pill"
+                  v-if="selectedFrame.activeStream"
+                >
+                  Stream: {{ shorten(selectedFrame.activeStream.streamId, 18) }}
+                </span>
+                <span
+                  class="meta-pill"
+                  v-if="selectedFrame.agent"
+                >
+                  Agent: {{ shorten(selectedFrame.agent.name || selectedFrame.agent.id, 18) }}
+                </span>
               </div>
             </div>
             <div class="section" v-if="selectedFrame.renderedContext">
@@ -728,44 +1134,82 @@ const App = {
             </div>
             <div class="section">
               <h3>Operations</h3>
-              <div class="section-body pills">
+              <div class="section-body operations">
                 <div v-if="!selectedFrame.operations?.length" class="text-muted">No operations.</div>
-                <div class="pill-list" v-else>
-                  <div
-                    v-for="(op, idx) in selectedFrame.operations"
-                    :key="idx"
-                    :class="['pill-item', { active: state.selectedOperationIndex === idx }]"
-                    @click="selectOperation(op, idx)"
-                  >
-                    <span class="pill-title">{{ summarizeOperation(op) }}</span>
-                    <span
-                      v-if="operationMeta(op)"
-                      class="pill-meta"
-                    >
-                      {{ operationMeta(op) }}
-                    </span>
+                <div
+                  v-for="(op, idx) in selectedFrame.operations"
+                  :key="idx"
+                  class="operation-card"
+                >
+                  <div class="operation-card-header">
+                    <span class="operation-type">{{ op.type }}</span>
+                    <span class="operation-meta" v-if="operationMeta(op)">{{ operationMeta(op) }}</span>
+                  </div>
+                  <div class="operation-card-body">
+                    <template v-if="op.type === 'speak'">
+                      <pre class="operation-message">{{ op.content }}</pre>
+                      <div class="pill-meta" v-if="op.target">Target: {{ op.target }}</div>
+                      <div class="pill-meta" v-if="op.targets">Targets: {{ op.targets.join(', ') }}</div>
+                    </template>
+                    <template v-else-if="op.type === 'addFacet' && op.facet">
+                      <facet-tree :facets="[op.facet]" :expanded-depth="2" @show-detail="handleTreeDetail" />
+                    </template>
+                    <template v-else-if="op.type === 'changeState'">
+                      <div class="operation-kv">
+                        <div class="kv-item" v-if="op.updates?.content">
+                          <span class="kv-key">content</span>
+                          <span class="kv-value">{{ op.updates.content }}</span>
+                        </div>
+                        <div
+                          class="kv-item"
+                          v-for="(value, key) in op.updates?.attributes || {}"
+                          :key="key"
+                        >
+                          <span class="kv-key">{{ key }}</span>
+                          <span class="kv-value">{{ stringify(value) }}</span>
+                        </div>
+                      </div>
+                    </template>
+                    <template v-else-if="op.type === 'action'">
+                      <div class="pill-meta">Path: {{ (op.path || []).join('.') }}</div>
+                      <div class="operation-kv" v-if="op.parameters">
+                        <div class="kv-item" v-for="(value, key) in op.parameters" :key="key">
+                          <span class="kv-key">{{ key }}</span>
+                          <span class="kv-value">{{ stringify(value) }}</span>
+                        </div>
+                      </div>
+                    </template>
+                    <template v-else>
+                      <pre class="operation-json">{{ truncate(stringify(op), 500) }}</pre>
+                    </template>
+                  </div>
+                  <div class="operation-actions">
+                    <button class="mini-button" @click="selectOperation(op, idx)">View JSON</button>
                   </div>
                 </div>
               </div>
             </div>
             <div class="section">
               <h3>Events</h3>
-              <div class="section-body pills">
+              <div class="section-body events">
                 <div v-if="!selectedFrame.events?.length" class="text-muted">No events observed for this frame.</div>
-                <div class="pill-list" v-else>
-                  <div
-                    v-for="(event, idx) in selectedFrame.events"
-                    :key="event.id || idx"
-                    :class="['pill-item', { active: state.selectedEventIndex === idx }]"
-                    @click="selectEvent(event, idx)"
-                  >
-                    <span class="pill-title">{{ summarizeEvent(event) }}</span>
-                    <span
-                      v-if="eventMeta(event)"
-                      class="pill-meta"
-                    >
-                      {{ eventMeta(event) }}
-                    </span>
+                <div
+                  v-for="(event, idx) in selectedFrame.events"
+                  :key="event.id || idx"
+                  class="event-card"
+                >
+                  <div class="event-card-header">
+                    <span class="event-topic">{{ event.topic }}</span>
+                    <span class="event-meta" v-if="eventMeta(event)">{{ eventMeta(event) }}</span>
+                  </div>
+                  <div class="event-card-body">
+                    <div class="pill-meta">Timestamp: {{ formatTimestamp(event.timestamp) }}</div>
+                    <div class="pill-meta" v-if="event.phase && event.phase !== 'none'">Phase: {{ event.phase }}</div>
+                    <div class="pill-meta" v-if="event.target">Target: {{ event.target.elementId }}</div>
+                    <div class="event-payload" v-if="event.payload">{{ truncate(stringify(event.payload), 200) }}</div>
+                  </div>
+                  <div class="operation-actions">
+                    <button class="mini-button" @click="selectEvent(event, idx)">View JSON</button>
                   </div>
                 </div>
               </div>
@@ -795,6 +1239,7 @@ const App = {
             <div v-else class="text-muted">Tree not available yet.</div>
           </section>
         </section>
+        <div class="splitter" @mousedown="startResize"></div>
         <aside class="inspector" :class="{ 'inspector-visible': state.activeDetail }">
           <section class="panel inspector-panel">
             <div class="panel-header inspector-header">
@@ -805,7 +1250,7 @@ const App = {
               <div class="inspector-title">{{ state.activeDetail.title }}</div>
               <div v-if="state.activeDetail.subtitle" class="inspector-subtitle">{{ state.activeDetail.subtitle }}</div>
               <div class="inspector-json">
-                <pre class="code-block">{{ stringify(state.activeDetail.payload) }}</pre>
+                <pre class="code-block">{{ stringify(state.activeDetail.payload ?? state.activeDetail) }}</pre>
               </div>
             </div>
             <div v-else class="inspector-placeholder">
@@ -820,4 +1265,6 @@ const App = {
 
 const app = createApp(App);
 app.component('element-tree', ElementTree);
+app.component('facet-tree', FacetTree);
+app.component('facet-node', FacetNode);
 app.mount('#app');

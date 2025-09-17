@@ -483,25 +483,14 @@ export class DiscordAxonComponent extends InteractiveComponent {
         const { channelId, messages, channelName } = event.payload as any;
         
         if (messages && messages.length > 0) {
-          // Filter out messages we've already seen in VEIL
-          const space = this.element?.space;
-          const veilState = space && 'getVEILState' in space ? (space as any).getVEILState() : null;
-          const existingMessageIds = new Set<string>();
+          // Filter out messages we've already seen based on lastRead
+          const lastReadId = this.lastRead[channelId];
           
-          if (veilState) {
-            // Look through VEIL facets for existing Discord messages
-            for (const facet of veilState.getState().facets.values()) {
-              if (facet.id.startsWith('discord-msg-')) {
-                const messageId = facet.id.replace('discord-msg-', '');
-                existingMessageIds.add(messageId);
-              }
-            }
-          }
-          
-          // Filter to only new messages
-          const newMessages = messages.filter((msg: DiscordMessage) => 
-            !existingMessageIds.has(msg.messageId)
-          );
+          // If we have a lastRead ID, only include messages newer than it
+          // Discord IDs are snowflakes - higher ID = newer message
+          const newMessages = lastReadId 
+            ? messages.filter((msg: DiscordMessage) => msg.messageId > lastReadId)
+            : messages;
           
           if (newMessages.length > 0) {
             // Create a single event facet containing message facets as children

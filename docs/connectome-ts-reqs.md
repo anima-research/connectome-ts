@@ -53,6 +53,9 @@ An incoming VEIL delta can contain any number of the following operations:
 3. Adding or deleting scopes
 4. Adding, updating, or deleting streams (communication contexts)
 5. Agent activation: signals that agent attention may be needed, includes source element reference and arbitrary metadata
+6. Removing a facet: suppresses rendering of a facet (and its children) without destroying history. Two modes:
+   - 'hide': For attention management - facet still exists, state changes still apply, but no rendering (including transitions)
+   - 'delete': For error correction - facet is effectively gone, state changes are silently ignored
 
 Facets can include saliency hints to help the HUD make intelligent context management decisions:
 - Temporal hints: transient (float 0.0-1.0+ for decay rate)

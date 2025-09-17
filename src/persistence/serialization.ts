@@ -179,9 +179,15 @@ export function serializeElement(element: Element): SerializedElement {
  * Serialize VEIL state
  */
 export function serializeVEILState(state: VEILState): SerializedVEILState {
-  // Serialize facets
+  // Serialize facets (skip deleted ones)
   const facets: Array<[string, any]> = [];
   for (const [id, facet] of state.facets) {
+    // Skip facets marked as 'delete' - they're gone forever
+    // Keep 'hide' facets in case they need to be unhidden later
+    const removal = state.removals.get(id);
+    if (removal === 'delete') {
+      continue;
+    }
     facets.push([id, serializeFacet(facet)]);
   }
   
@@ -191,13 +197,23 @@ export function serializeVEILState(state: VEILState): SerializedVEILState {
     streams.push([id, serializeValue(stream)]);
   }
   
+  // Serialize removals (only keep 'hide' entries - 'delete' facets are gone)
+  const removals: Array<[string, 'hide' | 'delete']> = [];
+  for (const [id, mode] of state.removals) {
+    if (mode === 'hide') {
+      removals.push([id, mode]);
+    }
+    // Skip 'delete' entries - the facets are gone from the state
+  }
+  
   return {
     facets,
     scopes: Array.from(state.scopes),
     streams,
     currentStream: state.currentStream ? serializeValue(state.currentStream) : undefined,
     currentSequence: state.currentSequence,
-    frameHistory: state.frameHistory.map(frame => serializeValue(frame))
+    frameHistory: state.frameHistory.map(frame => serializeValue(frame)),
+    removals
   };
 }
 

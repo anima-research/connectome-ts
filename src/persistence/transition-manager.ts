@@ -126,6 +126,12 @@ export class TransitionManager {
   async createSnapshot(sequence?: number): Promise<TransitionSnapshot> {
     const currentSequence = sequence || this.veilState.getState().currentSequence;
     
+    // Clean up deleted facets before creating snapshot
+    const cleaned = this.veilState.cleanupDeletedFacets();
+    if (cleaned > 0) {
+      console.log(`[TransitionManager] Cleaned up ${cleaned} deleted facets before snapshot`);
+    }
+    
     const snapshot: TransitionSnapshot = {
       sequence: currentSequence,
       timestamp: new Date().toISOString(),

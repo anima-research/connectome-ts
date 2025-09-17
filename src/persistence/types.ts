@@ -98,6 +98,7 @@ export interface SerializedVEILState {
   currentStream?: any;
   currentSequence: number;
   frameHistory?: Array<any>;  // Serialized frame history
+  removals?: Array<[string, 'hide' | 'delete']>;  // Removed facets
 }
 
 /**

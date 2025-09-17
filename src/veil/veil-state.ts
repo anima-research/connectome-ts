@@ -21,7 +21,8 @@ export class VEILStateManager {
       streams: new Map(),
       currentStream: undefined,
       frameHistory: [],
-      currentSequence: 0
+      currentSequence: 0,
+      removals: new Map()
     };
   }
 
@@ -137,7 +138,8 @@ export class VEILStateManager {
       streams: new Map(this.state.streams),
       currentStream: this.state.currentStream,
       frameHistory: [...this.state.frameHistory],
-      currentSequence: this.state.currentSequence
+      currentSequence: this.state.currentSequence,
+      removals: new Map(this.state.removals)
     };
   }
 
@@ -148,6 +150,11 @@ export class VEILStateManager {
     const active = new Map<string, Facet>();
     
     for (const [id, facet] of this.state.facets) {
+      // Skip removed facets
+      if (this.state.removals.has(id)) {
+        continue;
+      }
+      
       // Check if facet is in scope
       if (!facet.scope || facet.scope.length === 0) {
         // No scope requirements - always active
@@ -159,6 +166,25 @@ export class VEILStateManager {
     }
 
     return active;
+  }
+
+  /**
+   * Clean up deleted facets from memory
+   * This should be called periodically or before creating snapshots
+   */
+  cleanupDeletedFacets(): number {
+    let cleaned = 0;
+    for (const [id, mode] of this.state.removals) {
+      if (mode === 'delete') {
+        // Remove from facets map
+        if (this.state.facets.delete(id)) {
+          cleaned++;
+        }
+        // Remove from removals map
+        this.state.removals.delete(id);
+      }
+    }
+    return cleaned;
   }
 
   /**
@@ -184,7 +210,8 @@ export class VEILStateManager {
       streams: new Map(newState.streams),
       currentStream: newState.currentStream,
       frameHistory: [...newState.frameHistory],
-      currentSequence: newState.currentSequence
+      currentSequence: newState.currentSequence,
+      removals: new Map(newState.removals || [])
     };
     this.notifyListeners();
   }
@@ -240,6 +267,10 @@ export class VEILStateManager {
           this.state.currentStream = undefined;
         }
         break;
+      
+      case 'removeFacet':
+        this.removeFacet(operation.facetId, operation.mode);
+        break;
     }
   }
 
@@ -268,6 +299,14 @@ export class VEILStateManager {
       return;
     }
 
+    // Check if facet is removed
+    const removal = this.state.removals.get(facetId);
+    if (removal === 'delete') {
+      // Silently ignore changes to deleted facets
+      return;
+    }
+    // Note: 'hide' mode still allows state changes, just affects rendering
+
     if (facet.type !== 'state') {
       console.warn(`Cannot change state of non-state facet: ${facetId} (type: ${facet.type})`);
       return;
@@ -283,6 +322,24 @@ export class VEILStateManager {
         ...facet.attributes,
         ...updates.attributes
       };
+    }
+  }
+
+  private removeFacet(facetId: string, mode: 'hide' | 'delete'): void {
+    const facet = this.state.facets.get(facetId);
+    if (!facet) {
+      // Already removed or doesn't exist
+      return;
+    }
+    
+    // Track the removal
+    this.state.removals.set(facetId, mode);
+    
+    // Cascade to children
+    if (facet.children) {
+      for (const child of facet.children) {
+        this.removeFacet(child.id, mode);
+      }
     }
   }
 

@@ -7,7 +7,7 @@ import { EventEmitter } from 'events';
 import { performance } from 'perf_hooks';
 
 import type { Space } from '../spaces/space';
-import type { VEILStateManager } from '../veil/veil-state';
+import { VEILStateManager } from '../veil/veil-state';
 import type { IncomingVEILFrame, OutgoingVEILFrame, Facet, StreamRef, StreamInfo } from '../veil/types';
 import type { SpaceEvent, ElementRef } from '../spaces/types';
 import type { DebugObserver, DebugFrameStartContext, DebugFrameCompleteContext, DebugEventContext, DebugOutgoingFrameContext, DebugRenderedContextInfo } from './types';
@@ -33,6 +33,10 @@ const DEFAULT_CONFIG: DebugServerConfig = {
   retentionMinutes: 60,
   corsOrigins: ['*']
 };
+
+const MAX_SANITIZE_DEPTH = 8;
+const MAX_COLLECTION_PREVIEW = 20;
+const FACET_TREE_MAX_DEPTH = 10;
 
 interface DebugEventRecord {
   id: string;
@@ -70,38 +74,87 @@ interface DebugMetrics {
   totalEvents: number;
 }
 
-function sanitizePayload(value: any, depth: number = 0): any {
-  if (depth > 4) {
-    return '[depth-limit]';
-  }
+function sanitizePayload(value: any, depth: number = 0, seen: WeakSet<object> = new WeakSet()): any {
   if (value === null || value === undefined) {
     return value;
   }
-  if (Array.isArray(value)) {
-    return value.slice(0, 20).map(item => sanitizePayload(item, depth + 1));
+
+  if (typeof value === 'bigint') {
+    return value.toString();
   }
-  if (value instanceof Map) {
-    return Array.from(value.entries()).map(([key, val]) => [key, sanitizePayload(val, depth + 1)]);
+
+  if (typeof value === 'symbol') {
+    return value.toString();
   }
-  if (value instanceof Set) {
-    return Array.from(value.values()).map(val => sanitizePayload(val, depth + 1));
+
+  if (value instanceof Date) {
+    return value.toISOString();
   }
-  if (typeof value === 'object') {
+
+  if (depth > MAX_SANITIZE_DEPTH && typeof value === 'object') {
+    if (Array.isArray(value)) {
+      return value.slice(0, MAX_COLLECTION_PREVIEW);
+    }
+    if (value instanceof Map) {
+      return {
+        '[depth-limit]': true,
+        size: value.size,
+        keys: Array.from(value.keys()).slice(0, MAX_COLLECTION_PREVIEW)
+      };
+    }
+    if (value instanceof Set) {
+      return {
+        '[depth-limit]': true,
+        size: value.size
+      };
+    }
+    return {
+      '[depth-limit]': true,
+      keys: Object.keys(value).slice(0, MAX_COLLECTION_PREVIEW)
+    };
+  }
+
+  if (typeof value !== 'object') {
+    return value;
+  }
+
+  if (seen.has(value)) {
+    return '[circular]';
+  }
+
+  seen.add(value);
+  try {
+    if (Array.isArray(value)) {
+      return value.slice(0, MAX_COLLECTION_PREVIEW).map(item => sanitizePayload(item, depth + 1, seen));
+    }
+
+    if (value instanceof Map) {
+      return Array.from(value.entries())
+        .slice(0, MAX_COLLECTION_PREVIEW)
+        .map(([key, val]) => [sanitizePayload(key, depth + 1, seen), sanitizePayload(val, depth + 1, seen)]);
+    }
+
+    if (value instanceof Set) {
+      return Array.from(value.values())
+        .slice(0, MAX_COLLECTION_PREVIEW)
+        .map(val => sanitizePayload(val, depth + 1, seen));
+    }
+
+    if (Buffer.isBuffer(value)) {
+      const stringValue = value.toString('utf8');
+      return stringValue.length > 256 ? `${stringValue.slice(0, 256)}…` : stringValue;
+    }
+
     const result: Record<string, any> = {};
     for (const [key, val] of Object.entries(value)) {
       if (typeof val === 'function') continue;
       if (key.startsWith('_')) continue;
-      result[key] = sanitizePayload(val, depth + 1);
+      result[key] = sanitizePayload(val, depth + 1, seen);
     }
     return result;
+  } finally {
+    seen.delete(value);
   }
-  if (typeof value === 'bigint') {
-    return value.toString();
-  }
-  if (typeof value === 'symbol') {
-    return value.toString();
-  }
-  return value;
 }
 
 class DebugStateTracker extends EventEmitter implements DebugObserver {
@@ -347,6 +400,31 @@ function serializeVEILState(stateManager: VEILStateManager): SerializedVEILState
   };
 }
 
+function sanitizeFacetTreeNode(facet: Facet, depth: number = 0): any {
+  const baseNode = {
+    id: facet.id,
+    type: facet.type,
+    displayName: facet.displayName || '',
+    content: facet.content || ''
+  };
+
+  if (depth >= FACET_TREE_MAX_DEPTH) {
+    return {
+      ...baseNode,
+      truncated: true,
+      childrenCount: facet.children ? facet.children.length : 0
+    };
+  }
+
+  return {
+    ...baseNode,
+    attributes: facet.attributes ? sanitizePayload(facet.attributes, depth + 1) : undefined,
+    scope: facet.scope || undefined,
+    saliency: facet.saliency ? sanitizePayload(facet.saliency, depth + 1) : undefined,
+    children: (facet.children || []).map(child => sanitizeFacetTreeNode(child, depth + 1))
+  };
+}
+
 interface FrameListResponse {
   frames: DebugFrameRecord[];
   metrics: DebugMetrics;
@@ -452,7 +530,11 @@ export class DebugServer {
         res.status(404).json({ error: 'frame not found' });
         return;
       }
-      res.json(frame);
+      const facetsTree = this.buildFacetSnapshot(frame.sequence);
+      res.json({
+        ...frame,
+        facetsTree
+      });
     });
 
     this.app.get('/api/state', (_req, res) => {
@@ -593,5 +675,24 @@ export class DebugServer {
       return components[selector] || null;
     }
     return components.find(comp => comp.constructor.name === selector) || null;
+  }
+
+  private buildFacetSnapshot(sequence: number): any[] {
+    const state = this.veilState.getState();
+    const temp = new VEILStateManager();
+
+    for (const frame of state.frameHistory) {
+      if ('activeStream' in frame) {
+        temp.applyIncomingFrame(frame as IncomingVEILFrame);
+      } else {
+        temp.recordOutgoingFrame(frame as OutgoingVEILFrame);
+      }
+      if (frame.sequence >= sequence) {
+        break;
+      }
+    }
+
+    const snapshot = temp.getState();
+    return Array.from(snapshot.facets.values()).map(facet => sanitizeFacetTreeNode(facet));
   }
 }

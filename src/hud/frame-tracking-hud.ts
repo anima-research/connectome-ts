@@ -76,6 +76,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
     
     // Track state as we replay operations - start with empty state
     const replayedState = new Map<string, Facet>();
+    const removals = new Map<string, 'hide' | 'delete'>();
     
     // Render each frame
     for (const frame of frames) {
@@ -116,11 +117,11 @@ export class FrameTrackingHUD implements CompressibleHUD {
           }
           beforeState.set(id, clonedFacet as Facet);
         }
-        this.updateReplayedState(frame as IncomingVEILFrame, replayedState);
+        this.updateReplayedState(frame as IncomingVEILFrame, replayedState, removals);
       }
       
       // Render frame with both states available
-      const { content, facetIds } = this.renderFrame(frame, replayedState, beforeState);
+      const { content, facetIds } = this.renderFrame(frame, replayedState, beforeState, removals);
       const tokens = this.estimateTokens(content);
       
       // Trace each frame rendering
@@ -200,14 +201,15 @@ export class FrameTrackingHUD implements CompressibleHUD {
   private renderFrame(
     frame: VEILFrame,
     replayedState: Map<string, Facet>,
-    beforeState?: Map<string, Facet>
+    beforeState?: Map<string, Facet>,
+    removals?: Map<string, 'hide' | 'delete'>
   ): { content: string; facetIds: string[] } {
     const parts: string[] = [];
     const facetIds: string[] = [];
     
     // Separate handling for incoming vs outgoing frames
     if (this.isIncomingFrame(frame)) {
-      const content = this.renderIncomingFrame(frame as IncomingVEILFrame, replayedState, beforeState);
+      const content = this.renderIncomingFrame(frame as IncomingVEILFrame, replayedState, beforeState, removals);
       return { content, facetIds: this.extractFacetIds(frame) };
     } else {
       const content = this.renderOutgoingFrame(frame as OutgoingVEILFrame);
@@ -229,7 +231,8 @@ export class FrameTrackingHUD implements CompressibleHUD {
   private renderIncomingFrame(
     frame: IncomingVEILFrame,
     replayedState: Map<string, Facet>,
-    beforeState?: Map<string, Facet>
+    beforeState?: Map<string, Facet>,
+    removals?: Map<string, 'hide' | 'delete'>
   ): string {
     const parts: string[] = [];
     const renderedStates = new Map<string, string>(); // Track rendered states by facet ID
@@ -239,6 +242,10 @@ export class FrameTrackingHUD implements CompressibleHUD {
       switch (operation.type) {
         case 'addFacet':
           if ('facet' in operation && operation.facet.type === 'state') {
+            // Skip removed facets
+            if (removals?.has(operation.facet.id)) {
+              break;
+            }
             // Store the initial state rendering
             const rendered = this.renderFacet(operation.facet);
             if (rendered) {
@@ -249,6 +256,13 @@ export class FrameTrackingHUD implements CompressibleHUD {
           
         case 'changeState':
           if ('updates' in operation && operation.updates) {
+            // Check if facet is removed
+            const removal = removals?.get(operation.facetId);
+            if (removal === 'delete') {
+              // Ignore changes to deleted facets
+              break;
+            }
+            
             const currentFacet = replayedState.get(operation.facetId);
             if (currentFacet && currentFacet.type === 'state') {
               const updatedFacet = {
@@ -283,7 +297,8 @@ export class FrameTrackingHUD implements CompressibleHUD {
               
               // Try transition rendering first if we have changed attributes
               let rendered: string | null = null;
-              if (Object.keys(changedAttributes).length > 0 && updatedFacet.transitionRenderers) {
+              // Skip transition rendering for hidden facets
+              if (removal !== 'hide' && Object.keys(changedAttributes).length > 0 && updatedFacet.transitionRenderers) {
                 rendered = this.renderTransitions(updatedFacet, changedAttributes);
               }
               
@@ -317,6 +332,11 @@ export class FrameTrackingHUD implements CompressibleHUD {
       switch (operation.type) {
         case 'addFacet':
           if ('facet' in operation) {
+            // Skip removed facets
+            if (removals?.has(operation.facet.id)) {
+              break;
+            }
+            
             if (operation.facet.type === 'event') {
               // Events are always rendered
               const rendered = this.renderFacet(operation.facet);
@@ -334,6 +354,11 @@ export class FrameTrackingHUD implements CompressibleHUD {
           break;
           
         case 'changeState':
+          // Skip removed facets
+          if (removals?.has(operation.facetId)) {
+            break;
+          }
+          
           // Check if we haven't already rendered this state
           const finalRendering = renderedStates.get(operation.facetId);
           if (finalRendering) {
@@ -717,7 +742,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
     return name.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
   }
   
-  private updateReplayedState(frame: IncomingVEILFrame, replayedState: Map<string, Facet>): void {
+  private updateReplayedState(frame: IncomingVEILFrame, replayedState: Map<string, Facet>, removals?: Map<string, 'hide' | 'delete'>): void {
     for (const operation of frame.operations) {
       switch (operation.type) {
         case 'addFacet':
@@ -741,6 +766,21 @@ export class FrameTrackingHUD implements CompressibleHUD {
                 }
               };
               replayedState.set(operation.facetId, updatedFacet);
+            }
+          }
+          break;
+          
+        case 'removeFacet':
+          if ('facetId' in operation && 'mode' in operation) {
+            if (removals) {
+              removals.set(operation.facetId, operation.mode);
+              // Cascade to children
+              const facet = replayedState.get(operation.facetId);
+              if (facet && facet.children) {
+                for (const child of facet.children) {
+                  removals.set(child.id, operation.mode);
+                }
+              }
             }
           }
           break;

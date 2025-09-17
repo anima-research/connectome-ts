@@ -142,6 +142,12 @@ export interface DeleteStreamOperation {
   streamId: string;
 }
 
+export interface RemoveFacetOperation {
+  type: 'removeFacet';
+  facetId: string;
+  mode: 'hide' | 'delete';
+}
+
 export type VEILOperation = 
   | AddFacetOperation 
   | ChangeStateOperation 
@@ -150,7 +156,8 @@ export type VEILOperation =
   | AgentActivationOperation
   | AddStreamOperation
   | UpdateStreamOperation
-  | DeleteStreamOperation;
+  | DeleteStreamOperation
+  | RemoveFacetOperation;
 
 // Stream information
 export interface StreamInfo {
@@ -243,4 +250,5 @@ export interface VEILState {
   currentStream?: StreamRef;  // Currently active stream
   frameHistory: (IncomingVEILFrame | OutgoingVEILFrame)[];
   currentSequence: number;
+  removals: Map<string, 'hide' | 'delete'>;  // Tracks removed facets
 }
