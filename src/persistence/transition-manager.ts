@@ -172,7 +172,7 @@ export class TransitionManager {
     // Find the nearest snapshot
     console.log('[TransitionManager] Looking for snapshots in snapshots/ directory');
     const snapshots = await this.storage.listFiles('snapshots/');
-    console.log('[TransitionManager] Found files:', snapshots);
+    console.log(`[TransitionManager] Found ${snapshots.length} total snapshot files`);
     const branchSnapshots = snapshots
       .filter(f => f.includes(`-${branch}.json`) || f.includes(`-${branch}-`))
       .sort((a, b) => {
@@ -195,7 +195,12 @@ export class TransitionManager {
         
         return seqA - seqB;
       });
-    console.log('[TransitionManager] Branch snapshots (sorted by sequence):', branchSnapshots);
+    console.log(`[TransitionManager] Found ${branchSnapshots.length} snapshots for branch '${branch}'`);
+    if (branchSnapshots.length > 0) {
+      const latest = branchSnapshots[branchSnapshots.length - 1];
+      const match = latest.match(/snapshot-(\d+)-/);
+      console.log(`[TransitionManager] Latest snapshot: ${latest} (sequence ${match ? match[1] : 'unknown'})`);
+    }
     
     if (branchSnapshots.length === 0) {
       throw new Error(`No snapshots found for branch ${branch}`);
