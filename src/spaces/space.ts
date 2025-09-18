@@ -425,15 +425,13 @@ export class Space extends Element {
    * Check if an event should be broadcast to all subscribers
    */
   private isBroadcastEvent(event: SpaceEvent): boolean {
-    // Check if the event explicitly requests broadcast behavior
-    if ('broadcast' in event && event.broadcast === true) {
-      return true;
+    // Default to broadcast unless explicitly set to false
+    if ('broadcast' in event) {
+      return event.broadcast !== false;
     }
     
-    // For backwards compatibility, these core events always broadcast
-    // TODO: Migrate these to use explicit broadcast flag
-    const coreFrameworkTopics = ['frame:start', 'frame:end'];
-    return coreFrameworkTopics.some(t => event.topic === t);
+    // All events broadcast by default
+    return true;
   }
   
   /**

@@ -55,7 +55,7 @@ export interface SpaceEvent<T = unknown> {
   // Propagation control
   bubbles?: boolean;  // Whether event bubbles up (default: true)
   cancelable?: boolean;  // Whether propagation can be stopped (default: true)
-  broadcast?: boolean;  // Whether event should reach all subscribers regardless of tree position (default: false)
+  broadcast?: boolean;  // Whether event should reach all subscribers regardless of tree position (default: true)
   
   // Runtime state (set by the event system)
   eventPhase?: EventPhase;

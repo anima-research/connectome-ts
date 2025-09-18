@@ -74,8 +74,7 @@ class DiscordAutoJoinComponent extends Component {
               path: [discordElement.id, 'join'],  // [elementId, action]
               parameters: { channelId }
             },
-            timestamp: Date.now(),
-            broadcast: true  // Ensure it reaches the Discord element
+            timestamp: Date.now()
           });
         }
       } else {

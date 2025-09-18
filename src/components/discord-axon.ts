@@ -346,8 +346,7 @@ export class DiscordAxonComponent extends InteractiveComponent implements Restor
             reconnect: this.connectionAttempts > 1,
             botUserId: this.botUserId
           },
-          timestamp: Date.now(),
-          broadcast: true  // Ensure all interested components receive this
+          timestamp: Date.now()
         });
       })
       .catch((error) => {
