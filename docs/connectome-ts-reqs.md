@@ -52,8 +52,8 @@ An incoming VEIL delta can contain any number of the following operations:
 2. Changing a state  
 3. Adding or deleting scopes
 4. Adding, updating, or deleting streams (communication contexts)
-5. Agent activation: signals that agent attention may be needed, includes source element reference and arbitrary metadata
-6. Removing a facet: suppresses rendering of a facet (and its children) without destroying history. Two modes:
+
+5. Removing a facet: suppresses rendering of a facet (and its children) without destroying history. Two modes:
    - 'hide': For attention management - facet still exists, state changes still apply, but no rendering (including transitions)
    - 'delete': For error correction - facet is effectively gone, state changes are silently ignored
 
@@ -189,7 +189,7 @@ State transition rendering:
 - The HUD tracks both before and after states for each frame to enable accurate transition detection
 
 Attention-aware compression:
-- Content to be compressed is wrapped in `<content_to_compress>` tags
+- Content to be compressed is wrapped in `<content_to_compress>` tags in the rendered context
 - Compression instructions can be inserted at the right position (before the frames being compressed)
 - This ensures the model sees content in context before compressing it, preserving attention hooks
 

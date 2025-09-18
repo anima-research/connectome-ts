@@ -425,6 +425,10 @@ function sanitizeFacetTreeNode(facet: Facet, depth: number = 0): any {
   };
 }
 
+function describeFacet(facet: Facet): string {
+  return `${facet.id}:${facet.type || 'unknown'}:${facet.displayName || facet.content || ''}`;
+}
+
 interface FrameListResponse {
   frames: DebugFrameRecord[];
   metrics: DebugMetrics;
@@ -530,10 +534,11 @@ export class DebugServer {
         res.status(404).json({ error: 'frame not found' });
         return;
       }
-      const facetsTree = this.buildFacetSnapshot(frame.sequence);
+      const facetsSnapshot = this.buildFacetSnapshot(frame.sequence);
       res.json({
         ...frame,
-        facetsTree
+        facetsTree: facetsSnapshot.facets,
+        facetsSequence: facetsSnapshot.sequence
       });
     });
 
@@ -677,22 +682,70 @@ export class DebugServer {
     return components.find(comp => comp.constructor.name === selector) || null;
   }
 
-  private buildFacetSnapshot(sequence: number): any[] {
+  private buildFacetSnapshot(sequence: number): { facets: any[]; sequence: number } {
     const state = this.veilState.getState();
     const temp = new VEILStateManager();
+    const framesToApply = state.frameHistory.filter(frame => frame.sequence <= sequence);
+    if (sequence === state.currentSequence) {
+      console.log('[DebugServer] live facets count', {
+        liveSequence: state.currentSequence,
+        totalFacets: state.facets.size,
+        facetIds: Array.from(state.facets.keys()).slice(0, 10)
+      });
+    }
+    let incomingCount = 0;
+    let outgoingCount = 0;
 
-    for (const frame of state.frameHistory) {
+    for (const frame of framesToApply) {
       if ('activeStream' in frame) {
         temp.applyIncomingFrame(frame as IncomingVEILFrame);
+        incomingCount += 1;
       } else {
         temp.recordOutgoingFrame(frame as OutgoingVEILFrame);
-      }
-      if (frame.sequence >= sequence) {
-        break;
+        outgoingCount += 1;
       }
     }
 
-    const snapshot = temp.getState();
-    return Array.from(snapshot.facets.values()).map(facet => sanitizeFacetTreeNode(facet));
+    let snapshot = temp.getState();
+    let facets = Array.from(snapshot.facets.values());
+    let facetDescriptions = facets.map(describeFacet);
+    if (facetDescriptions.length <= 1) {
+      const lastFrame = framesToApply[framesToApply.length - 1];
+      console.log('[DebugServer] facet snapshot diagnostic', {
+        requestSequence: sequence,
+        facetsCount: facetDescriptions.length,
+        lastFrameKind: 'agent' in (lastFrame as any) ? 'outgoing' : 'incoming',
+        lastFrameOperations: (lastFrame as any).operations?.map((op: any) => op.type),
+        lastFrameHasFacets: (lastFrame as any).operations?.some((op: any) => op.type === 'addFacet'),
+        lastFrameKeys: Object.keys(lastFrame || {})
+      });
+      const liveState = this.veilState.getState();
+      const liveFacets = Array.from(liveState.facets.values());
+      if (liveFacets.length > facetDescriptions.length) {
+        console.log('[DebugServer] facet snapshot fallback to live state', {
+          requestSequence: sequence,
+          snapshotSequence: snapshot.currentSequence,
+          liveSequence: liveState.currentSequence,
+          liveFacetCount: liveFacets.length
+        });
+        facets = liveFacets;
+        snapshot = liveState;
+        facetDescriptions = facets.map(describeFacet);
+      }
+    }
+    console.log('[DebugServer] buildFacetSnapshot', {
+      requestSequence: sequence,
+      historyLength: state.frameHistory.length,
+      framesApplied: framesToApply.length,
+      incomingCount,
+      outgoingCount,
+      snapshotSequence: snapshot.currentSequence,
+      requestedFrameSequence: sequence,
+      facets: facetDescriptions
+    });
+    return {
+      facets: facets.map(facet => sanitizeFacetTreeNode(facet)),
+      sequence: snapshot.currentSequence
+    };
   }
 }

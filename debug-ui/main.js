@@ -5,7 +5,8 @@ import {
   computed,
   onMounted,
   onBeforeUnmount,
-  watch
+  watch,
+  nextTick
 } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.js';
 
 function normalizeFrame(frame) {
@@ -80,6 +81,31 @@ function truncate(value, max = 160) {
   return str.length > max ? `${str.slice(0, max - 1)}…` : str;
 }
 
+function formatComponents(components, maxCount = 3) {
+  if (!components?.length) return '';
+  const names = components.map(c => c.name || c.id || c.type || 'component');
+  if (names.length <= maxCount) {
+    return names.join(', ');
+  }
+  return `${names.slice(0, maxCount).join(', ')} +${names.length - maxCount}`;
+}
+
+function formatChildren(children, maxCount = 2) {
+  if (!children?.length) return '';
+  const items = children.map((c, idx) => {
+    if (c.content && c.content.length > 20) {
+      return truncate(c.content, 30);
+    }
+    const name = c.name || c.id || (c.content ? truncate(c.content, 15) : null) || `${c.type || 'child'}${idx + 1}`;
+    const type = c.type || 'unknown';
+    return c.name || c.id ? `${name}(${type})` : name;
+  });
+  if (items.length <= maxCount) {
+    return items.join(' > ');
+  }
+  return `${items.slice(0, maxCount).join(' > ')} +${items.length - maxCount}`;
+}
+
 function summarizeFacet(facet) {
   if (!facet) return '';
   if (facet.content) return facet.content;
@@ -130,7 +156,9 @@ function operationMeta(op) {
 
 function summarizeEvent(event) {
   if (!event) return '';
-  const target = event.target?.elementId || event.source?.elementId;
+  const targetPath = event.target?.elementPath?.join('/') || event.target?.elementId;
+  const sourcePath = event.source?.elementPath?.join('/') || event.source?.elementId;
+  const target = targetPath || sourcePath;
   return target ? `${event.topic} → ${target}` : event.topic || 'event';
 }
 
@@ -209,52 +237,38 @@ const ElementTree = {
     };
   },
   template: `
-    <li class="tree-item" :style="{ '--depth': depth }">
-      <div class="tree-row">
+    <li class="compact-tree-item">
+      <div class="compact-tree-row" :style="{ paddingLeft: depth * 16 + 'px' }">
+        <span class="tree-connector" v-if="depth > 0"></span>
         <button
           v-if="hasChildren"
-          class="tree-toggle"
+          class="compact-toggle"
           @click.stop="toggle"
         >
           {{ isExpanded ? '▾' : '▸' }}
         </button>
-        <div class="tree-info" @click="showElementDetail">
-          <span class="tree-name">{{ node.name }}</span>
-          <span class="tree-type">{{ node.type }}</span>
-          <span
-            v-if="node.subscriptions && node.subscriptions.length"
-            class="tree-meta"
-          >
-            {{ shorten(node.subscriptions.join(', '), 40) }}
-          </span>
-          <span
-            v-if="node.content"
-            class="tree-content"
-          >
-            {{ truncate(node.content, 80) }}
-          </span>
+        <span v-else class="compact-toggle-spacer"></span>
+        <div class="compact-element-info" @click="showElementDetail">
+          <span class="element-name">{{ node.name }}</span>
+          <span class="element-type">({{ node.type }})</span>
+          <span v-if="node.content" class="element-content">{{ node.content }}</span>
+          <span v-if="node.components?.length" class="element-comps">[{{ node.components.length }}c]</span>
         </div>
       </div>
-      <div
-        v-if="node.components && node.components.length"
-        class="tree-components"
-      >
+      <div v-if="node.components?.length" class="compact-components">
         <div
           v-for="(comp, index) in node.components"
           :key="index"
-          class="tree-component"
+          class="compact-component-row"
+          :style="{ paddingLeft: (depth + 1) * 16 + 'px' }"
           @click.stop="showComponentDetail(comp)"
         >
-          <span class="comp-name">{{ comp.type }}</span>
-          <span
-            v-if="componentSummary(comp)"
-            class="comp-summary"
-          >
-            {{ componentSummary(comp) }}
-          </span>
+          <span class="component-marker">○</span>
+          <span class="component-name">{{ comp.type }}</span>
+          <span v-if="componentSummary(comp)" class="component-summary">{{ componentSummary(comp) }}</span>
         </div>
       </div>
-      <ul v-if="hasChildren && isExpanded" class="tree-children">
+      <ul v-if="hasChildren && isExpanded" class="compact-tree-children">
         <element-tree
           v-for="child in node.children"
           :key="child.id"
@@ -268,6 +282,147 @@ const ElementTree = {
     </li>
   `
 }; 
+
+// Component for JSON viewer
+const JsonViewer = {
+  name: 'JsonViewer',
+  props: {
+    data: { required: true },
+    depth: { type: Number, default: 0 },
+    expandAll: { type: Boolean, default: false }
+  },
+  setup(props) {
+    const isExpanded = ref(props.expandAll || props.depth < 2);
+    
+    const dataType = computed(() => {
+      const d = props.data;
+      if (d === null) return 'null';
+      if (d === undefined) return 'undefined';
+      if (Array.isArray(d)) return 'array';
+      return typeof d;
+    });
+    
+    const isExpandable = computed(() => {
+      return dataType.value === 'object' || dataType.value === 'array';
+    });
+    
+    const isEmpty = computed(() => {
+      if (dataType.value === 'array') return props.data.length === 0;
+      if (dataType.value === 'object') return Object.keys(props.data).length === 0;
+      return false;
+    });
+    
+    const toggle = () => {
+      if (isExpandable.value) {
+        isExpanded.value = !isExpanded.value;
+      }
+    };
+    
+    const formatValue = (value) => {
+      if (value === null) return 'null';
+      if (value === undefined) return 'undefined';
+      if (typeof value === 'string') {
+        // Check if it's a timestamp string
+        if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value)) {
+          return `"${value}"`;
+        }
+        return `"${value}"`;
+      }
+      if (typeof value === 'boolean') return value.toString();
+      if (typeof value === 'number') {
+        // Check if it's likely a timestamp
+        if (value > 1600000000000 && value < 2000000000000) {
+          return `${value} (${new Date(value).toISOString()})`;
+        }
+        return value.toString();
+      }
+      return value;
+    };
+    
+    const isElementRef = (obj) => {
+      return obj && typeof obj === 'object' && 
+             'elementId' in obj && 
+             ('elementPath' in obj || 'elementType' in obj);
+    };
+    
+    const formatElementRef = (ref) => {
+      if (ref.elementPath?.length) {
+        return ref.elementPath.join('/');
+      }
+      return ref.elementId;
+    };
+    
+    // Sort object keys for consistent display
+    const sortedEntries = computed(() => {
+      if (dataType.value !== 'object') return [];
+      return Object.entries(props.data).sort(([a], [b]) => {
+        // Put important keys first
+        const priority = ['id', 'name', 'type', 'topic', 'timestamp'];
+        const aIdx = priority.indexOf(a);
+        const bIdx = priority.indexOf(b);
+        if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+        if (aIdx !== -1) return -1;
+        if (bIdx !== -1) return 1;
+        return a.localeCompare(b);
+      });
+    });
+    
+    return {
+      isExpanded,
+      dataType,
+      isExpandable,
+      isEmpty,
+      toggle,
+      formatValue,
+      isElementRef,
+      formatElementRef,
+      sortedEntries
+    };
+  },
+  template: `
+    <div class="json-viewer">
+      <template v-if="!isExpandable">
+        <span :class="'json-' + dataType">{{ formatValue(data) }}</span>
+      </template>
+      <template v-else-if="isElementRef(data)">
+        <span class="json-element-ref">{{ formatElementRef(data) }}</span>
+      </template>
+      <template v-else>
+        <span 
+          class="json-toggle"
+          @click="toggle"
+          v-if="!isEmpty"
+        >
+          {{ isExpanded ? '▾' : '▸' }}
+        </span>
+        <span v-else class="json-toggle-spacer"></span>
+        
+        <span class="json-bracket">{{ dataType === 'array' ? '[' : '{' }}</span>
+        <span v-if="!isExpanded && !isEmpty" class="json-ellipsis">...</span>
+        <span v-if="isEmpty" class="json-empty">{{ dataType === 'array' ? '' : '' }}</span>
+        <span v-if="!isExpanded || isEmpty" class="json-bracket">{{ dataType === 'array' ? ']' : '}' }}</span>
+        
+        <div v-if="isExpanded && !isEmpty" class="json-content">
+          <template v-if="dataType === 'array'">
+            <div v-for="(item, index) in data" :key="index" class="json-item">
+              <span class="json-index">{{ index }}:</span>
+              <json-viewer :data="item" :depth="depth + 1" />
+            </div>
+          </template>
+          <template v-else>
+            <div v-for="[key, value] in sortedEntries" :key="key" class="json-item">
+              <span class="json-key">{{ key }}:</span>
+              <json-viewer :data="value" :depth="depth + 1" />
+            </div>
+          </template>
+        </div>
+        <div v-if="isExpanded && !isEmpty" class="json-bracket-line">
+          <span class="json-bracket">{{ dataType === 'array' ? ']' : '}' }}</span>
+        </div>
+      </template>
+    </div>
+  `
+};
 
 const FacetNode = {
   name: 'FacetNode',
@@ -314,32 +469,25 @@ const FacetNode = {
     };
   },
   template: `
-    <li class="facet-node" :style="{ '--depth': depth }">
-      <div class="facet-row">
+    <li class="compact-facet-item">
+      <div class="compact-facet-row" :style="{ paddingLeft: depth * 16 + 'px' }">
+        <span class="tree-connector" v-if="depth > 0"></span>
         <button
           v-if="hasChildren"
-          class="facet-toggle"
+          class="compact-toggle"
           @click.stop="toggle"
         >
           {{ isExpanded ? '▾' : '▸' }}
         </button>
-        <div class="facet-info" @click="showFacetDetail">
-          <span class="facet-name">{{ facet.displayName || facet.id }}</span>
-          <span class="facet-type">{{ facet.type }}</span>
-          <span v-if="facet.content" class="facet-content">{{ truncate(facet.content, 120) }}</span>
+        <span v-else class="compact-toggle-spacer"></span>
+        <div class="compact-facet-info" @click="showFacetDetail">
+          <span class="veil-facet-name">{{ facet.displayName || facet.name || facet.id }}</span>
+          <span class="veil-facet-type">({{ facet.type }})</span>
+          <span v-if="facet.content" class="veil-facet-content">{{ facet.content }}</span>
+          <span v-if="facet.components?.length" class="veil-facet-comps">[{{ facet.components.length }}c]</span>
         </div>
       </div>
-      <div v-if="facet.attributes" class="facet-attributes">
-        <div
-          v-for="(value, key) in facet.attributes"
-          :key="key"
-          class="facet-attribute"
-        >
-          <span class="attr-key">{{ key }}</span>
-          <span class="attr-value">{{ truncate(value, 80) }}</span>
-        </div>
-      </div>
-      <ul v-if="hasChildren && isExpanded" class="facet-children">
+      <ul v-if="hasChildren && isExpanded" class="compact-facet-children">
         <facet-node
           v-for="child in facet.children"
           :key="child.id"
@@ -350,6 +498,70 @@ const FacetNode = {
         />
       </ul>
     </li>
+  `
+};
+
+const InlineFacetTree = {
+  name: 'InlineFacetTree',
+  props: {
+    facet: { type: Object, required: true },
+    depth: { type: Number, default: 0 }
+  },
+  setup(props, { emit }) {
+    const showDetail = () => {
+      emit('show-detail', {
+        title: 'Facet Details',
+        subtitle: `${props.facet.name || props.facet.id} (${props.facet.type})`,
+        payload: props.facet
+      });
+    };
+
+    const hasChildren = computed(() => props.facet.children?.length > 0);
+    
+    const formatValue = (value) => {
+      if (value === null || value === undefined) return '';
+      if (typeof value === 'object') return JSON.stringify(value);
+      return String(value);
+    };
+
+    return { 
+      showDetail, 
+      hasChildren, 
+      formatValue,
+      truncate: (value, max) => truncate(value, max),
+      shorten: (value, max) => shorten(value, max) 
+    };
+  },
+  template: `
+    <div class="inline-tree-node">
+      <div 
+        class="inline-tree-row" 
+        :style="{ paddingLeft: depth * 16 + 'px' }"
+        @click="showDetail"
+      >
+        <span class="tree-connector" v-if="depth > 0"></span>
+        <span class="inline-tree-name">{{ facet.name || facet.id || facet.type || 'facet' }}</span>
+        <span class="inline-tree-type">({{ facet.type || 'unknown' }})</span>
+        <span v-if="facet.content" class="inline-tree-content">{{ facet.content }}</span>
+        <span v-if="facet.attributes" class="inline-tree-attrs-inline">
+          <template v-for="(value, key, index) in facet.attributes" :key="key">
+            <span v-if="index > 0" class="attr-separator">|</span>
+            <span class="attr-key">{{ key }}:</span>
+            <span class="attr-value">{{ formatValue(value) }}</span>
+          </template>
+        </span>
+        <span v-if="facet.components?.length" class="inline-tree-components">[{{ facet.components.length }}c]</span>
+      </div>
+      <div v-if="hasChildren" class="inline-tree-children">
+        <inline-facet-tree
+          v-for="(child, idx) in facet.children"
+          :key="child.id || idx"
+          :facet="child"
+          :depth="depth + 1"
+          @show-detail="$emit('show-detail', $event)"
+        />
+      </div>
+    </div>
   `
 };
 
@@ -387,6 +599,7 @@ const App = {
         averageDurationMs: 0
       },
       frameFacets: [],
+      frameFacetsSequence: null,
       elementTree: null,
       selectedFrameId: null,
       filters: {
@@ -405,7 +618,9 @@ const App = {
       selectedOperationIndex: null,
       selectedEventIndex: null,
       activeDetail: null,
-      inspectorWidth: 360
+      inspectorWidth: 360,
+      sidebarWidth: 320,
+      framePanelHeight: 320
     });
 
     const socketRef = ref(null);
@@ -413,9 +628,14 @@ const App = {
     const refreshTimer = ref(null);
     const expandedElements = reactive({});
     const layoutRef = ref(null);
+    const sidebarRef = ref(null);
     const isResizingInspector = ref(false);
+    const isResizingSidebar = ref(false);
+    const isResizingSidebarPanels = ref(false);
     const frameDetailCache = new Map();
     let frameLoadSequence = 0;
+    let sidebarResizeState = { startX: 0, startWidth: 0 };
+    let sidebarPanelResizeState = { startY: 0, startHeight: 0 };
 
     function upsertFrame(frameData) {
       if (!frameData || !frameData.uuid) return;
@@ -472,6 +692,7 @@ const App = {
         state.framePagination.hasMore = true;
         frameDetailCache.clear();
         state.frameFacets = [];
+        state.frameFacetsSequence = null;
       }
 
       state.framePagination.loading = true;
@@ -561,9 +782,17 @@ const App = {
         const response = await fetch(`/api/frames/${uuid}`);
         if (!response.ok) throw new Error(`frame request failed: ${response.status}`);
         const payload = await response.json();
+        debugLog('fetchFrameDetail raw payload', {
+          uuid,
+          payloadKeys: Object.keys(payload || {}),
+          facetsSequence: payload.facetsSequence
+        });
 
         const facetsTree = payload.facetsTree || [];
-        frameDetailCache.set(uuid, { facetsTree });
+        frameDetailCache.set(uuid, {
+          facetsTree,
+          sequence: payload.facetsSequence ?? null
+        });
         debugLog('fetchFrameDetail response', {
           uuid,
           requestId,
@@ -576,6 +805,7 @@ const App = {
 
         if (requestId === frameLoadSequence && state.selectedFrameId === uuid) {
           state.frameFacets = cloneFacetsTree(facetsTree);
+          state.frameFacetsSequence = payload.facetsSequence ?? null;
           debugLog('fetchFrameDetail applied to state', {
             uuid,
             facetsCount: facetsTree.length,
@@ -584,8 +814,10 @@ const App = {
               type: f.type,
               displayName: f.displayName,
               content: f.content,
-              children: f.children?.length || 0
-            }))
+              children: f.children?.length || 0,
+              facetsSequence: payload.facetsSequence
+            })),
+            facetsSequence: payload.facetsSequence
           });
         } else {
           debugLog('fetchFrameDetail ignored (stale request)', {
@@ -623,6 +855,7 @@ const App = {
         state.selectedEventIndex = null;
         state.activeDetail = null;
         state.frameFacets = [];
+        state.frameFacetsSequence = null;
         state.loadingFrame = false;
         debugLog('setSelectedFrame cleared');
         return;
@@ -668,6 +901,7 @@ const App = {
       const cached = frameDetailCache.get(uuid);
       if (cached && !forceReload) {
         state.frameFacets = cloneFacetsTree(cached.facetsTree || []);
+        state.frameFacetsSequence = cached.sequence ?? null;
         debugLog('setSelectedFrame using cached facets', {
           uuid,
           facetsCount: cached.facetsTree?.length || 0,
@@ -676,11 +910,13 @@ const App = {
             type: f.type,
             displayName: f.displayName,
             content: f.content,
-            children: f.children?.length || 0
+            children: f.children?.length || 0,
+            sequence: cached.sequence ?? null
           }))
         });
       } else {
         state.frameFacets = [];
+        state.frameFacetsSequence = null;
         debugLog('setSelectedFrame cleared facets pending fetch', { uuid, forceReload, cached: !!cached });
       }
 
@@ -819,7 +1055,12 @@ const App = {
     onMounted(async () => {
       await refresh();
       connectSocket();
-      refreshTimer.value = setInterval(refresh, 7000);
+      nextTick(() => {
+        clampFramePanelHeight();
+        window.addEventListener('resize', clampFramePanelHeight);
+      });
+      // Disabled auto-refresh - WebSocket provides real-time updates
+      // refreshTimer.value = setInterval(refresh, 7000);
     });
 
     onBeforeUnmount(() => {
@@ -832,6 +1073,10 @@ const App = {
       if (refreshTimer.value) {
         clearInterval(refreshTimer.value);
       }
+      window.removeEventListener('resize', clampFramePanelHeight);
+      stopInspectorResize();
+      stopSidebarResize();
+      stopSidebarPanelResize();
     });
 
     watch(
@@ -884,39 +1129,109 @@ const App = {
       });
     }
 
-    function startResize(event) {
+    function startInspectorResize(event) {
       isResizingInspector.value = true;
       event.preventDefault();
       document.body.style.cursor = 'col-resize';
-      window.addEventListener('mousemove', onResize);
-      window.addEventListener('mouseup', stopResize);
+      window.addEventListener('mousemove', onInspectorResize);
+      window.addEventListener('mouseup', stopInspectorResize);
     }
 
-    function onResize(event) {
+    function onInspectorResize(event) {
       if (!isResizingInspector.value) return;
       const layout = layoutRef.value;
       if (!layout) return;
       const rect = layout.getBoundingClientRect();
       const minWidth = 260;
       const maxWidth = 600;
-      const gap = 18; // matches CSS grid gap
+      const gap = 12; // matches CSS grid gap
       const handleWidth = 10;
       const rightEdge = rect.right;
       const newWidth = rightEdge - event.clientX - gap - handleWidth / 2;
       state.inspectorWidth = Math.min(maxWidth, Math.max(minWidth, newWidth));
     }
 
-    function stopResize() {
+    function stopInspectorResize() {
       if (!isResizingInspector.value) return;
       isResizingInspector.value = false;
       document.body.style.cursor = '';
-      window.removeEventListener('mousemove', onResize);
-      window.removeEventListener('mouseup', stopResize);
+      window.removeEventListener('mousemove', onInspectorResize);
+      window.removeEventListener('mouseup', stopInspectorResize);
     }
 
-    onBeforeUnmount(() => {
-      stopResize();
-    });
+    function clampFramePanelHeight() {
+      const sidebar = sidebarRef.value;
+      if (!sidebar) return;
+      const rect = sidebar.getBoundingClientRect();
+      const minHeight = 180;
+      const maxHeight = Math.max(minHeight, rect.height - 180);
+      state.framePanelHeight = Math.max(minHeight, Math.min(maxHeight, state.framePanelHeight));
+    }
+
+    function startSidebarResize(event) {
+      isResizingSidebar.value = true;
+      event.preventDefault();
+      document.body.style.cursor = 'col-resize';
+      sidebarResizeState = {
+        startX: event.clientX,
+        startWidth: state.sidebarWidth
+      };
+      window.addEventListener('mousemove', onSidebarResize);
+      window.addEventListener('mouseup', stopSidebarResize);
+    }
+
+    function onSidebarResize(event) {
+      if (!isResizingSidebar.value) return;
+      const delta = event.clientX - sidebarResizeState.startX;
+      const minWidth = 220;
+      const maxWidth = 520;
+      const newWidth = sidebarResizeState.startWidth + delta;
+      state.sidebarWidth = Math.min(maxWidth, Math.max(minWidth, newWidth));
+      clampFramePanelHeight();
+    }
+
+    function stopSidebarResize() {
+      if (!isResizingSidebar.value) return;
+      isResizingSidebar.value = false;
+      document.body.style.cursor = '';
+      window.removeEventListener('mousemove', onSidebarResize);
+      window.removeEventListener('mouseup', stopSidebarResize);
+    }
+
+    function startSidebarPanelResize(event) {
+      const sidebar = sidebarRef.value;
+      if (!sidebar) return;
+      clampFramePanelHeight();
+      isResizingSidebarPanels.value = true;
+      event.preventDefault();
+      document.body.style.cursor = 'row-resize';
+      sidebarPanelResizeState = {
+        startY: event.clientY,
+        startHeight: state.framePanelHeight
+      };
+      window.addEventListener('mousemove', onSidebarPanelResize);
+      window.addEventListener('mouseup', stopSidebarPanelResize);
+    }
+
+    function onSidebarPanelResize(event) {
+      if (!isResizingSidebarPanels.value) return;
+      const sidebar = sidebarRef.value;
+      const rect = sidebar ? sidebar.getBoundingClientRect() : null;
+      const delta = event.clientY - sidebarPanelResizeState.startY;
+      const minHeight = 180;
+      const rectLimit = rect ? rect.height - 180 : undefined;
+      const maxHeight = rectLimit !== undefined ? Math.max(minHeight, rectLimit) : sidebarPanelResizeState.startHeight + delta;
+      const newHeight = sidebarPanelResizeState.startHeight + delta;
+      state.framePanelHeight = Math.max(minHeight, Math.min(maxHeight, newHeight));
+    }
+
+    function stopSidebarPanelResize() {
+      if (!isResizingSidebarPanels.value) return;
+      isResizingSidebarPanels.value = false;
+      document.body.style.cursor = '';
+      window.removeEventListener('mousemove', onSidebarPanelResize);
+      window.removeEventListener('mouseup', stopSidebarPanelResize);
+    }
 
     const filteredFrames = computed(() => {
       const query = state.filters.search.trim().toLowerCase();
@@ -957,7 +1272,9 @@ const App = {
     });
 
     const layoutStyle = computed(() => ({
-      '--inspector-width': `${state.inspectorWidth}px`
+      '--inspector-width': `${state.inspectorWidth}px`,
+      '--sidebar-width': `${state.sidebarWidth}px`,
+      '--frame-panel-height': `${state.framePanelHeight}px`
     }));
 
     return {
@@ -971,6 +1288,8 @@ const App = {
       formatTimestamp,
       shorten,
       truncate,
+      formatComponents,
+      formatChildren,
       summarizeFacet,
       summarizeOperation,
       summarizeEvent,
@@ -987,8 +1306,11 @@ const App = {
       refresh,
       loadOlderFrames,
       layoutRef,
+      sidebarRef,
       layoutStyle,
-      startResize
+      startInspectorResize,
+      startSidebarResize,
+      startSidebarPanelResize
     };
   },
   template: `
@@ -1016,7 +1338,7 @@ const App = {
         {{ state.error }}
       </div>
       <div class="layout" :style="layoutStyle" ref="layoutRef">
-        <aside class="sidebar">
+        <aside class="sidebar" ref="sidebarRef">
           <section class="panel frame-panel">
             <div class="panel-header">
               <h2>Frames</h2>
@@ -1031,22 +1353,14 @@ const App = {
               <div
                 v-for="frame in filteredFrames"
                 :key="frame.uuid"
-                :class="['frame-card', state.selectedFrameId === frame.uuid ? 'active' : '']"
+                :class="['frame-item', state.selectedFrameId === frame.uuid ? 'active' : '']"
                 @click="selectFrame(frame.uuid)"
               >
-                <div class="frame-card-header">
-                  <span>#{{ frame.sequence }}</span>
-                  <span class="pill" :class="frame.kind">{{ frame.kind }}</span>
-                </div>
-                <div class="frame-card-meta">
-                  <span>{{ formatTimestamp(frame.timestamp) }}</span>
-                  <span>{{ frame.operations?.length || 0 }} ops</span>
-                  <span>{{ frame.events?.length || 0 }} events</span>
-                  <span v-if="frame.durationMs">{{ frame.durationMs.toFixed(1) }} ms</span>
-                </div>
-                <div class="frame-card-meta" v-if="frame.activeStream">
-                  <span>stream: {{ frame.activeStream.streamId }}</span>
-                </div>
+                <span class="frame-seq">#{{ frame.sequence }}</span>
+                <span class="frame-kind" :class="frame.kind">{{ frame.kind }}</span>
+                <span class="frame-time">{{ formatTimestamp(frame.timestamp).split(' ')[1] }}</span>
+                <span class="frame-stats">{{ frame.operations?.length || 0 }}op {{ frame.events?.length || 0 }}ev</span>
+                <span v-if="frame.durationMs" class="frame-duration">{{ frame.durationMs.toFixed(0) }}ms</span>
               </div>
               <div v-if="!filteredFrames.length" class="text-muted">No frames yet.</div>
               <div
@@ -1069,10 +1383,12 @@ const App = {
               </div>
             </div>
           </section>
+          <div class="sidebar-splitter" @mousedown="startSidebarPanelResize"></div>
           <section class="panel veil-panel">
             <div class="panel-header">
               <h2>VEIL Snapshot</h2>
-              <span class="badge" v-if="state.frameFacets.length">{{ state.frameFacets.length }}</span>
+              <span class="badge" v-if="state.frameFacetsSequence != null">seq {{ state.frameFacetsSequence }}</span>
+              <span class="badge" v-else-if="state.frameFacets.length">{{ state.frameFacets.length }}</span>
             </div>
             <div class="veil-tree" v-if="state.frameFacets.length">
               <facet-tree
@@ -1084,6 +1400,7 @@ const App = {
             <div v-else class="text-muted">No active facets for this frame.</div>
           </section>
         </aside>
+        <div class="splitter splitter-left" @mousedown="startSidebarResize"></div>
         <section class="content-area">
           <section class="panel timeline-panel" v-if="timelineFrames.length">
             <div class="panel-header">
@@ -1109,6 +1426,7 @@ const App = {
                 <span class="meta-pill">UUID: {{ shorten(selectedFrame.uuid, 18) }}</span>
                 <span class="meta-pill">{{ formatTimestamp(selectedFrame.timestamp) }}</span>
                 <span class="meta-pill kind" :class="selectedFrame.kind">{{ selectedFrame.kind }}</span>
+                <span class="meta-pill" v-if="state.frameFacetsSequence != null">VEIL seq {{ state.frameFacetsSequence }}</span>
                 <span
                   class="meta-pill"
                   v-if="selectedFrame.activeStream"
@@ -1136,95 +1454,77 @@ const App = {
                 </div>
                 <div class="message-card" v-if="selectedFrame.renderedContext.metadata">
                   <div class="role">metadata</div>
-                  <pre>{{ stringify(selectedFrame.renderedContext.metadata) }}</pre>
+                  <div style="padding: 8px;">
+                    <json-viewer :data="selectedFrame.renderedContext.metadata" />
+                  </div>
                 </div>
               </div>
             </div>
             <div class="section" v-if="selectedFrame.renderedContext">
               <h3>LLM Request JSON</h3>
               <div class="section-body">
-                <pre class="code-block">{{ stringify(selectedFrame.renderedContext) }}</pre>
+                <json-viewer :data="selectedFrame.renderedContext" />
               </div>
             </div>
             <div class="section">
               <h3>Operations</h3>
-              <div class="section-body operations">
+              <div class="log-viewer operations">
                 <div v-if="!selectedFrame.operations?.length" class="text-muted">No operations.</div>
-                <div
-                  v-for="(op, idx) in selectedFrame.operations"
-                  :key="idx"
-                  class="operation-card"
-                >
-                  <div class="operation-card-header">
-                    <span class="operation-type">{{ op.type }}</span>
-                    <span class="operation-meta" v-if="operationMeta(op)">{{ operationMeta(op) }}</span>
+                <template v-for="(op, idx) in selectedFrame.operations" :key="idx">
+                  <div v-if="op.type === 'addFacet' && op.facet" class="log-entry facet-entry">
+                    <div class="facet-header" @click="selectOperation(op, idx)">
+                      <span class="log-type">{{ op.type }}</span>
+                      <span class="log-meta" v-if="operationMeta(op)">{{ operationMeta(op) }}</span>
+                    </div>
+                    <inline-facet-tree
+                      :facet="op.facet"
+                      :depth="0"
+                      @show-detail="handleTreeDetail"
+                    />
                   </div>
-                  <div class="operation-card-body">
-                    <template v-if="op.type === 'speak'">
-                      <pre class="operation-message">{{ op.content }}</pre>
-                      <div class="pill-meta" v-if="op.target">Target: {{ op.target }}</div>
-                      <div class="pill-meta" v-if="op.targets">Targets: {{ op.targets.join(', ') }}</div>
-                    </template>
-                    <template v-else-if="op.type === 'addFacet' && op.facet">
-                      <facet-tree :facets="[op.facet]" :expanded-depth="2" @show-detail="handleTreeDetail" />
-                    </template>
-                    <template v-else-if="op.type === 'changeState'">
-                      <div class="operation-kv">
-                        <div class="kv-item" v-if="op.updates?.content">
-                          <span class="kv-key">content</span>
-                          <span class="kv-value">{{ op.updates.content }}</span>
-                        </div>
-                        <div
-                          class="kv-item"
-                          v-for="(value, key) in op.updates?.attributes || {}"
-                          :key="key"
-                        >
-                          <span class="kv-key">{{ key }}</span>
-                          <span class="kv-value">{{ stringify(value) }}</span>
-                        </div>
-                      </div>
-                    </template>
-                    <template v-else-if="op.type === 'action'">
-                      <div class="pill-meta">Path: {{ (op.path || []).join('.') }}</div>
-                      <div class="operation-kv" v-if="op.parameters">
-                        <div class="kv-item" v-for="(value, key) in op.parameters" :key="key">
-                          <span class="kv-key">{{ key }}</span>
-                          <span class="kv-value">{{ stringify(value) }}</span>
-                        </div>
-                      </div>
-                    </template>
-                    <template v-else>
-                      <pre class="operation-json">{{ truncate(stringify(op), 500) }}</pre>
-                    </template>
+                  <div v-else class="log-entry" @click="selectOperation(op, idx)">
+                    <span class="log-type">{{ op.type }}</span>
+                    <span class="log-content">
+                      <template v-if="op.type === 'speak'">
+                        <span class="log-speak">{{ truncate(op.content, 120) }}</span>
+                        <span class="log-meta" v-if="op.target"> → {{ op.target }}</span>
+                      </template>
+                      <template v-else-if="op.type === 'changeState'">
+                        <span v-if="op.updates?.content" class="log-state">content: {{ truncate(op.updates.content, 80) }}</span>
+                        <span v-else-if="op.updates?.attributes" class="log-state">
+                          {{ Object.keys(op.updates.attributes).join(', ') }}
+                        </span>
+                      </template>
+                      <template v-else-if="op.type === 'action'">
+                        <span class="log-action">{{ (op.path || []).join('.') }}</span>
+                      </template>
+                      <template v-else>
+                        <span class="log-raw">{{ truncate(stringify(op), 100) }}</span>
+                      </template>
+                    </span>
+                    <span class="log-meta" v-if="operationMeta(op)">{{ operationMeta(op) }}</span>
                   </div>
-                  <div class="operation-actions">
-                    <button class="mini-button" @click="selectOperation(op, idx)">View JSON</button>
-                  </div>
-                </div>
+                </template>
               </div>
             </div>
             <div class="section">
               <h3>Events</h3>
-              <div class="section-body events">
+              <div class="log-viewer events">
                 <div v-if="!selectedFrame.events?.length" class="text-muted">No events observed for this frame.</div>
                 <div
                   v-for="(event, idx) in selectedFrame.events"
                   :key="event.id || idx"
-                  class="event-card"
+                  class="log-entry"
+                  @click="selectEvent(event, idx)"
                 >
-                  <div class="event-card-header">
-                    <span class="event-topic">{{ event.topic }}</span>
-                    <span class="event-meta" v-if="eventMeta(event)">{{ eventMeta(event) }}</span>
-                  </div>
-                  <div class="event-card-body">
-                    <div class="pill-meta">Timestamp: {{ formatTimestamp(event.timestamp) }}</div>
-                    <div class="pill-meta" v-if="event.phase && event.phase !== 'none'">Phase: {{ event.phase }}</div>
-                    <div class="pill-meta" v-if="event.target">Target: {{ event.target.elementId }}</div>
-                    <div class="event-payload" v-if="event.payload">{{ truncate(stringify(event.payload), 200) }}</div>
-                  </div>
-                  <div class="operation-actions">
-                    <button class="mini-button" @click="selectEvent(event, idx)">View JSON</button>
-                  </div>
+                  <span class="log-timestamp">{{ formatTimestamp(event.timestamp).split(' ')[1] }}</span>
+                  <span class="log-type">{{ event.topic }}</span>
+                  <span class="log-content">
+                    <span v-if="event.phase && event.phase !== 'none'" class="log-phase">[{{ event.phase }}]</span>
+                    <span v-if="event.target" class="log-target">{{ event.target.elementPath?.join('/') || event.target.elementId }}</span>
+                    <span v-if="event.payload" class="log-payload">{{ truncate(stringify(event.payload), 80) }}</span>
+                  </span>
+                  <span class="log-meta" v-if="eventMeta(event)">{{ eventMeta(event) }}</span>
                 </div>
               </div>
             </div>
@@ -1253,7 +1553,7 @@ const App = {
             <div v-else class="text-muted">Tree not available yet.</div>
           </section>
         </section>
-        <div class="splitter" @mousedown="startResize"></div>
+        <div class="splitter splitter-right" @mousedown="startInspectorResize"></div>
         <aside class="inspector" :class="{ 'inspector-visible': state.activeDetail }">
           <section class="panel inspector-panel">
             <div class="panel-header inspector-header">
@@ -1264,7 +1564,7 @@ const App = {
               <div class="inspector-title">{{ state.activeDetail.title }}</div>
               <div v-if="state.activeDetail.subtitle" class="inspector-subtitle">{{ state.activeDetail.subtitle }}</div>
               <div class="inspector-json">
-                <pre class="code-block">{{ stringify(state.activeDetail.payload ?? state.activeDetail) }}</pre>
+                <json-viewer :data="state.activeDetail.payload ?? state.activeDetail" />
               </div>
             </div>
             <div v-else class="inspector-placeholder">
@@ -1281,4 +1581,6 @@ const app = createApp(App);
 app.component('element-tree', ElementTree);
 app.component('facet-tree', FacetTree);
 app.component('facet-node', FacetNode);
+app.component('inline-facet-tree', InlineFacetTree);
+app.component('json-viewer', JsonViewer);
 app.mount('#app');
