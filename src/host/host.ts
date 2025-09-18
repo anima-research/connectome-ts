@@ -74,7 +74,7 @@ export class ConnectomeHost {
     
     // Initialize storage if enabled
     if (this.config.persistence?.enabled && !this.config.reset) {
-      const storageDir = this.config.persistence.storageDir || './discord-host-state';
+      const storageDir = this.config.persistence.storageDir || './connectome-state';
       this.storageAdapter = new FileStorageAdapter(storageDir);
     }
     
@@ -98,7 +98,7 @@ export class ConnectomeHost {
     if (this.config.persistence?.enabled) {
       this.transitionManager = new TransitionManager(space, veilState, {
         snapshotInterval: 100,
-        storagePath: this.config.persistence.storageDir || './discord-host-state'
+        storagePath: this.config.persistence.storageDir || './connectome-state'
       });
       
       // Add shutdown handler
