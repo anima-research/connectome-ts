@@ -8,9 +8,8 @@ import { VEILStateManager } from '../veil/veil-state';
 import { ComponentRegistry } from '../persistence/component-registry';
 import { BasicAgent } from '../agent/basic-agent';
 import { AgentComponent } from '../agent/agent-component';
-import { DiscordAxonComponent } from '../components/discord-axon';
-import { DiscordChatComponent } from '../components/discord-chat';
 import { persistable, persistent } from '../persistence/decorators';
+import { AxonElement } from '../elements/axon-element';
 import { Element } from '../spaces/element';
 import { Component } from '../spaces/component';
 import { SpaceEvent } from '../spaces/types';
@@ -102,28 +101,25 @@ export class DiscordApplication implements ConnectomeApplication {
   async initialize(space: Space, veilState: VEILStateManager): Promise<void> {
     console.log('🎮 Initializing Discord application...');
     
-    // Create Discord element with chat component (which extends axon component)
-    const discordElem = new Element('discord');
-    const chatComponent = new DiscordChatComponent();
+    // Create Discord element using AxonElement to load from server
+    const discordElem = new AxonElement({ id: 'discord' });
     
-    // Set connection parameters (without token, that comes from Host)
-    chatComponent.setConnectionParams({
-      host: this.config.discord.host,
-      path: '/ws',
-      guild: this.config.discord.guild,
-      agent: this.config.agentName
-    });
+    // Build the AXON URL with connection parameters
+    // Use combined server if available (8080), fall back to module server (8082)
+    const modulePort = this.config.discord.modulePort || 8080;
+    const axonUrl = `axon://localhost:${modulePort}/modules/discord-chat/manifest?` + 
+      `host=${encodeURIComponent(this.config.discord.host)}&` +
+      `path=${encodeURIComponent('/ws')}&` +
+      `guild=${encodeURIComponent(this.config.discord.guild)}&` +
+      `agent=${encodeURIComponent(this.config.agentName)}&` +
+      // Chat trigger configuration
+      `mentions=true&` +
+      `directMessages=true&` +
+      `keywords=${encodeURIComponent('hi,hello,help,?,connectome')}&` +
+      `cooldown=10`;
     
-    // Configure chat triggers
-    chatComponent.setTriggerConfig({
-      mentions: true,
-      directMessages: true,
-      keywords: ['hi', 'hello', 'help', '?', 'connectome'],
-      channels: [],  // Empty means all channels
-      cooldown: 10
-    });
-    
-    discordElem.addComponent(chatComponent);
+    // Connect to the AXON component server
+    await discordElem.connect(axonUrl);
     
     // Add Discord element to space
     space.addChild(discordElem);
@@ -161,11 +157,11 @@ export class DiscordApplication implements ConnectomeApplication {
     console.log('✅ Discord application initialized');
   }
   
-  getComponentRegistry(): ComponentRegistry {
-    const registry = ComponentRegistry.getInstance();
+  getComponentRegistry(): typeof ComponentRegistry {
+    const registry = ComponentRegistry;
     
     // Register all components that can be restored
-    registry.register('DiscordChatComponent', DiscordChatComponent);
+    registry.register('AxonElement', AxonElement);
     registry.register('AgentComponent', AgentComponent);
     registry.register('DiscordAutoJoinComponent', DiscordAutoJoinComponent);
     

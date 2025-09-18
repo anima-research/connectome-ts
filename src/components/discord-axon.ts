@@ -645,7 +645,7 @@ export class DiscordAxonComponent extends InteractiveComponent implements Restor
                 id: `discord-msg-${msg.messageId}`,
                 type: 'event',
                 displayName: 'discord-message',
-                content: `[Discord] ${msg.author}: ${msg.content}`,
+                content: `${msg.author}: ${msg.content}`,
                 attributes: {
                   channelId: msg.channelId,
                   messageId: msg.messageId,
@@ -677,7 +677,7 @@ export class DiscordAxonComponent extends InteractiveComponent implements Restor
           id: `discord-msg-${msg.messageId}`,
           type: 'event',
           displayName: 'discord-message',
-          content: `[Discord] ${msg.author}: ${msg.content}`,
+          content: `${msg.author}: ${msg.content}`,
           attributes: {
             channelId: msg.channelId,
             messageId: msg.messageId,

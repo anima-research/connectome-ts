@@ -1,16 +1,11 @@
 import { Element } from '../spaces/element';
 import { Component } from '../spaces/component';
 import { SpaceEvent } from '../spaces/types';
+import { createAxonEnvironment } from '../axon/environment';
+import { IAxonManifest, IAxonComponentConstructor } from '../axon/interfaces';
 
-interface AxonManifest {
-  main: string;
-  name?: string;
-  description?: string;
-  modules?: string[];
-  dev?: {
-    hotReload?: string;
-  };
-}
+// Use the interface from axon/interfaces
+type AxonManifest = IAxonManifest;
 
 interface ModuleVersions {
   [module: string]: string;
@@ -39,6 +34,7 @@ export class AxonElement extends Element {
   private moduleVersions: ModuleVersions = {};
   private hotReloadWs?: WebSocket;
   private parsedUrl?: ParsedAxonUrl;
+  private loadedDependencies: Map<string, any> = new Map();
   
   constructor(config: { id: string }) {
     super(config.id, config.id);  // Pass id as both name and id
@@ -109,6 +105,61 @@ export class AxonElement extends Element {
   }
   
   /**
+   * Load dependencies for the component
+   */
+  private async loadDependencies(env: any): Promise<void> {
+    if (!this.manifest?.dependencies) return;
+    
+    for (const dep of this.manifest.dependencies) {
+      console.log(`[AxonElement] Loading dependency: ${dep.name} from ${dep.manifest}`);
+      
+      // Build the full URL for the dependency manifest
+      const depManifestUrl = new URL(dep.manifest, this.manifestUrl!).toString();
+      
+      // Fetch dependency manifest
+      const depManifestResponse = await fetch(depManifestUrl);
+      if (!depManifestResponse.ok) {
+        throw new Error(`Failed to fetch dependency manifest: ${depManifestUrl}`);
+      }
+      
+      const depManifest = await depManifestResponse.json() as IAxonManifest;
+      
+      // Fetch dependency module
+      const depModuleUrl = new URL(depManifest.main, depManifestUrl).toString();
+      const depModuleResponse = await fetch(`${depModuleUrl}?v=${Date.now()}`);
+      if (!depModuleResponse.ok) {
+        throw new Error(`Failed to fetch dependency module: ${depModuleUrl}`);
+      }
+      
+      const depModuleCode = await depModuleResponse.text();
+      
+      // Load the dependency module
+      const depModuleFunc = new Function('exports', 'module', 'env', `
+        ${depModuleCode}
+        
+        // Handle different export styles
+        if (typeof createModule !== 'undefined') {
+          module.exports = createModule(env);
+        } else if (typeof exports.createModule === 'function') {
+          module.exports = exports.createModule(env);
+        } else if (typeof module.exports === 'function') {
+          // Module directly exports a function
+          module.exports = module.exports(env);
+        }
+      `);
+      
+      const depExports: any = {};
+      const depModule = { exports: depExports };
+      
+      depModuleFunc(depExports, depModule, env);
+      
+      // Store the loaded dependency
+      this.loadedDependencies.set(dep.name, depModule.exports);
+      console.log(`[AxonElement] Loaded dependency: ${dep.name}`);
+    }
+  }
+  
+  /**
    * Load or reload the component module
    */
   private async loadComponent(): Promise<void> {
@@ -140,44 +191,93 @@ export class AxonElement extends Element {
       
       const moduleCode = await response.text();
       
-      // Create a module from the code
-      // Note: In production, this should use a proper module loader or sandbox
-      const moduleExports: any = {};
-      const moduleFunction = new Function('exports', 'require', 'module', moduleCode);
-      const fakeModule = { exports: moduleExports };
+      // Create the AXON environment
+      const env = createAxonEnvironment();
       
-      // Basic require function that handles our base components
-      const requireFunc = (id: string) => {
-        if (id === '../../src/components/base-components' || id === '@connectome/components') {
-          // Return our actual base components
-          const { VEILComponent } = require('../../src/components/base-components');
-          return { VEILComponent };
-        }
-        throw new Error(`Cannot require module: ${id}`);
+      // Load dependencies first
+      await this.loadDependencies(env);
+      
+      // Add loaded dependencies to the environment
+      const enhancedEnv = {
+        ...env,
+        ...Object.fromEntries(this.loadedDependencies)
       };
       
-      moduleFunction(moduleExports, requireFunc, fakeModule);
+      // Create a function that evaluates the module
+      // The module should export a createModule function
+      const moduleFunc = new Function('exports', 'module', 'env', `
+        ${moduleCode}
+        
+        // Handle different export styles
+        if (typeof createModule !== 'undefined') {
+          module.exports = createModule(env);
+        } else if (typeof exports.createModule === 'function') {
+          module.exports = exports.createModule(env);
+        } else if (typeof module.exports === 'function') {
+          // Module directly exports a function
+          module.exports = module.exports(env);
+        }
+      `);
+      
+      const moduleExports: any = {};
+      const module = { exports: moduleExports };
+      
+      // Execute the module with the enhanced environment
+      moduleFunc(moduleExports, module, enhancedEnv);
       
       // Get the component class
-      const ComponentClass = fakeModule.exports.default || fakeModule.exports.Component || moduleExports.default;
-      if (!ComponentClass) {
-        throw new Error('Module must export a Component class as default or named "Component"');
+      const ComponentClass = module.exports as IAxonComponentConstructor;
+      
+      if (!ComponentClass || typeof ComponentClass !== 'function') {
+        throw new Error('Module does not export a valid component class');
       }
       
-      // Create and add the component
-      this.loadedComponent = new ComponentClass();
+      // Create an instance of the component
+      this.loadedComponent = new ComponentClass() as Component;
       if (this.loadedComponent) {
         this.addComponent(this.loadedComponent);
         console.log(`[AxonElement] Component loaded and mounted`);
         
-        // Pass parameters to component if it has setConnectionParams method
-        if (this.parsedUrl && 'setConnectionParams' in this.loadedComponent) {
-          console.log(`[AxonElement] Passing parameters to component:`, this.parsedUrl.params);
-          (this.loadedComponent as any).setConnectionParams({
-            host: this.parsedUrl.host,
-            path: this.parsedUrl.path,
-            ...this.parsedUrl.params
-          });
+        // Handle connection parameters
+        if (this.parsedUrl?.params) {
+          // Set parameters based on manifest config
+          if (this.manifest.config) {
+            for (const [key, value] of Object.entries(this.parsedUrl.params)) {
+              if (key in this.manifest.config) {
+                // Set the property directly
+                (this.loadedComponent as any)[key] = value;
+              }
+            }
+          }
+          
+          // Also try legacy setConnectionParams method
+          if ('setConnectionParams' in this.loadedComponent) {
+            console.log(`[AxonElement] Passing parameters to component:`, this.parsedUrl.params);
+            (this.loadedComponent as any).setConnectionParams({
+              host: this.parsedUrl.host,
+              path: this.parsedUrl.path,
+              ...this.parsedUrl.params
+            });
+          }
+        }
+        
+        // Handle persistent properties from URL params
+        if (ComponentClass.persistentProperties) {
+          for (const prop of ComponentClass.persistentProperties) {
+            if (prop.propertyKey in (this.parsedUrl?.params || {})) {
+              (this.loadedComponent as any)[prop.propertyKey] = this.parsedUrl.params[prop.propertyKey];
+            }
+          }
+        }
+        
+        // Register actions if the component declares them
+        const actions = ComponentClass.actions;
+        if (actions) {
+          console.log(`[AxonElement] Component declares actions:`, Object.keys(actions));
+          for (const [actionName, actionDef] of Object.entries(actions)) {
+            const description = typeof actionDef === 'string' ? actionDef : actionDef.description;
+            console.log(`[AxonElement] Action: ${this.id}.${actionName} - ${description}`);
+          }
         }
         
         // Notify space that we might have new actions (for auto-registration)

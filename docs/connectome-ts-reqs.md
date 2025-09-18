@@ -92,6 +92,26 @@ Space/Element System Requirements:
 
 Elements are the basic building blocks arranged in a tree hierarchy, with Space as the root element. Elements can have Components that add behavior. Events flow through the element tree using a topic-based subscription system (e.g., "discord.message", "timer.expired"). Elements produce VEIL operations in response to events.
 
+AXON Protocol:
+
+The AXON protocol enables Connectome to dynamically load components from external HTTP services, keeping the core framework protocol-agnostic. Key features:
+
+1. **Dynamic Component Loading**: Components are loaded at runtime from URLs (e.g., `axon://localhost:8080/discord`)
+2. **Manifest-Based**: Services provide a JSON manifest specifying the main module and metadata
+3. **Hot Reloading**: Optional WebSocket connection for development-time module updates
+4. **Parameter Passing**: URL parameters are passed to loaded components (e.g., `axon://game.server/spacegame?token=xyz`)
+5. **Action Registration**: Loaded components can register actions that agents can invoke via `@element.action` syntax
+6. **Module Versioning**: Cache-busting ensures fresh modules after changes
+
+The AxonElement acts as a loader that:
+- Fetches the manifest from the HTTP endpoint
+- Downloads and evaluates the component module
+- Instantiates the component and adds it to the element tree
+- Handles hot reload notifications for development
+- Manages cleanup on unmount
+
+This architecture allows protocol-specific adapters (Discord, Minecraft, etc.) to be developed and served independently from the core Connectome framework, maintaining clean separation of concerns.
+
 Event System Requirements:
 
 First-class events include frame lifecycle (start/end), time events, element lifecycle (mount/unmount), and scheduled events. Adapter-specific events (Discord, filesystem, etc.) are defined by their respective elements. Events use structured element references instead of strings for source identification.
@@ -232,14 +252,20 @@ Completed:
 - Event control utilities (stopPropagation, stopImmediatePropagation, preventDefault)
 - State transition rendering with attributeRenderers and transitionRenderers
 - HUD before/after state tracking for transition detection
+- AXON Protocol for dynamic component loading from external services
+- AxonElement implementation for loading components via HTTP/WebSocket
+- Discord adapter integration via AXON protocol (move out of core)
+- Scheduled events and timers (possibly done)
+- Full agent sleep/wake functionality with pending activation processing (possibly done)
+- Full compression implementation with LLM-based summarization (done, needs more testing)
 
 Still Pending:
 - Stream reference tracking for communication routing
-- Discord adapter integration  
-- Complete Space/Element/Component architecture with mount/unmount lifecycle
-- Scheduled events and timers
-- Full agent sleep/wake functionality with pending activation processing
-- Full compression implementation with LLM-based summarization
 - Additional adapters (filesystem, shell terminal, etc.)
 - Discovery mechanism for @element.? syntax
 - Enhanced block parameter parsing (proper grammar/parser)
+- changeFacet operation
+- lazy loading for frames to avoid memory runaway
+- reorganize persistence to better support long contexts
+- typing notifications for discord
+- support for deletion and editing of Discord messages
