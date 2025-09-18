@@ -241,6 +241,11 @@ class DebugStateTracker extends EventEmitter implements DebugObserver {
       activeStream: frame.activeStream
     };
 
+    // Capture raw completion if attached
+    if ((frame as any).renderedContext) {
+      record.renderedContext = sanitizePayload((frame as any).renderedContext) as RenderedContext;
+    }
+
     this.insertFrame(record);
     this.metrics.outgoingFrames += 1;
     this.metrics.lastFrameTimestamp = frame.timestamp;

@@ -657,7 +657,7 @@ export class Space extends Element {
     
     // Handle agent:frame-ready events
     if (event.topic === 'agent:frame-ready') {
-      const { frame: agentFrame, agentId, agentName } = event.payload as any;
+      const { frame: agentFrame, agentId, agentName, renderedContext, rawCompletion } = event.payload as any;
       
       // Clone the frame to avoid mutating the agent's original
       const nextSequence = this.veilState.getNextSequence();
@@ -670,9 +670,23 @@ export class Space extends Element {
         uuid: deterministicUUID(`outgoing-${nextSequence}`)
       };
 
+      // Attach raw completion to outgoing frame for debug purposes
+      if (rawCompletion) {
+        (frame as any).renderedContext = rawCompletion;
+      }
+
       // Record the frame
       this.veilState.recordOutgoingFrame(frame);
       this.notifyDebugOutgoingFrame(frame, { agentId, agentName });
+      
+      // If rendered context was provided, record it for the current frame (incoming frame)
+      if (renderedContext && this.currentFrame) {
+        this.recordRenderedContext(this.currentFrame, renderedContext, {
+          agentId,
+          agentName,
+          streamRef: frame.activeStream
+        });
+      }
       
       // Process tool calls synchronously to avoid starting new frames
       for (const op of frame.operations) {

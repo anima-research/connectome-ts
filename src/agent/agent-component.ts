@@ -125,6 +125,14 @@ export class AgentComponent extends Component implements RestorableComponent {
     // If agent generated a response, process it synchronously
     // This must happen within the current frame to maintain sequence order
     if (response && space) {
+      // Extract rendered context if attached
+      const renderedContext = (response as any).renderedContext;
+      delete (response as any).renderedContext; // Clean up before passing
+      
+      // Extract raw completion if attached
+      const rawCompletion = (response as any).rawCompletion;
+      delete (response as any).rawCompletion; // Clean up before passing
+      
       // Use distributeEvent directly to maintain proper event flow
       // while avoiding the queue (which would defer to next frame)
       await (space as any).distributeEvent({
@@ -133,7 +141,9 @@ export class AgentComponent extends Component implements RestorableComponent {
         payload: {
           frame: response,
           agentId: this.element.id,
-          agentName: this.element.name
+          agentName: this.element.name,
+          renderedContext, // Include rendered context for debug
+          rawCompletion // Include raw completion for debug
         },
         priority: 'immediate',
         timestamp: Date.now()

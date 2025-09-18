@@ -48,8 +48,6 @@ export class BasicAgent implements AgentInterface {
   private compressionEngine?: CompressionEngine;
   private tools: Map<string, ToolDefinition> = new Map();
   private tracer: TraceStorage | undefined;
-  private space?: any;  // Reference to Space when set
-  private agentElementId?: string;
   
   constructor(
     config: AgentConfig,
@@ -99,18 +97,14 @@ export class BasicAgent implements AgentInterface {
         try {
           // Build context
           const context = this.buildContext(state, frame.activeStream);
-
-          // Surface rendered context to debug observers when available
-          if (this.space && typeof this.space.recordRenderedContext === 'function') {
-            this.space.recordRenderedContext(frame, context, {
-              agentId: this.agentElementId,
-              agentName: this.config.name,
-              streamRef: frame.activeStream
-            });
-          }
           
           // Run cycle
           const response = await this.runCycle(context, frame.activeStream);
+          
+          // Attach rendered context to the response for debug purposes
+          if (response) {
+            (response as any).renderedContext = context;
+          }
           
           // Return the response frame without recording or processing
           // Space will handle sequencing, recording, and tool processing
@@ -240,6 +234,14 @@ export class BasicAgent implements AgentInterface {
         sequence: -1, // Placeholder - Space will assign proper sequence
         timestamp: new Date().toISOString(),
         operations
+      };
+      
+      // Attach raw LLM completion for debug purposes
+      (frame as any).rawCompletion = {
+        content: response.content,
+        tokensUsed: response.tokensUsed,
+        provider: this.llmProvider.getProviderName(),
+        timestamp: new Date().toISOString()
       };
       
       return frame;
@@ -559,13 +561,6 @@ export class BasicAgent implements AgentInterface {
     this.tools.set(tool.name, tool);
   }
   
-  /**
-   * Called when agent is attached to a space
-   */
-  setSpace(space: any, elementId?: string): void {
-    this.space = space;
-    this.agentElementId = elementId;
-  }
   
   /**
    * Check if there are pending activations that should be processed
