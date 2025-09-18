@@ -623,6 +623,11 @@ export class TransitionManager {
     // Component states are restored as part of element restoration
     
     console.log(`✅ Restored from snapshot at sequence ${snapshot.sequence}`);
+    
+    // Update tracking to prevent immediate re-snapshotting
+    this.lastSnapshotSequence = snapshot.sequence;
+    this.transitionsSinceSnapshot = 0;
+    this.currentBranch = snapshot.branchName || 'main';
   }
   
   /**

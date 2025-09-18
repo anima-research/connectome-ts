@@ -7,6 +7,7 @@
 import { InteractiveComponent } from './base-components';
 import { SpaceEvent } from '../spaces/types';
 import { persistent } from '../persistence/decorators';
+import { external, RestorableComponent } from '../host/decorators';
 import WebSocket from 'ws';
 
 interface DiscordConnectionParams {
@@ -25,16 +26,18 @@ interface DiscordMessage {
   timestamp: string;
 }
 
-export class DiscordAxonComponent extends InteractiveComponent {
+export class DiscordAxonComponent extends InteractiveComponent implements RestorableComponent {
   // Connection parameters
   @persistent() private serverUrl: string = '';
   @persistent() private connectionParams: Record<string, any> = {};
   
   // Discord-specific state
-  @persistent() protected botToken: string = '';
   @persistent() protected guildId: string = '';
   @persistent() protected agentName: string = 'Connectome Agent';
   @persistent() protected botUserId: string = '';
+  
+  // Bot token is external (not persisted for security)
+  @external('secret:discord.token') protected botToken?: string;
   
   // Persistent state
   @persistent() private connectionState: 'disconnected' | 'connecting' | 'connected' | 'error' = 'disconnected';
@@ -102,9 +105,8 @@ export class DiscordAxonComponent extends InteractiveComponent {
     
     // Extract Discord-specific params
     if (params.token) {
-      const old = this.botToken;
+      // Bot token is now injected via @external decorator
       this.botToken = params.token;
-      this.trackPropertyChange('botToken', old, this.botToken);
     }
     
     if (params.guild) {
@@ -157,6 +159,9 @@ export class DiscordAxonComponent extends InteractiveComponent {
   async onFirstFrame(): Promise<void> {
     console.log('[Discord] onFirstFrame - serverUrl:', this.serverUrl, 'botToken:', this.botToken ? 'set' : 'not set');
     
+    // Inspect VEIL history to find last known message IDs for channels
+    this.inspectVEILHistory();
+    
     // Add Discord state facet
     this.addFacet({
       id: 'discord-state',
@@ -185,6 +190,120 @@ export class DiscordAxonComponent extends InteractiveComponent {
     // Clean up connection
     this.cleanup();
     await super.onUnmount();
+  }
+  
+  /**
+   * Called by Host after external resources are injected
+   */
+  async onReferencesResolved(): Promise<void> {
+    // If we have a bot token and connection params, we can auto-reconnect
+    if (this.botToken && this.serverUrl && this.connectionState === 'disconnected') {
+      console.log('🔌 Discord component has token, will auto-connect when ready');
+    }
+  }
+
+  /**
+   * Inspect VEIL history to find the last known message IDs for each channel
+   * This allows us to request history starting from the right point
+   */
+  private inspectVEILHistory(): void {
+    const space = this.element?.space;
+    if (!space) {
+      console.log('[Discord] No space available for VEIL history inspection');
+      return;
+    }
+
+    const veilState = (space as any).getVEILState();
+    const state = veilState.getState();
+    const frameHistory = state.frameHistory;
+    
+    console.log(`[Discord] Inspecting VEIL history - ${frameHistory.length} frames total`);
+    
+    // Look at the last 1000 frames (or all frames if fewer)
+    const framesToInspect = frameHistory.slice(-1000);
+    const lastMessageIds: Record<string, string> = {};
+    
+    // Walk through frames in reverse order (newest first) to find the most recent message ID per channel
+    for (let i = framesToInspect.length - 1; i >= 0; i--) {
+      const frame = framesToInspect[i];
+      
+      // Only look at incoming frames (they contain facets)
+      if (frame.kind !== 'incoming') continue;
+      
+      // Look through all operations in the frame
+      for (const operation of frame.operations) {
+        if (operation.type === 'addFacet') {
+          const facet = operation.facet;
+          
+          // Check if this is a Discord message facet (either standalone or child of history)
+          if (this.isDiscordMessageFacet(facet)) {
+            const channelId = facet.attributes?.channelId;
+            const messageId = facet.attributes?.messageId;
+            const guildId = facet.attributes?.guildId;
+            
+            if (channelId && messageId && guildId === this.guildId) {
+              // Only update if we haven't seen a newer message for this channel
+              if (!lastMessageIds[channelId]) {
+                lastMessageIds[channelId] = messageId;
+                console.log(`[Discord] Found last message for channel ${channelId}: ${messageId}`);
+              }
+            }
+          }
+          
+          // Also check children of facets (for channel-history facets)
+          if (facet.children) {
+            this.inspectFacetChildren(facet.children, lastMessageIds);
+          }
+        }
+      }
+    }
+    
+    // Update our lastRead tracking with the discovered IDs
+    const oldLastRead = { ...this.lastRead };
+    for (const [channelId, messageId] of Object.entries(lastMessageIds)) {
+      this.lastRead[channelId] = messageId;
+    }
+    
+    if (Object.keys(lastMessageIds).length > 0) {
+      this.trackPropertyChange('lastRead', oldLastRead, this.lastRead);
+      console.log('[Discord] Updated lastRead from VEIL history:', this.lastRead);
+    } else {
+      console.log('[Discord] No Discord messages found in VEIL history');
+    }
+  }
+
+  /**
+   * Check if a facet is a Discord message facet
+   */
+  private isDiscordMessageFacet(facet: any): boolean {
+    return facet.displayName === 'discord-message' && 
+           facet.attributes?.messageId && 
+           facet.attributes?.channelId;
+  }
+
+  /**
+   * Recursively inspect facet children for Discord messages
+   */
+  private inspectFacetChildren(children: any[], lastMessageIds: Record<string, string>): void {
+    for (const child of children) {
+      if (this.isDiscordMessageFacet(child)) {
+        const channelId = child.attributes?.channelId;
+        const messageId = child.attributes?.messageId;
+        const guildId = child.attributes?.guildId;
+        
+        if (channelId && messageId && guildId === this.guildId) {
+          if (!lastMessageIds[channelId]) {
+            lastMessageIds[channelId] = messageId;
+            console.log(`[Discord] Found last message in children for channel ${channelId}: ${messageId}`);
+          }
+        }
+      }
+      
+      // Recursively check children
+      if (child.children) {
+        this.inspectFacetChildren(child.children, lastMessageIds);
+      }
+    }
   }
   
   /**
@@ -520,7 +639,8 @@ export class DiscordAxonComponent extends InteractiveComponent {
                   messageId: msg.messageId,
                   author: msg.author,
                   content: msg.content,
-                  timestamp: msg.timestamp
+                  timestamp: msg.timestamp,
+                  guildId: this.guildId
                 }
               }))
             });
@@ -538,7 +658,7 @@ export class DiscordAxonComponent extends InteractiveComponent {
         break;
         
       case 'discord:message':
-        // New real-time message
+        // Real-time individual message (after history catchup)
         const msg = event.payload as DiscordMessage;
         
         this.addFacet({
@@ -550,11 +670,13 @@ export class DiscordAxonComponent extends InteractiveComponent {
             channelId: msg.channelId,
             messageId: msg.messageId,
             author: msg.author,
-            timestamp: msg.timestamp
+            content: msg.content,
+            timestamp: msg.timestamp,
+            guildId: this.guildId
           }
         });
         
-        // Update last read
+        // Update last read for future history requests
         this.lastRead[msg.channelId] = msg.messageId;
         this.trackPropertyChange('lastRead', {...this.lastRead}, this.lastRead);
         break;

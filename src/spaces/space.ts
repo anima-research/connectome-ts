@@ -43,6 +43,11 @@ export class Space extends Element {
   private eventQueue: EventPriorityQueue = new EventPriorityQueue();
   
   /**
+   * Reference registry for dependency injection
+   */
+  private referenceRegistry = new Map<string, any>();
+  
+  /**
    * VEIL state manager
    */
   private veilState: VEILStateManager;
@@ -543,6 +548,20 @@ export class Space extends Element {
    */
   getVEILState(): VEILStateManager {
     return this.veilState;
+  }
+  
+  /**
+   * Register a reference for dependency injection
+   */
+  registerReference(id: string, value: any): void {
+    this.referenceRegistry.set(id, value);
+  }
+  
+  /**
+   * Get a reference by ID
+   */
+  getReference(id: string): any {
+    return this.referenceRegistry.get(id);
   }
 
   private notifyDebugFrameStart(frame: IncomingVEILFrame, context: DebugFrameStartContext): void {

@@ -271,9 +271,21 @@ class DebugStateTracker extends EventEmitter implements DebugObserver {
   }
 
   getFrames(limit?: number, offset: number = 0): DebugFrameRecord[] {
-    const sliceEnd = this.frames.length - offset;
-    const sliceStart = Math.max(0, limit ? sliceEnd - limit : 0);
-    return this.frames.slice(sliceStart, sliceEnd);
+    // Sort frames in descending order by sequence (most recent first)
+    const sortedFrames = [...this.frames].sort((a, b) => b.sequence - a.sequence);
+    
+    // Apply pagination
+    const start = offset;
+    const end = limit ? offset + limit : sortedFrames.length;
+    
+    const result = sortedFrames.slice(start, end);
+    
+    console.log(`[DebugTracker] getFrames: total=${this.frames.length}, sorted=${sortedFrames.length}, offset=${offset}, limit=${limit}, returning=${result.length} frames`);
+    if (result.length > 0) {
+      console.log(`[DebugTracker] Frame range: ${result[result.length - 1].sequence} to ${result[0].sequence}`);
+    }
+    
+    return result;
   }
 
   getFrame(uuid: string): DebugFrameRecord | undefined {
@@ -314,10 +326,23 @@ class DebugStateTracker extends EventEmitter implements DebugObserver {
     this.frames.push(record);
     this.frameIndex.set(record.uuid, record);
 
+    // If we exceed max frames, remove the oldest by sequence (not by insertion order)
     if (this.frames.length > this.maxFrames) {
-      const removed = this.frames.shift();
-      if (removed) {
-        this.frameIndex.delete(removed.uuid);
+      console.log(`[DebugTracker] Frame limit exceeded: ${this.frames.length} > ${this.maxFrames}, removing oldest frames`);
+      
+      // Sort by sequence to find the oldest
+      const sorted = [...this.frames].sort((a, b) => a.sequence - b.sequence);
+      const toRemove = sorted.slice(0, this.frames.length - this.maxFrames);
+      
+      console.log(`[DebugTracker] Removing ${toRemove.length} frames, sequences: ${toRemove.map(f => f.sequence).join(', ')}`);
+      
+      // Remove the oldest frames
+      for (const frame of toRemove) {
+        this.frameIndex.delete(frame.uuid);
+        const idx = this.frames.indexOf(frame);
+        if (idx >= 0) {
+          this.frames.splice(idx, 1);
+        }
       }
     }
   }
@@ -339,6 +364,26 @@ class DebugStateTracker extends EventEmitter implements DebugObserver {
     const removed = before - this.frames.length;
     return removed;
   }
+
+  loadHistoricalFrame(record: DebugFrameRecord): void {
+    // Don't add duplicates
+    if (this.frameIndex.has(record.uuid)) {
+      return;
+    }
+    
+    // Insert the frame
+    this.insertFrame(record);
+    
+    // Update metrics
+    if (record.kind === 'incoming') {
+      this.metrics.incomingFrames += 1;
+    } else {
+      this.metrics.outgoingFrames += 1;
+    }
+    this.metrics.totalEvents += record.events.length;
+    this.metrics.lastFrameTimestamp = record.timestamp;
+  }
+
 }
 
 const EventPhaseName: Record<number, string> = {
@@ -470,10 +515,43 @@ export class DebugServer {
 
     this.space.addDebugObserver(this.tracker);
 
+    // Load historical frames from VEIL state
+    this.loadHistoricalFrames();
+
     this.setupMiddleware();
     this.setupRoutes();
     this.setupWebSocket();
     this.setupStaticAssets();
+  }
+
+  private loadHistoricalFrames(): void {
+    const veilState = this.veilState.getState();
+    const frameHistory = veilState.frameHistory;
+    
+    console.log(`[DebugServer] Loading ${frameHistory.length} historical frames into tracker`);
+    
+    // Convert VEIL frames to debug frame records
+    frameHistory.forEach(frame => {
+      const isOutgoing = 'operations' in frame && frame.operations.some(
+        (op: any) => op.type === 'speak' || op.type === 'toolCall' || op.type === 'action'
+      );
+      
+      const record: DebugFrameRecord = {
+        uuid: frame.uuid || deterministicUUID(`${isOutgoing ? 'outgoing' : 'incoming'}-${frame.sequence}`),
+        sequence: frame.sequence,
+        timestamp: frame.timestamp,
+        kind: isOutgoing ? 'outgoing' : 'incoming',
+        events: [],
+        operations: frame.operations.map((op: any) => sanitizePayload(op)),
+        queueLength: 0,
+        activeStream: frame.activeStream
+      };
+      
+      // Add the frame to the tracker
+      this.tracker.loadHistoricalFrame(record);
+    });
+    
+    console.log(`[DebugServer] After loading historical frames: tracker has ${(this.tracker as any).frames.length} frames`);
   }
 
   start(): void {
@@ -714,7 +792,7 @@ export class DebugServer {
       socket.send(JSON.stringify({
         type: 'hello',
         payload: {
-          frames: this.tracker.getFrames(50),
+          frames: [], // Let HTTP API handle initial frame loading with proper pagination
           state: serializeVEILState(this.veilState),
           metrics: this.tracker.getMetrics()
         }

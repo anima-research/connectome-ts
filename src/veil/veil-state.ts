@@ -287,14 +287,23 @@ export class VEILStateManager {
       clonedFacet.attributes = { ...facet.attributes };
     }
     
-    this.state.facets.set(facet.id, clonedFacet);
-    
-    // Recursively add children
+    // Deep clone children to avoid shared references
     if (facet.children) {
-      for (const child of facet.children) {
-        this.addFacet(child, frameSequence, timestamp);
-      }
+      clonedFacet.children = facet.children.map(child => this.cloneFacet(child));
     }
+    
+    this.state.facets.set(facet.id, clonedFacet);
+  }
+  
+  private cloneFacet(facet: Facet): Facet {
+    const cloned = { ...facet };
+    if (facet.attributes && typeof facet.attributes === 'object') {
+      cloned.attributes = { ...facet.attributes };
+    }
+    if (facet.children) {
+      cloned.children = facet.children.map(child => this.cloneFacet(child));
+    }
+    return cloned;
   }
 
   private changeState(facetId: string, updates: { content?: string; attributes?: Record<string, any> }): void {

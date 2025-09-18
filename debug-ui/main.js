@@ -654,6 +654,7 @@ const App = {
       sidebarWidth: 320,
       framePanelHeight: 320,
       jsonExpandAll: false,
+      veilViewMode: 'turns', // 'original' or 'turns'
       // Frame deletion dialog
       showDeleteDialog: false,
       deleteCount: 1,
@@ -1213,6 +1214,10 @@ const App = {
       state.jsonExpandAll = !state.jsonExpandAll;
     }
     
+    function toggleVeilView() {
+      state.veilViewMode = state.veilViewMode === 'original' ? 'turns' : 'original';
+    }
+    
     function copyToClipboard(data) {
       const text = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
       navigator.clipboard.writeText(text).then(() => {
@@ -1430,6 +1435,97 @@ const App = {
       return frames.slice(0, 24);
     });
 
+    // Group facets by conversational turns and reverse order
+    const processedVeilFacets = computed(() => {
+      if (!state.frameFacets || state.frameFacets.length === 0) {
+        return { turns: [], reversed: [] };
+      }
+
+      // Reverse the order to show newest first
+      const reversed = [...state.frameFacets].reverse();
+      
+      // Group facets by type to simulate conversational turns
+      const turns = [];
+      let currentTurn = null;
+      const turnCounters = new Map(); // Track counters by turn type
+
+      for (const facet of reversed) {
+        const isAgentGenerated = facet.attributes?.agentGenerated === true;
+        const facetType = facet.type;
+        
+        // Determine turn type
+        let turnType;
+        if (isAgentGenerated) {
+          if (facetType === 'speech') {
+            turnType = 'agent-speech';
+          } else if (facetType === 'action') {
+            turnType = 'agent-action';
+          } else if (facetType === 'thought') {
+            turnType = 'agent-thought';
+          } else {
+            turnType = 'agent-other';
+          }
+        } else {
+          if (facetType === 'event') {
+            turnType = 'external-event';
+          } else if (facetType === 'state') {
+            turnType = 'state-update';
+          } else {
+            turnType = 'external-other';
+          }
+        }
+
+        // Create a new turn if type changes or if we don't have one
+        if (!currentTurn || currentTurn.type !== turnType) {
+          // Increment counter for this turn type
+          const currentCount = turnCounters.get(turnType) || 0;
+          turnCounters.set(turnType, currentCount + 1);
+          
+          currentTurn = {
+            type: turnType,
+            label: getTurnLabel(turnType, currentCount + 1),
+            facets: []
+          };
+          turns.push(currentTurn);
+        }
+
+        currentTurn.facets.push(facet);
+      }
+
+      // Since we want newest first but highest numbers for newest,
+      // we need to reverse the counter assignments
+      const maxCounters = new Map();
+      for (const [turnType, count] of turnCounters) {
+        maxCounters.set(turnType, count);
+      }
+      
+      // Re-assign labels with reversed numbering
+      const reversedCounters = new Map();
+      for (const turn of turns) {
+        const maxCount = maxCounters.get(turn.type);
+        const currentReversedCount = reversedCounters.get(turn.type) || 0;
+        const reversedNumber = maxCount - currentReversedCount;
+        reversedCounters.set(turn.type, currentReversedCount + 1);
+        
+        turn.label = getTurnLabel(turn.type, reversedNumber);
+      }
+
+      return { turns, reversed };
+    });
+
+    function getTurnLabel(turnType, counter) {
+      switch (turnType) {
+        case 'agent-speech': return `🗣️ Agent Turn ${counter}`;
+        case 'agent-action': return `⚡ Agent Actions ${counter}`;
+        case 'agent-thought': return `💭 Agent Thoughts ${counter}`;
+        case 'agent-other': return `🤖 Agent Activity ${counter}`;
+        case 'external-event': return `📨 External Events ${counter}`;
+        case 'state-update': return `📊 State Changes ${counter}`;
+        case 'external-other': return `🌐 External Activity ${counter}`;
+        default: return `📝 Activity ${counter}`;
+      }
+    }
+
     const layoutStyle = computed(() => ({
       '--inspector-width': `${state.inspectorWidth}px`,
       '--sidebar-width': `${state.sidebarWidth}px`,
@@ -1443,6 +1539,7 @@ const App = {
       selectedOperation,
       selectedEvent,
       timelineFrames,
+      processedVeilFacets,
       formatTime,
       formatTimestamp,
       shorten,
@@ -1460,6 +1557,8 @@ const App = {
       selectEvent,
       closeDetail,
       toggleExpandAll,
+      toggleVeilView,
+      getTurnLabel,
       copyToClipboard,
       inspectVeilSnapshot,
       inspectFrame,
@@ -1560,17 +1659,32 @@ const App = {
               <div class="header-badges">
                 <span class="badge" v-if="state.frameFacetsSequence != null">seq {{ state.frameFacetsSequence }}</span>
                 <span class="badge" v-else-if="state.frameFacets.length">{{ state.frameFacets.length }}</span>
+                <button class="button button--small" @click="toggleVeilView" v-if="state.frameFacets.length" :title="state.veilViewMode === 'original' ? 'Switch to Turn View' : 'Switch to Original Order'">
+                  {{ state.veilViewMode === 'original' ? '🔄' : '⏰' }}
+                </button>
                 <button class="button button--small" @click="inspectVeilSnapshot" v-if="state.frameFacets.length" title="Inspect full snapshot">
                   🔍
                 </button>
               </div>
             </div>
             <div class="veil-tree" v-if="state.frameFacets.length">
-              <facet-tree
-                :facets="state.frameFacets"
-                :expanded-depth="1"
-                @show-detail="handleTreeDetail"
-              />
+              <template v-if="state.veilViewMode === 'original'">
+                <facet-tree
+                  :facets="state.frameFacets"
+                  :expanded-depth="1"
+                  @show-detail="handleTreeDetail"
+                />
+              </template>
+              <template v-else>
+                <div v-for="turn in processedVeilFacets.turns" :key="turn.type" class="veil-turn" :data-turn-type="turn.type">
+                  <div class="turn-header">{{ turn.label }}</div>
+                  <facet-tree
+                    :facets="turn.facets"
+                    :expanded-depth="1"
+                    @show-detail="handleTreeDetail"
+                  />
+                </div>
+              </template>
             </div>
             <div v-else class="text-muted">No active facets for this frame.</div>
           </section>

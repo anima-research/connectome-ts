@@ -4,24 +4,70 @@
 
 import { Component } from '../spaces/component';
 import { SpaceEvent, FrameEndEvent, AgentResponseEvent } from '../spaces/types';
-import { AgentInterface, AgentCommand } from './types';
+import { AgentInterface, AgentCommand, AgentConfig } from './types';
 import { Space } from '../spaces/space';
 import { OutgoingVEILOperation } from '../veil/types';
-import { persistable } from '../persistence/decorators';
+import { persistable, persistent } from '../persistence/decorators';
+import { reference, RestorableComponent } from '../host/decorators';
+import { LLMProvider } from '../llm/llm-provider';
+import { VEILStateManager } from '../veil/veil-state';
+import { BasicAgent } from './basic-agent';
 
 @persistable(1)
-export class AgentComponent extends Component {
+export class AgentComponent extends Component implements RestorableComponent {
   private agent?: AgentInterface;
+  
+  // Persist the agent configuration
+  @persistent() private agentConfig?: AgentConfig;
+  
+  // References that will be injected by the Host
+  @reference('veilState') private veilState?: VEILStateManager;
+  @reference('llmProvider') private llmProvider?: LLMProvider;
   
   constructor(agent?: AgentInterface) {
     super();
     if (agent) {
       this.agent = agent;
+      // Save agent config for restoration
+      if ('config' in agent) {
+        this.agentConfig = (agent as any).config;
+      }
     }
   }
   
   setAgent(agent: AgentInterface) {
     this.agent = agent;
+    // Save agent config for restoration
+    if ('config' in agent) {
+      this.agentConfig = (agent as any).config;
+    }
+  }
+  
+  /**
+   * Called by Host after all references are resolved
+   */
+  async onReferencesResolved(): Promise<void> {
+    // If we have config but no agent, recreate it
+    if (this.agentConfig && !this.agent && this.llmProvider && this.veilState) {
+      console.log('✨ Recreating agent from config:', this.agentConfig.name || 'unnamed');
+      
+      // Check if there's a custom agent factory registered
+      const space = this.element?.space;
+      const agentFactory = space?.getReference('agentFactory');
+      
+      if (agentFactory && typeof agentFactory === 'function') {
+        // Use custom factory
+        this.agent = agentFactory(this.agentConfig, this.llmProvider, this.veilState);
+      } else {
+        // Default to BasicAgent
+        this.agent = new BasicAgent(this.agentConfig, this.llmProvider, this.veilState);
+      }
+      
+      // Re-enable auto action registration if it was enabled
+      if ((this.agentConfig as any).autoActionRegistration) {
+        (this.agent as BasicAgent).enableAutoActionRegistration();
+      }
+    }
   }
   
   onMount(): void {

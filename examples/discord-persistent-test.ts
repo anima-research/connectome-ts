@@ -270,10 +270,6 @@ async function restoreAgent() {
   const veilState = new VEILStateManager();
   const space = new Space(veilState);
   
-  // Enable debug server
-  space.enableDebugServer({ port: 8889 });
-  console.log('🔍 Debug UI available at http://localhost:8889\n');
-  
   const persistence = new TransitionManager(space, veilState, {
     storagePath: path.resolve(storageDir)
   });
@@ -291,6 +287,10 @@ async function restoreAgent() {
   const sequence = match ? parseInt(match[1]) : undefined;
   console.log('Extracted sequence:', sequence);
   await persistence.restore(sequence);
+  
+  // Enable debug server AFTER restoration so it can see historical frames
+  space.enableDebugServer({ port: 8889 });
+  console.log('🔍 Debug UI available at http://localhost:8889\n');
   
   console.log(`✅ Restored state:`);
   console.log(`   - ${space.children.length} elements`);
