@@ -38,8 +38,10 @@ export function createAxonEnvironment(): IAxonEnvironment {
     persistable,
     external,
     
-    // Type references
-    SpaceEvent: SpaceEvent as any,
+    // Type references - SpaceEvent is created as a plain object
+    SpaceEvent: class SpaceEvent {
+      constructor(public topic: string, public source: any, public payload?: any, public broadcast?: boolean) {}
+    } as any,
     
     // WebSocket
     WebSocket: WebSocketImpl

@@ -15,7 +15,17 @@ export function persistent(options?: {
   version?: number;
 }) {
   return function (target: any, propertyKey: string) {
-    const className = target.constructor.name;
+    // Fail fast if target is undefined
+    if (!target) {
+      throw new Error(`@persistent decorator called with undefined target for property ${propertyKey}. This usually means the transpiler doesn't support decorators properly.`);
+    }
+    
+    // Handle both instance and prototype targets
+    const constructor = target.constructor || Object.getPrototypeOf(target)?.constructor;
+    if (!constructor) {
+      throw new Error(`@persistent decorator: Cannot determine constructor for property ${propertyKey}`);
+    }
+    const className = constructor.name;
     
     // Get or create metadata for this component class
     let metadata = componentMetadataRegistry.get(className);

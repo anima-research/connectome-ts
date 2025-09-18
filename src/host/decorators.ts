@@ -25,7 +25,13 @@ const externalMetadata = new WeakMap<any, ExternalMetadata[]>();
  */
 export function reference(referenceId?: string, required: boolean = true) {
   return function(target: any, propertyKey: string) {
-    const constructor = target.constructor;
+    if (!target) {
+      throw new Error(`@reference decorator called with undefined target for property ${propertyKey}. This usually means the transpiler doesn't support decorators properly.`);
+    }
+    const constructor = target.constructor || Object.getPrototypeOf(target)?.constructor;
+    if (!constructor) {
+      throw new Error(`@reference decorator: Cannot determine constructor for property ${propertyKey}`);
+    }
     const existing = referenceMetadata.get(constructor) || [];
     existing.push({ propertyKey, referenceId: referenceId || propertyKey, required });
     referenceMetadata.set(constructor, existing);
@@ -37,7 +43,13 @@ export function reference(referenceId?: string, required: boolean = true) {
  */
 export function external(resourcePath: string, required: boolean = true) {
   return function(target: any, propertyKey: string) {
-    const constructor = target.constructor;
+    if (!target) {
+      throw new Error(`@external decorator called with undefined target for property ${propertyKey}. This usually means the transpiler doesn't support decorators properly.`);
+    }
+    const constructor = target.constructor || Object.getPrototypeOf(target)?.constructor;
+    if (!constructor) {
+      throw new Error(`@external decorator: Cannot determine constructor for property ${propertyKey}`);
+    }
     const existing = externalMetadata.get(constructor) || [];
     existing.push({ propertyKey, resourcePath, required });
     externalMetadata.set(constructor, existing);

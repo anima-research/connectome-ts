@@ -9,7 +9,7 @@ import { Space } from '../spaces/space';
 import { OutgoingVEILOperation } from '../veil/types';
 import { persistable, persistent } from '../persistence/decorators';
 import { reference, RestorableComponent } from '../host/decorators';
-import { LLMProvider } from '../llm/llm-provider';
+import { LLMProvider } from '../llm/llm-interface';
 import { VEILStateManager } from '../veil/veil-state';
 import { BasicAgent } from './basic-agent';
 
@@ -53,7 +53,7 @@ export class AgentComponent extends Component implements RestorableComponent {
       
       // Check if there's a custom agent factory registered
       const space = this.element?.space;
-      const agentFactory = space?.getReference('agentFactory');
+      const agentFactory = (space as any)?.getReference?.('agentFactory');
       
       if (agentFactory && typeof agentFactory === 'function') {
         // Use custom factory
