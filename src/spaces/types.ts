@@ -121,6 +121,33 @@ export interface ComponentLifecycle {
   onUnmount?(): void | Promise<void>;
   onEnable?(): void | Promise<void>;
   onDisable?(): void | Promise<void>;
+  
+  /**
+   * Called before frame deletion to prepare for shutdown
+   */
+  onShutdown?(): Promise<void>;
+  
+  /**
+   * Called after recreation during recovery
+   */
+  onRecovery?(previousSequence: number, newSequence: number): Promise<void>;
+}
+
+/**
+ * Components marked as fork-invariant survive frame deletions
+ * They must:
+ * - Not depend on frame history for correctness
+ * - Be able to serve requests regardless of frame state
+ * - Handle their own internal consistency
+ */
+export interface ForkInvariantComponent {
+  readonly forkInvariant: true;
+  
+  /**
+   * Called when frames are deleted but this component survives
+   * @param deletedRange The range of sequences that were deleted
+   */
+  onFrameFork?(deletedRange: { from: number; to: number }): void;
 }
 
 /**
@@ -128,6 +155,13 @@ export interface ComponentLifecycle {
  */
 export interface EventHandler {
   handleEvent(event: SpaceEvent): Promise<void>;
+}
+
+/**
+ * Type guard for fork-invariant components
+ */
+export function isForkInvariant(component: any): component is ForkInvariantComponent {
+  return component && 'forkInvariant' in component && component.forkInvariant === true;
 }
 
 /**

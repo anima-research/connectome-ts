@@ -28,6 +28,7 @@ console.log('\n=== Discord Persistent Agent Test ===\n');
 // Parse command line args
 const args = process.argv.slice(2);
 const command = args[0] || 'start';
+const commandArg = args[1];
 
 // Initialize file-based tracing
 const traceDir = path.resolve(__dirname, '../../discord-agent-traces');
@@ -87,7 +88,7 @@ async function createNewAgent() {
     storagePath: path.resolve(storageDir)
   });
   globalPersistence = persistence; // Set global reference
-  globalPersistence = persistence; // Set global reference
+  (space as any).persistence = persistence; // Make persistence available to debug server
   
   // Create LLM provider
   let llm: LLMProvider;
@@ -277,6 +278,7 @@ async function restoreAgent() {
     storagePath: path.resolve(storageDir)
   });
   globalPersistence = persistence; // Set global reference
+  (space as any).persistence = persistence; // Make persistence available to debug server
   
   // Get latest snapshot
   const latestSnapshot = snapshots[snapshots.length - 1];
@@ -478,6 +480,99 @@ async function restoreAgent() {
 let globalPersistence: TransitionManager | null = null;
 let snapshotIntervalId: NodeJS.Timeout | null = null;
 
+// Frame deletion helper function
+async function deleteRecentFramesSafely(
+  count: number,
+  persistence: TransitionManager,
+  veilState: VEILStateManager,
+  space: Space
+) {
+  console.log(`\n⚠️  CRITICAL OPERATION: Delete last ${count} frames with component reinit`);
+  console.log('\nThis will:');
+  console.log('1. Create a backup snapshot');
+  console.log('2. Shutdown stateful components (preserve fork-invariant ones)');
+  console.log('3. Delete frame history and revert state');
+  console.log('4. Reinitialize affected components');
+  console.log('5. Create a recovery snapshot\n');
+  
+  // Show current state
+  const state = veilState.getState();
+  console.log(`Current state: ${state.frameHistory.length} frames, sequence ${state.currentSequence}`);
+  
+  // Show frames to be deleted
+  const framesToDelete = state.frameHistory.slice(-count);
+  console.log('\nFrames to delete:');
+  framesToDelete.forEach(f => {
+    const ops = f.operations.length;
+    const type = f.operations.some((op: any) => op.type === 'speak' || op.type === 'toolCall') 
+      ? 'agent response' : 'incoming';
+    console.log(`  - Sequence ${f.sequence}: ${type} (${ops} operations)`);
+  });
+  
+  // Require confirmation
+  console.log('\n⚠️  This operation cannot be undone without using recovery snapshots.');
+  console.log('Type "DELETE" to confirm: ');
+  
+  // Read user input
+  const readline = require('readline').createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+  
+  const answer = await new Promise<string>(resolve => {
+    readline.question('', resolve);
+  });
+  readline.close();
+  
+  if (answer.trim() !== 'DELETE') {
+    console.log('❌ Operation cancelled');
+    return;
+  }
+  
+  try {
+    // Execute deletion
+    const result = await persistence.deleteRecentFramesAndSnapshot(
+      count,
+      'Manual frame deletion via CLI'
+    );
+    
+    if (result.warnings.length > 0) {
+      console.log('\n⚠️  Warnings:');
+      result.warnings.forEach(w => console.log(`  - ${w}`));
+    }
+    
+    console.log('\n✅ Frame deletion completed successfully!');
+  } catch (error: any) {
+    console.error('\n❌ Frame deletion failed:', error.message);
+    console.log('The system has been automatically restored from backup.');
+  }
+}
+
+// List deletion history
+async function listDeletionHistory(persistence: TransitionManager) {
+  console.log('\n📋 Deletion History:\n');
+  
+  const deletions = await persistence.listDeletions();
+  
+  if (deletions.length === 0) {
+    console.log('No deletions found.');
+    return;
+  }
+  
+  deletions.forEach((del, index) => {
+    console.log(`${index + 1}. ${del.timestamp}`);
+    console.log(`   Reason: ${del.reason}`);
+    console.log(`   Deleted: ${del.deletedFrames.length} frames`);
+    console.log(`   Sequences: ${del.deletedFrames.map(f => f.sequence).join(', ')}`);
+    console.log(`   Backup snapshot: ${del.beforeSnapshotId}`);
+    console.log(`   Recovery snapshot: ${del.afterSnapshotId}`);
+    if (del.warnings.length > 0) {
+      console.log(`   Warnings: ${del.warnings.length}`);
+    }
+    console.log();
+  });
+}
+
 // Handle graceful shutdown
 process.on('SIGINT', async () => {
   console.log('\n\n👋 Shutting down gracefully...');
@@ -522,12 +617,50 @@ process.on('SIGINT', async () => {
         console.log('🆕 No saved state found, creating new agent...');
         result = await createNewAgent();
       }
+    } else if (command === 'delete-frames') {
+      // Delete recent frames with recovery
+      const count = parseInt(commandArg) || 0;
+      if (count <= 0) {
+        console.error('❌ Please specify number of frames to delete');
+        console.log('Usage: npm run discord:persist delete-frames <count>');
+        process.exit(1);
+      }
+      
+      if (!hasExistingState()) {
+        console.error('❌ No saved state found');
+        process.exit(1);
+      }
+      
+      // Restore first to get the current state
+      result = await restoreAgent();
+      
+      // Execute frame deletion
+      await deleteRecentFramesSafely(count, result.persistence, result.veilState, result.space);
+      
+      // Exit after deletion
+      process.exit(0);
+    } else if (command === 'list-deletions') {
+      // List deletion history
+      if (!hasExistingState()) {
+        console.error('❌ No saved state found');
+        process.exit(1);
+      }
+      
+      const storage = new FileStorageAdapter(path.resolve(storageDir));
+      const persistence = new TransitionManager(null as any, null as any, {
+        storagePath: path.resolve(storageDir)
+      });
+      
+      await listDeletionHistory(persistence);
+      process.exit(0);
     } else {
       console.log('Usage: npm run discord:persist [command]');
       console.log('Commands:');
-      console.log('  (default) - Restore existing agent or create new if none exists');
-      console.log('  reset     - Clear all state and create a fresh agent');
-      console.log('  restore   - Explicitly restore from saved state');
+      console.log('  (default)              - Restore existing agent or create new if none exists');
+      console.log('  reset                  - Clear all state and create a fresh agent');
+      console.log('  restore                - Explicitly restore from saved state');
+      console.log('  delete-frames <count>  - Delete the most recent N frames');
+      console.log('  list-deletions         - Show deletion history');
       process.exit(1);
     }
     

@@ -4,8 +4,14 @@ import {
   IncomingVEILFrame, 
   OutgoingVEILFrame, 
   VEILOperation,
-  StreamRef
+  StreamRef,
+  FrameTransition
 } from './types';
+import { Space } from '../spaces/space';
+import { Element } from '../spaces/element';
+import { Component } from '../spaces/component';
+import { isForkInvariant } from '../spaces/types';
+import { getPersistenceMetadata } from '../persistence/decorators';
 
 /**
  * Manages the current VEIL state by applying frame operations
@@ -368,4 +374,384 @@ export class VEILStateManager {
       listener(state);
     }
   }
+
+  /**
+   * Delete recent frames with selective component reinitialization
+   * Fork-invariant components survive, others are recreated
+   */
+  async deleteRecentFramesWithReinit(
+    count: number,
+    space: Space
+  ): Promise<FrameDeletionResult> {
+    if (count <= 0) {
+      throw new Error('Count must be positive');
+    }
+    
+    if (count > this.state.frameHistory.length) {
+      throw new Error(`Cannot delete ${count} frames, only ${this.state.frameHistory.length} exist`);
+    }
+    
+    // Phase 1: Analyze and categorize components
+    const { invariant, stateful } = this.categorizeComponents(space);
+    
+    // Phase 2: Prepare deletion
+    // Sort frames by sequence to ensure we delete the most recent ones
+    const sortedFrames = [...this.state.frameHistory].sort((a, b) => b.sequence - a.sequence);
+    const framesToDelete = sortedFrames.slice(0, count);
+    const deletedRange = {
+      from: Math.min(...framesToDelete.map(f => f.sequence)),
+      to: Math.max(...framesToDelete.map(f => f.sequence))
+    };
+    const rollbackSequence = sortedFrames[count]?.sequence || 0;
+    
+    // Analyze what will be affected
+    const analysis = this.analyzeAffectedState(framesToDelete);
+    
+    // Phase 3: Notify invariant components
+    for (const { component } of invariant) {
+      if ('onFrameFork' in component && typeof component.onFrameFork === 'function') {
+        component.onFrameFork(deletedRange);
+      }
+    }
+    
+    // Phase 4: Capture component states at rollback point
+    const componentSnapshots = await this.captureComponentStatesAtSequence(
+      rollbackSequence,
+      space,
+      stateful
+    );
+    
+    // Phase 5: Shutdown stateful components
+    await this.shutdownComponents(stateful);
+    
+    // Phase 6: Execute frame deletion
+    const deletionResult = this.executeFrameDeletion(count, rollbackSequence);
+    deletionResult.affectedFacets = analysis.facets;
+    deletionResult.warnings = analysis.warnings;
+    
+    // Phase 7: Skip component reinitialization - let frames rebuild naturally
+    // Components will be rebuilt from remaining frame history when frames are replayed
+    
+    return deletionResult;
+  }
+  
+  private categorizeComponents(space: Space): ComponentCategorization {
+    const invariant: ComponentInfo[] = [];
+    const stateful: ComponentInfo[] = [];
+    
+    const walk = (element: Element, path: string[] = []) => {
+      const currentPath = [...path, element.id];
+      
+      element.components.forEach((component, index) => {
+        const info: ComponentInfo = {
+          component,
+          element,
+          path: currentPath,
+          index
+        };
+        
+        if (isForkInvariant(component)) {
+          invariant.push(info);
+        } else {
+          stateful.push(info);
+        }
+      });
+      
+      element.children.forEach(child => walk(child, currentPath));
+    };
+    
+    walk(space);
+    return { invariant, stateful };
+  }
+  
+  private analyzeAffectedState(frames: Array<IncomingVEILFrame | OutgoingVEILFrame>): {
+    facets: Set<string>;
+    warnings: string[];
+  } {
+    const affected = new Set<string>();
+    const warnings: string[] = [];
+    
+    for (const frame of frames) {
+      for (const op of frame.operations) {
+        switch (op.type) {
+          case 'addFacet':
+            affected.add(op.facet.id);
+            if (op.facet.children?.length) {
+              warnings.push(
+                `Facet ${op.facet.id} has ${op.facet.children.length} children that will also be removed`
+              );
+            }
+            break;
+            
+          case 'changeState':
+            if (!this.state.facets.has(op.facetId)) {
+              warnings.push(
+                `Change operation on non-existent facet ${op.facetId} (might have been added in deleted frames)`
+              );
+            }
+            break;
+            
+          case 'removeFacet':
+            warnings.push(`Remove operation for ${op.facetId} will be undone`);
+            break;
+        }
+      }
+    }
+    
+    return { facets: affected, warnings };
+  }
+  
+  private async captureComponentStatesAtSequence(
+    targetSequence: number,
+    space: Space,
+    componentsToCapture: ComponentInfo[]
+  ): Promise<ComponentStateSnapshot[]> {
+    const snapshots: ComponentStateSnapshot[] = [];
+    
+    for (const info of componentsToCapture) {
+      const component = info.component;
+      const metadata = getPersistenceMetadata(component);
+      
+      const snapshot: ComponentStateSnapshot = {
+        elementPath: info.path,
+        componentIndex: info.index,
+        className: component.constructor.name,
+        persistentProperties: {}
+      };
+      
+      // Capture persistent properties
+      if (metadata) {
+        for (const [key, propMeta] of metadata.properties) {
+          snapshot.persistentProperties[key] = (component as any)[key];
+        }
+      }
+      
+      snapshots.push(snapshot);
+    }
+    
+    return snapshots;
+  }
+  
+  private async shutdownComponents(components: ComponentInfo[]): Promise<void> {
+    for (const { component } of components) {
+      try {
+        // Call shutdown lifecycle method if it exists
+        if ('onShutdown' in component && typeof component.onShutdown === 'function') {
+          await component.onShutdown();
+        }
+        
+        // Force cleanup common resources
+        this.cleanupComponentResources(component);
+      } catch (error) {
+        console.error(`Error shutting down ${component.constructor.name}:`, error);
+      }
+    }
+  }
+  
+  private cleanupComponentResources(component: Component): void {
+    const comp = component as any;
+    
+    // WebSocket connections
+    if (comp.ws && typeof comp.ws.close === 'function') {
+      comp.ws.close();
+      comp.ws = null;
+    }
+    
+    // Timers
+    const timerProps = ['timeout', 'interval', 'reconnectTimeout', 'heartbeatInterval'];
+    for (const prop of timerProps) {
+      if (comp[prop]) {
+        clearTimeout(comp[prop]);
+        clearInterval(comp[prop]);
+        comp[prop] = null;
+      }
+    }
+    
+    // Event listeners
+    if (comp.listeners && typeof comp.listeners.clear === 'function') {
+      comp.listeners.clear();
+    }
+    
+    // Pending promises/callbacks
+    if (comp.pendingPromises) {
+      comp.pendingPromises = [];
+    }
+    if (comp.callbacks) {
+      comp.callbacks = new Map();
+    }
+  }
+  
+  private executeFrameDeletion(count: number, rollbackSequence: number): FrameDeletionResult {
+    // Sort frames by sequence to ensure we delete the most recent ones
+    const sortedFrames = [...this.state.frameHistory].sort((a, b) => b.sequence - a.sequence);
+    
+    // Get the frames to delete (most recent N frames)
+    const framesToDelete = sortedFrames.slice(0, count);
+    const deletedSequences = new Set(framesToDelete.map(f => f.sequence));
+    
+    // Capture deleted frames info
+    const deletedFrames = framesToDelete.map(f => ({
+      sequence: f.sequence,
+      type: 'operations' in f ? 
+        (f.operations.some((op: any) => op.type === 'speak' || op.type === 'toolCall') ? 'outgoing' : 'incoming') 
+        : 'unknown',
+      timestamp: f.timestamp,
+      operationCount: f.operations.length
+    }));
+    
+    // Remove frames from history by filtering out deleted sequences
+    this.state.frameHistory = this.state.frameHistory.filter(f => !deletedSequences.has(f.sequence));
+    
+    // Reset sequence number
+    this.state.currentSequence = rollbackSequence;
+    
+    // Rebuild state by replaying remaining frames
+    const oldFacets = this.state.facets;
+    const oldRemovals = this.state.removals;
+    const oldStreams = this.state.streams;
+    
+    // Clear current state
+    this.state.facets = new Map();
+    this.state.removals = new Map();
+    this.state.streams = new Map();
+    this.state.currentStream = undefined;
+    
+    // Replay all remaining frames
+    const tempHistory = [...this.state.frameHistory];
+    this.state.frameHistory = [];
+    this.state.currentSequence = 0;
+    
+    try {
+      for (const frame of tempHistory) {
+        // Temporarily adjust sequence for replay
+        const originalSeq = frame.sequence;
+        frame.sequence = this.state.currentSequence + 1;
+        
+        if ('operations' in frame) {
+          const isIncoming = !frame.operations.some((op: any) => 
+            op.type === 'speak' || op.type === 'toolCall'
+          );
+          
+          if (isIncoming) {
+            this.applyIncomingFrame(frame as IncomingVEILFrame);
+          } else {
+            this.recordOutgoingFrame(frame as OutgoingVEILFrame);
+          }
+        }
+        
+        // Restore original sequence
+        frame.sequence = originalSeq;
+      }
+      
+      this.notifyListeners();
+    } catch (error: any) {
+      // Rollback failed - restore original state
+      this.state.facets = oldFacets;
+      this.state.removals = oldRemovals;
+      this.state.streams = oldStreams;
+      throw new Error(`Frame deletion failed during replay: ${error.message}`);
+    }
+    
+    return {
+      deletedFrames,
+      affectedFacets: new Set(),
+      revertedSequence: this.state.currentSequence,
+      warnings: []
+    };
+  }
+  
+  private async reinitializeComponents(
+    space: Space,
+    snapshots: ComponentStateSnapshot[]
+  ): Promise<void> {
+    for (const snapshot of snapshots) {
+      const element = this.findElementByPath(space, snapshot.elementPath);
+      if (!element) {
+        console.warn(`Cannot find element for path: ${snapshot.elementPath.join('/')}`);
+        continue;
+      }
+      
+      // Component should already exist, just restore state
+      const component = element.components[snapshot.componentIndex];
+      if (!component) {
+        console.warn(`Component at index ${snapshot.componentIndex} not found`);
+        continue;
+      }
+      
+      // Restore persistent properties
+      Object.assign(component, snapshot.persistentProperties);
+      
+      // Call recovery lifecycle
+      if ('onRecovery' in component && typeof component.onRecovery === 'function') {
+        await component.onRecovery(
+          this.state.currentSequence + snapshots.length,
+          this.state.currentSequence
+        );
+      }
+    }
+  }
+  
+  private findElementByPath(root: Element, path: string[]): Element | null {
+    let current = root;
+    
+    // Skip root in path if present
+    const searchPath = path[0] === root.id ? path.slice(1) : path;
+    
+    for (const id of searchPath) {
+      const child = current.findChild(id);
+      if (!child) return null;
+      current = child;
+    }
+    
+    return current;
+  }
+  
+  private async triggerRecoveryFrame(space: Space, previousSequence: number): Promise<void> {
+    // Emit recovery complete event
+    space.emit({
+      topic: 'system:recovery-complete',
+      source: { elementId: 'system', elementPath: ['system'] },
+      payload: {
+        reason: 'frame-deletion',
+        previousSequence,
+        newSequence: this.state.currentSequence
+      },
+      timestamp: Date.now()
+    });
+    
+    // Process a frame to let components react
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+}
+
+// Type definitions for frame deletion
+interface ComponentInfo {
+  component: Component;
+  element: Element;
+  path: string[];
+  index: number;
+}
+
+interface ComponentCategorization {
+  invariant: ComponentInfo[];
+  stateful: ComponentInfo[];
+}
+
+interface ComponentStateSnapshot {
+  elementPath: string[];
+  componentIndex: number;
+  className: string;
+  persistentProperties: Record<string, any>;
+}
+
+export interface FrameDeletionResult {
+  deletedFrames: Array<{
+    sequence: number;
+    type: string;
+    timestamp: string;
+    operationCount: number;
+  }>;
+  affectedFacets: Set<string>;
+  revertedSequence: number;
+  warnings: string[];
 }

@@ -226,4 +226,23 @@ export class FileStorageAdapter implements StorageAdapter {
       return [];
     }
   }
+  
+  /**
+   * Delete a file
+   */
+  async deleteFile(relativePath: string): Promise<void> {
+    const fullPath = path.join(this.basePath, relativePath);
+    try {
+      await unlink(fullPath);
+      console.log('[FileStorageAdapter] Deleted file:', fullPath);
+    } catch (error: any) {
+      if (error.code === 'ENOENT') {
+        // File doesn't exist, that's okay
+        console.log('[FileStorageAdapter] File not found (already deleted?):', fullPath);
+        return;
+      }
+      console.error('[FileStorageAdapter] Error deleting file:', error);
+      throw error;
+    }
+  }
 }

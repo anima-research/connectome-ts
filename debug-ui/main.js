@@ -620,7 +620,12 @@ const App = {
       activeDetail: null,
       inspectorWidth: 360,
       sidebarWidth: 320,
-      framePanelHeight: 320
+      framePanelHeight: 320,
+      // Frame deletion dialog
+      showDeleteDialog: false,
+      deleteCount: 1,
+      deleting: false,
+      deleteError: null
     });
 
     const socketRef = ref(null);
@@ -1012,6 +1017,18 @@ const App = {
           }
           break;
         }
+        case 'frame-deletion': {
+          // Handle frame deletion notification
+          console.log('Frame deletion completed:', message.payload);
+          if (message.payload?.deletedCount) {
+            // Show a temporary notification
+            const msg = `Deleted ${message.payload.deletedCount} frames, reverted to sequence ${message.payload.afterSequence}`;
+            console.log(msg);
+            // Refresh to get updated state
+            refresh();
+          }
+          break;
+        }
         default:
           break;
       }
@@ -1050,6 +1067,71 @@ const App = {
           console.warn('Failed to process debug message', err);
         }
       });
+    }
+
+    // Frame deletion methods
+    function showDeleteDialog() {
+      state.showDeleteDialog = true;
+      state.deleteCount = 1;
+      state.deleteError = null;
+    }
+    
+    function closeDeleteDialog() {
+      state.showDeleteDialog = false;
+      state.deleteError = null;
+    }
+    
+    const framesToDelete = computed(() => {
+      if (!state.deleteCount || state.deleteCount <= 0) return [];
+      // Frames are already sorted by sequence in descending order (highest first)
+      // So we take the first N frames to delete the most recent ones
+      const toDelete = state.frames.slice(0, state.deleteCount);
+      console.log('[DebugUI] Frames to delete:', {
+        deleteCount: state.deleteCount,
+        totalFrames: state.frames.length,
+        framesToDelete: toDelete.map(f => ({ sequence: f.sequence, kind: f.kind })),
+        allFrameSequences: state.frames.map(f => f.sequence)
+      });
+      return toDelete;
+    });
+    
+    async function confirmDelete() {
+      if (!state.deleteCount || state.deleteCount > state.frames.length) return;
+      
+      state.deleting = true;
+      state.deleteError = null;
+      
+      try {
+        const response = await fetch('/api/frames/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ count: state.deleteCount })
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok) {
+          throw new Error(result.error || 'Failed to delete frames');
+        }
+        
+        // Close dialog on success
+        closeDeleteDialog();
+        
+        // Refresh the UI to show updated state
+        await refresh();
+        
+        // Show success message in console
+        console.log(`Successfully deleted ${result.deletedCount} frames`);
+        if (result.warnings?.length > 0) {
+          console.warn('Warnings:', result.warnings);
+        }
+        
+      } catch (error) {
+        state.deleteError = error.message || 'Frame deletion failed';
+        console.error('Frame deletion error:', error);
+      } finally {
+        state.deleting = false;
+      }
     }
 
     onMounted(async () => {
@@ -1310,7 +1392,12 @@ const App = {
       layoutStyle,
       startInspectorResize,
       startSidebarResize,
-      startSidebarPanelResize
+      startSidebarPanelResize,
+      // Frame deletion
+      showDeleteDialog,
+      closeDeleteDialog,
+      confirmDelete,
+      framesToDelete
     };
   },
   template: `
@@ -1332,6 +1419,7 @@ const App = {
         </div>
         <div class="controls">
           <button class="button" @click="refresh">Refresh</button>
+          <button class="button button--danger" @click="showDeleteDialog" :disabled="!state.frames.length">Delete Frames</button>
         </div>
       </header>
       <div class="error-banner" v-if="state.error">
@@ -1572,6 +1660,58 @@ const App = {
             </div>
           </section>
         </aside>
+      </div>
+      
+      <!-- Frame Deletion Dialog -->
+      <div class="modal-overlay" v-if="state.showDeleteDialog" @click="closeDeleteDialog">
+        <div class="modal" @click.stop>
+          <div class="modal-header">
+            <h2>Delete Recent Frames</h2>
+            <button class="close-button" @click="closeDeleteDialog">&times;</button>
+          </div>
+          <div class="modal-body">
+            <p class="warning">
+              <strong>⚠️ Warning:</strong> This will delete recent frames and revert the agent state. 
+              Fork-invariant components will be preserved, but stateful components will be reinitialized.
+            </p>
+            
+            <div class="form-group">
+              <label>Number of frames to delete:</label>
+              <input 
+                type="number" 
+                v-model.number="state.deleteCount" 
+                min="1" 
+                :max="state.frames.length"
+                class="input"
+              />
+              <small>Total frames available: {{ state.frames.length }}</small>
+            </div>
+            
+            <div v-if="state.deleteCount > 0 && state.deleteCount <= state.frames.length" class="frame-preview">
+              <h3>Frames to be deleted:</h3>
+              <ul class="frame-list">
+                <li v-for="frame in framesToDelete" :key="frame.uuid">
+                  Seq {{ frame.sequence }} - {{ frame.kind }} 
+                  <span class="timestamp">{{ formatTime(frame.timestamp) }}</span>
+                </li>
+              </ul>
+            </div>
+            
+            <div v-if="state.deleteError" class="error-message">
+              {{ state.deleteError }}
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="button" @click="closeDeleteDialog">Cancel</button>
+            <button 
+              class="button button--danger" 
+              @click="confirmDelete"
+              :disabled="!state.deleteCount || state.deleteCount > state.frames.length || state.deleting"
+            >
+              {{ state.deleting ? 'Deleting...' : 'Delete Frames' }}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   `

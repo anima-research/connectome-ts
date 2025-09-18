@@ -203,9 +203,12 @@ export class TransitionManager {
     
     // Find the best snapshot to start from
     let snapshotFile = branchSnapshots[branchSnapshots.length - 1];  // Latest by default
+    let candidateSnapshots = [...branchSnapshots];
+    
     if (targetSequence !== undefined) {
       // Find the latest snapshot before target
-      for (const file of branchSnapshots.reverse()) {
+      candidateSnapshots.reverse();
+      for (const file of candidateSnapshots) {
         // Updated regex to handle optional timestamp: snapshot-SEQUENCE-BRANCH[-TIMESTAMP].json
         const match = file.match(/snapshot-(\d+)-[^-]+(-.+)?\.json$/);
         if (match && parseInt(match[1]) <= targetSequence) {
@@ -213,11 +216,41 @@ export class TransitionManager {
           break;
         }
       }
+      candidateSnapshots.reverse(); // Restore original order
     }
     
-    // Load and apply snapshot
-    const snapshotData = await this.storage.readFile(`snapshots/${snapshotFile}`);
-    const snapshot = JSON.parse(snapshotData) as TransitionSnapshot;
+    // Try loading snapshots until we find a valid one
+    let snapshot: TransitionSnapshot | null = null;
+    let lastError: Error | null = null;
+    const startIndex = candidateSnapshots.indexOf(snapshotFile);
+    
+    for (let i = startIndex; i >= 0; i--) {
+      const candidateFile = candidateSnapshots[i];
+      try {
+        // Load snapshot data
+        const snapshotData = await this.storage.readFile(`snapshots/${candidateFile}`);
+        
+        // Check if snapshot is empty
+        if (!snapshotData || snapshotData.trim() === '') {
+          console.warn(`Snapshot file ${candidateFile} is empty, trying previous snapshot...`);
+          continue;
+        }
+        
+        // Try to parse JSON
+        snapshot = JSON.parse(snapshotData) as TransitionSnapshot;
+        snapshotFile = candidateFile;
+        console.log(`Successfully loaded snapshot: ${candidateFile}`);
+        break;
+      } catch (e) {
+        console.warn(`Failed to load snapshot ${candidateFile}:`, e);
+        lastError = e as Error;
+        continue;
+      }
+    }
+    
+    if (!snapshot) {
+      throw new Error(`No valid snapshots found. Last error: ${lastError?.message}`);
+    }
     
     console.log(`Restoring from snapshot at sequence ${snapshot.sequence}`);
     await this.applySnapshot(snapshot);
@@ -476,4 +509,174 @@ export class TransitionManager {
     await this.restore(sequence, branchName);
     this.currentBranch = branchName;
   }
+
+  /**
+   * Delete recent frames with recovery snapshot
+   */
+  async deleteRecentFramesAndSnapshot(
+    count: number,
+    reason: string
+  ): Promise<DeletionSnapshot> {
+    console.log(`\n🗑️  Preparing to delete ${count} frames...`);
+    
+    // Create pre-deletion snapshot for safety
+    const beforeSnapshot = await this.createSnapshot();
+    console.log(`📸 Created backup snapshot: sequence ${beforeSnapshot.sequence}`);
+    
+    try {
+      // Delete frames with selective component reinit
+      const deletionResult = await this.veilState.deleteRecentFramesWithReinit(
+        count,
+        this.space
+      );
+      
+      // Delete corresponding delta files
+      await this.deleteRecentDeltas(deletionResult.deletedFrames);
+      
+      // Create post-deletion snapshot
+      const afterSnapshot = await this.createSnapshot();
+      console.log(`📸 Created recovery snapshot: sequence ${afterSnapshot.sequence}`);
+      
+      // Save deletion record
+      const deletionRecord: DeletionSnapshot = {
+        timestamp: new Date().toISOString(),
+        reason,
+        beforeSnapshotId: beforeSnapshot.sequence,
+        afterSnapshotId: afterSnapshot.sequence,
+        deletedFrames: deletionResult.deletedFrames,
+        affectedFacets: Array.from(deletionResult.affectedFacets),
+        warnings: deletionResult.warnings
+      };
+      
+      const deletionFile = `deletions/deletion-${Date.now()}.json`;
+      await this.storage.writeFile(
+        deletionFile,
+        JSON.stringify(deletionRecord, null, 2)
+      );
+      
+      console.log(`\n✅ Frame deletion complete!`);
+      console.log(`  - Deleted ${count} frames (sequences ${deletionResult.deletedFrames.map(f => f.sequence).join(', ')})`);
+      console.log(`  - Reverted to sequence ${deletionResult.revertedSequence}`);
+      console.log(`  - Deletion record saved to ${deletionFile}`);
+      
+      return deletionRecord;
+    } catch (error: any) {
+      // Restore from pre-deletion snapshot
+      console.error('\n❌ Frame deletion failed:', error.message);
+      console.log('🔄 Restoring from backup snapshot...');
+      await this.restoreFromSpecificSnapshot(beforeSnapshot);
+      throw error;
+    }
+  }
+  
+  /**
+   * Delete delta files for removed frames
+   */
+  private async deleteRecentDeltas(
+    deletedFrames: Array<{ sequence: number }>
+  ): Promise<void> {
+    const deletedSequences = new Set(deletedFrames.map(f => f.sequence));
+    
+    try {
+      const deltaFiles = await this.storage.listFiles('deltas');
+      let deletedCount = 0;
+      
+      for (const file of deltaFiles) {
+        // Parse sequence from filename (e.g., "delta-123.json")
+        const match = file.match(/delta-(\d+)\.json/);
+        if (match) {
+          const sequence = parseInt(match[1]);
+          if (deletedSequences.has(sequence)) {
+            await this.storage.deleteFile(`deltas/${file}`);
+            deletedCount++;
+          }
+        }
+      }
+      
+      console.log(`🗑️  Deleted ${deletedCount} delta files`);
+    } catch (error) {
+      console.warn('Failed to delete some delta files:', error);
+    }
+  }
+  
+  /**
+   * Restore from a specific snapshot
+   */
+  private async restoreFromSpecificSnapshot(snapshot: TransitionSnapshot): Promise<void> {
+    // Clear current state - remove all children
+    const childrenToRemove = [...this.space.children];
+    for (const child of childrenToRemove) {
+      this.space.removeChild(child);
+    }
+    
+    // Restore VEIL state
+    await restoreVEILState(this.veilState, snapshot.veilState);
+    
+    // Restore element tree
+    await restoreElementTree(this.space, snapshot.elementTree);
+    
+    // Component states are restored as part of element restoration
+    
+    console.log(`✅ Restored from snapshot at sequence ${snapshot.sequence}`);
+  }
+  
+  /**
+   * List deletion history
+   */
+  async listDeletions(): Promise<DeletionSnapshot[]> {
+    const deletions: DeletionSnapshot[] = [];
+    
+    try {
+      const files = await this.storage.listFiles('deletions');
+      for (const file of files) {
+        const content = await this.storage.readFile(`deletions/${file}`);
+        const record = JSON.parse(content) as DeletionSnapshot;
+        deletions.push(record);
+      }
+      
+      // Sort by timestamp descending
+      deletions.sort((a, b) => 
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
+    } catch (error) {
+      console.warn('Failed to list deletions:', error);
+    }
+    
+    return deletions;
+  }
+  
+  /**
+   * Undo a specific deletion by restoring from backup snapshot
+   */
+  async undoDeletion(deletionTimestamp: string): Promise<void> {
+    const deletions = await this.listDeletions();
+    const deletion = deletions.find(d => d.timestamp === deletionTimestamp);
+    
+    if (!deletion) {
+      throw new Error(`Deletion record not found for timestamp: ${deletionTimestamp}`);
+    }
+    
+    console.log(`🔄 Undoing deletion from ${deletion.timestamp}...`);
+    console.log(`  - Restoring from snapshot ${deletion.beforeSnapshotId}`);
+    
+    await this.restore(deletion.beforeSnapshotId);
+    
+    console.log('✅ Deletion undone!');
+  }
+}
+
+// Type definition for deletion records
+interface DeletionSnapshot {
+  timestamp: string;
+  reason: string;
+  beforeSnapshotId: number;
+  afterSnapshotId: number;
+  deletedFrames: Array<{
+    sequence: number;
+    type: string;
+    timestamp: string;
+    operationCount: number;
+  }>;
+  affectedFacets: string[];
+  warnings: string[];
 }
