@@ -136,7 +136,8 @@ export class AgentComponent extends Component implements RestorableComponent {
           agentName: this.element.name
         },
         priority: 'immediate',
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        broadcast: true  // Ensure Discord chat component receives this
       });
     }
     

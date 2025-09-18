@@ -9,6 +9,7 @@ import { DiscordAxonComponent } from './discord-axon';
 import { SpaceEvent } from '../spaces/types';
 import { persistent } from '../persistence/decorators';
 import { persistable } from '../persistence/decorators';
+import { external } from '../host/decorators';
 
 interface TriggerConfig {
   mentions: boolean;          // Respond to @mentions
@@ -20,6 +21,9 @@ interface TriggerConfig {
 
 @persistable(1)
 export class DiscordChatComponent extends DiscordAxonComponent {
+  // Re-declare external token for decorator to work (decorators don't inherit)
+  @external('secret:discord.token') protected botToken?: string;
+  
   // Chat-specific configuration
   @persistent() private triggerConfig: TriggerConfig = {
     mentions: true,

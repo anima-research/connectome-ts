@@ -280,15 +280,20 @@ export class ConnectomeHost {
   private async resolveExternalResources(component: Component): Promise<void> {
     const externals = getExternalMetadata(component);
     
+    console.log(`Resolving ${externals.length} external resources for ${component.constructor.name}`);
+    
     for (const ext of externals) {
       const [type, ...pathParts] = ext.resourcePath.split(':');
       const path = pathParts.join(':');
+      
+      console.log(`  - ${ext.propertyKey}: ${ext.resourcePath}`);
       
       let value: any;
       
       switch (type) {
         case 'secret':
           value = this.secrets.get(path);
+          console.log(`    Secret '${path}': ${value ? 'FOUND' : 'NOT FOUND'}`);
           break;
         case 'provider':
           value = this.providers.get(path);
@@ -303,6 +308,7 @@ export class ConnectomeHost {
       
       if (value) {
         (component as any)[ext.propertyKey] = value;
+        console.log(`    Injected into ${ext.propertyKey}`);
       }
     }
   }

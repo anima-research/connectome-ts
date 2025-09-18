@@ -177,12 +177,11 @@ export class DiscordAxonComponent extends InteractiveComponent implements Restor
       }
     });
     
-    // Start connection if we have parameters (from restoration or setConnectionParams)
+    // Don't start connection here - wait for onReferencesResolved
     if (this.serverUrl && this.botToken) {
-      console.log('[Discord] Starting connection in onFirstFrame');
-      this.startConnection();
+      console.log('[Discord] Have params in onFirstFrame but waiting for references to be resolved');
     } else {
-      console.log('[Discord] Not starting connection - missing params');
+      console.log('[Discord] Not starting connection - missing params (will check again after references resolved)');
     }
   }
   
@@ -196,9 +195,12 @@ export class DiscordAxonComponent extends InteractiveComponent implements Restor
    * Called by Host after external resources are injected
    */
   async onReferencesResolved(): Promise<void> {
-    // If we have a bot token and connection params, we can auto-reconnect
+    console.log('🔌 Discord onReferencesResolved - token:', this.botToken ? 'SET' : 'NOT SET', 'serverUrl:', this.serverUrl);
+    // Mark that we should connect on the next frame
     if (this.botToken && this.serverUrl && this.connectionState === 'disconnected') {
-      console.log('🔌 Discord component has token, will auto-connect when ready');
+      console.log('🔌 Discord will connect on next frame now that references are resolved');
+      // Set a flag to connect on next frame
+      (this as any).shouldConnectOnNextFrame = true;
     }
   }
 
@@ -334,15 +336,18 @@ export class DiscordAxonComponent extends InteractiveComponent implements Restor
     this.connectAsync()
       .then(() => {
         // Success - emit event
+        console.log('[Discord] Emitting discord:connected event');
         this.element.emit({
           topic: 'discord:connected',
           source: this.element.getRef(),
           payload: {
             agentName: this.agentName,
             guildId: this.guildId,
-            reconnect: this.connectionAttempts > 1
+            reconnect: this.connectionAttempts > 1,
+            botUserId: this.botUserId
           },
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          broadcast: true  // Ensure all interested components receive this
         });
       })
       .catch((error) => {
@@ -547,6 +552,14 @@ export class DiscordAxonComponent extends InteractiveComponent implements Restor
    */
   async handleEvent(event: SpaceEvent): Promise<void> {
     await super.handleEvent(event);
+    
+    // Check if we should connect now that references are resolved
+    if (event.topic === 'frame:start' && (this as any).shouldConnectOnNextFrame) {
+      console.log('[Discord] Starting connection on frame:start after references resolved');
+      delete (this as any).shouldConnectOnNextFrame;
+      this.startConnection();
+      return;
+    }
     
     switch (event.topic) {
       case 'discord:connected':

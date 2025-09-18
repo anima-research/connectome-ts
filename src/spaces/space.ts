@@ -412,7 +412,7 @@ export class Space extends Element {
    */
   private async distributeEvent(event: SpaceEvent): Promise<void> {
     // For broadcast-style events (like agent:response), distribute to all subscribers
-    if (this.isBroadcastEvent(event.topic)) {
+    if (this.isBroadcastEvent(event)) {
       await this.broadcastEvent(event);
       return;
     }
@@ -424,10 +424,16 @@ export class Space extends Element {
   /**
    * Check if an event should be broadcast to all subscribers
    */
-  private isBroadcastEvent(topic: string): boolean {
-    // These events should reach all subscribers regardless of tree position
-    const broadcastTopics = ['agent:response', 'agent:frame-ready', 'frame:start', 'frame:end', 'element:action'];
-    return broadcastTopics.some(t => topic.startsWith(t));
+  private isBroadcastEvent(event: SpaceEvent): boolean {
+    // Check if the event explicitly requests broadcast behavior
+    if ('broadcast' in event && event.broadcast === true) {
+      return true;
+    }
+    
+    // For backwards compatibility, these core events always broadcast
+    // TODO: Migrate these to use explicit broadcast flag
+    const coreFrameworkTopics = ['frame:start', 'frame:end'];
+    return coreFrameworkTopics.some(t => event.topic === t);
   }
   
   /**

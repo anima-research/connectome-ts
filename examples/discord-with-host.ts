@@ -95,7 +95,7 @@ Be friendly, helpful, and engaging!`,
     discord: {
       host: 'localhost:8081',
       guild: guildId,
-      autoJoinChannels: ['general']
+      autoJoinChannels: ['1289595876716707914']  // #general channel ID
     }
   });
   

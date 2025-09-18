@@ -10,8 +10,10 @@ import { BasicAgent } from '../agent/basic-agent';
 import { AgentComponent } from '../agent/agent-component';
 import { DiscordAxonComponent } from '../components/discord-axon';
 import { DiscordChatComponent } from '../components/discord-chat';
-import { persistable } from '../persistence/decorators';
+import { persistable, persistent } from '../persistence/decorators';
 import { Element } from '../spaces/element';
+import { Component } from '../spaces/component';
+import { SpaceEvent } from '../spaces/types';
 
 export interface DiscordAppConfig {
   agentName: string;
@@ -25,35 +27,63 @@ export interface DiscordAppConfig {
 }
 
 /**
- * Discord-aware agent that auto-joins channels on connection
+ * Test component that auto-joins Discord channels when connected
  */
 @persistable(1)
-export class DiscordAgent extends BasicAgent {
-  private autoJoinChannels: string[];
+class DiscordAutoJoinComponent extends Component {
+  @persistent() private channels: string[] = [];
+  @persistent() private hasJoined: boolean = false;
   
-  constructor(config: any, llmProvider: any, veilState: any, autoJoinChannels: string[] = []) {
-    super(config, llmProvider, veilState);
-    this.autoJoinChannels = autoJoinChannels;
+  constructor(channels: string[] = ['1289595876716707914']) {  // Default to #general channel ID
+    super();
+    this.channels = channels;
   }
   
-  async onFrameComplete(frame: any, state: any): Promise<any> {
-    // Check for discord:connected event
-    const connectedEvent = frame.events?.find((e: any) => e.topic === 'discord:connected');
-    if (connectedEvent && this.autoJoinChannels.length > 0) {
-      console.log('🤖 Discord connected, auto-joining channels:', this.autoJoinChannels);
-      
-      // Create a response to join channels
-      this.pendingSpeech.push(`I'm now connected to Discord! Let me join the configured channels.`);
-      
-      for (const channel of this.autoJoinChannels) {
-        this.pendingActions.push({
-          tool: 'discord.join',
-          parameters: { channelId: channel }
-        });
-      }
+  onMount(): void {
+    // Listen for Discord connected event at the space level
+    const space = this.element.space;
+    if (space) {
+      space.subscribe('discord:connected');
+      console.log('🔔 DiscordAutoJoinComponent subscribed to discord:connected at space level');
     }
+    // Also subscribe at element level just in case
+    this.element.subscribe('discord:connected');
+  }
+  
+  async handleEvent(event: SpaceEvent): Promise<void> {
+    console.log('🔔 DiscordAutoJoinComponent received event:', event.topic, 'from:', event.source);
     
-    return super.onFrameComplete(frame, state);
+    if (event.topic === 'discord:connected' && !this.hasJoined) {
+      console.log('🤖 Discord connected! Auto-joining channels:', this.channels);
+      
+      // Find the Discord element and emit join actions to it
+      const space = this.element.space;
+      console.log('Looking for Discord element. Space children:', space?.children.map(c => ({ id: c.id, name: c.name })));
+      const discordElement = space?.children.find(child => child.name === 'discord');
+      
+      if (discordElement) {
+        console.log('Found Discord element:', discordElement.name, 'with id:', discordElement.id);
+        for (const channelId of this.channels) {
+          console.log(`📢 Requesting to join channel: ${channelId}`);
+          
+          // Emit an action event with the correct format for Element handling
+          this.element.space?.emit({
+            topic: 'element:action',
+            source: this.element.getRef(),
+            payload: {
+              path: [discordElement.id, 'join'],  // [elementId, action]
+              parameters: { channelId }
+            },
+            timestamp: Date.now(),
+            broadcast: true  // Ensure it reaches the Discord element
+          });
+        }
+      } else {
+        console.log('Discord element not found!');
+      }
+      
+      this.hasJoined = true;
+    }
   }
 }
 
@@ -67,35 +97,25 @@ export class DiscordApplication implements ConnectomeApplication {
     // Register llmProvider reference that will be injected by Host
     space.registerReference('llmProvider', this.config.llmProviderId);
     
-    // Register agent factory for Discord agents
-    const autoJoinChannels = this.config.discord.autoJoinChannels || ['general'];
-    space.registerReference('agentFactory', (config: any, llm: any, veil: any) => {
-      const agent = new DiscordAgent(config, llm, veil, autoJoinChannels);
-      return agent;
-    });
-    
     return { space, veilState };
   }
   
   async initialize(space: Space, veilState: VEILStateManager): Promise<void> {
     console.log('🎮 Initializing Discord application...');
     
-    // Create Discord element with axon component
+    // Create Discord element with chat component (which extends axon component)
     const discordElem = new Element('discord');
-    const discordComponent = new DiscordAxonComponent();
+    const chatComponent = new DiscordChatComponent();
     
     // Set connection parameters (without token, that comes from Host)
-    discordComponent.setConnectionParams({
+    chatComponent.setConnectionParams({
       host: this.config.discord.host,
       path: '/ws',
       guild: this.config.discord.guild,
       agent: this.config.agentName
     });
     
-    discordElem.addComponent(discordComponent);
-    
-    // Add Discord chat trigger component
-    const chatComponent = new DiscordChatComponent();
+    // Configure chat triggers
     chatComponent.setTriggerConfig({
       mentions: true,
       directMessages: true,
@@ -103,6 +123,7 @@ export class DiscordApplication implements ConnectomeApplication {
       channels: [],  // Empty means all channels
       cooldown: 10
     });
+    
     discordElem.addComponent(chatComponent);
     
     // Add Discord element to space
@@ -118,15 +139,19 @@ export class DiscordApplication implements ConnectomeApplication {
     const agentConfig = {
       name: this.config.agentName,
       systemPrompt: this.config.systemPrompt,
-      autoActionRegistration: true,
-      // Custom field for Discord
-      autoJoinChannels: this.config.discord.autoJoinChannels || ['general']
+      autoActionRegistration: true
     };
     
     // Save config for restoration
     (agentComponent as any).agentConfig = agentConfig;
     
     agentElem.addComponent(agentComponent);
+    
+    // Add auto-join component for testing
+    if (this.config.discord.autoJoinChannels && this.config.discord.autoJoinChannels.length > 0) {
+      const autoJoinComponent = new DiscordAutoJoinComponent(this.config.discord.autoJoinChannels);
+      agentElem.addComponent(autoJoinComponent);
+    }
     
     // Add agent element to space
     space.addChild(agentElem);
@@ -141,31 +166,20 @@ export class DiscordApplication implements ConnectomeApplication {
     const registry = ComponentRegistry.getInstance();
     
     // Register all components that can be restored
-    registry.register('DiscordAxonComponent', DiscordAxonComponent);
     registry.register('DiscordChatComponent', DiscordChatComponent);
     registry.register('AgentComponent', AgentComponent);
-    registry.register('DiscordAgent', DiscordAgent);
+    registry.register('DiscordAutoJoinComponent', DiscordAutoJoinComponent);
     
     return registry;
   }
   
   async onStart(space: Space, veilState: VEILStateManager): Promise<void> {
-    // Activate the agent
-    space.activateAgent('discord-agent', { 
-      reason: 'startup',
-      source: 'discord-app'
-    });
-    
     console.log('🚀 Discord application started!');
+    // No initial activation - wait for Discord messages to trigger the agent
   }
   
   async onRestore(space: Space, veilState: VEILStateManager): Promise<void> {
     console.log('♻️ Discord application restored from snapshot');
-    
-    // Re-activate the agent after restoration
-    space.activateAgent('discord-agent', { 
-      reason: 'restore',
-      source: 'discord-app'
-    });
+    // No activation needed - Discord messages will trigger the agent
   }
 }
