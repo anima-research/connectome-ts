@@ -294,6 +294,13 @@ const JsonViewer = {
   setup(props) {
     const isExpanded = ref(props.expandAll || props.depth < 2);
     
+    // Watch for expandAll changes
+    watch(() => props.expandAll, (newVal) => {
+      if (newVal) {
+        isExpanded.value = true;
+      }
+    });
+    
     const dataType = computed(() => {
       const d = props.data;
       if (d === null) return 'null';
@@ -336,6 +343,9 @@ const JsonViewer = {
         }
         return value.toString();
       }
+      // Handle empty containers
+      if (Array.isArray(value) && value.length === 0) return '[]';
+      if (typeof value === 'object' && value !== null && Object.keys(value).length === 0) return '{}';
       return value;
     };
     
@@ -352,6 +362,19 @@ const JsonViewer = {
       return ref.elementId;
     };
     
+    // Check if a value is scalar or empty container (should be displayed inline)
+    const isScalar = (value) => {
+      if (value === null || value === undefined) return true;
+      const type = typeof value;
+      if (type === 'string' || type === 'number' || type === 'boolean') return true;
+      
+      // Include empty arrays and empty objects
+      if (Array.isArray(value) && value.length === 0) return true;
+      if (type === 'object' && value !== null && Object.keys(value).length === 0) return true;
+      
+      return false;
+    };
+
     // Sort object keys for consistent display
     const sortedEntries = computed(() => {
       if (dataType.value !== 'object') return [];
@@ -376,6 +399,7 @@ const JsonViewer = {
       formatValue,
       isElementRef,
       formatElementRef,
+      isScalar,
       sortedEntries
     };
   },
@@ -404,15 +428,23 @@ const JsonViewer = {
         
         <div v-if="isExpanded && !isEmpty" class="json-content">
           <template v-if="dataType === 'array'">
-            <div v-for="(item, index) in data" :key="index" class="json-item">
-              <span class="json-index">{{ index }}:</span>
-              <json-viewer :data="item" :depth="depth + 1" />
+            <div v-for="(item, index) in data" :key="index" class="json-item json-array-item">
+              <json-viewer :data="item" :depth="depth + 1" :expandAll="expandAll" />
             </div>
           </template>
           <template v-else>
             <div v-for="[key, value] in sortedEntries" :key="key" class="json-item">
               <span class="json-key">{{ key }}:</span>
-              <json-viewer :data="value" :depth="depth + 1" />
+              <template v-if="isScalar(value)">
+                <span :class="'json-' + (value === null ? 'null' : 
+                                       value === undefined ? 'undefined' : 
+                                       Array.isArray(value) ? 'bracket' :
+                                       typeof value === 'object' && value !== null ? 'bracket' :
+                                       typeof value)">{{ formatValue(value) }}</span>
+              </template>
+              <template v-else>
+                <json-viewer :data="value" :depth="depth + 1" :expandAll="expandAll" />
+              </template>
             </div>
           </template>
         </div>
@@ -621,6 +653,7 @@ const App = {
       inspectorWidth: 360,
       sidebarWidth: 320,
       framePanelHeight: 320,
+      jsonExpandAll: false,
       // Frame deletion dialog
       showDeleteDialog: false,
       deleteCount: 1,
@@ -1175,6 +1208,50 @@ const App = {
     function closeDetail() {
       state.activeDetail = null;
     }
+    
+    function toggleExpandAll() {
+      state.jsonExpandAll = !state.jsonExpandAll;
+    }
+    
+    function copyToClipboard(data) {
+      const text = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+      navigator.clipboard.writeText(text).then(() => {
+        console.log('Copied to clipboard');
+      }).catch(err => {
+        console.error('Failed to copy:', err);
+      });
+    }
+    
+    function inspectVeilSnapshot() {
+      if (!selectedFrame.value) return;
+      state.activeDetail = {
+        type: 'veil-snapshot',
+        title: `VEIL Snapshot - Frame ${selectedFrame.value.sequence}`,
+        data: {
+          sequence: selectedFrame.value.facetsSequence,
+          facets: state.frameFacets,
+          totalFacets: state.frameFacets.length
+        }
+      };
+    }
+    
+    function inspectFrame() {
+      if (!selectedFrame.value) return;
+      state.activeDetail = {
+        type: 'frame',
+        title: `Frame ${selectedFrame.value.sequence}`,
+        data: selectedFrame.value
+      };
+    }
+    
+    function inspectElementTree() {
+      if (!state.elementTree) return;
+      state.activeDetail = {
+        type: 'element-tree',
+        title: 'Element Tree',
+        data: state.elementTree
+      };
+    }
 
     function selectOperation(op, idx) {
       state.selectedOperationIndex = idx;
@@ -1382,6 +1459,11 @@ const App = {
       selectOperation,
       selectEvent,
       closeDetail,
+      toggleExpandAll,
+      copyToClipboard,
+      inspectVeilSnapshot,
+      inspectFrame,
+      inspectElementTree,
       expandedElements,
       toggleElement,
       handleTreeDetail,
@@ -1475,8 +1557,13 @@ const App = {
           <section class="panel veil-panel">
             <div class="panel-header">
               <h2>VEIL Snapshot</h2>
-              <span class="badge" v-if="state.frameFacetsSequence != null">seq {{ state.frameFacetsSequence }}</span>
-              <span class="badge" v-else-if="state.frameFacets.length">{{ state.frameFacets.length }}</span>
+              <div class="header-badges">
+                <span class="badge" v-if="state.frameFacetsSequence != null">seq {{ state.frameFacetsSequence }}</span>
+                <span class="badge" v-else-if="state.frameFacets.length">{{ state.frameFacets.length }}</span>
+                <button class="button button--small" @click="inspectVeilSnapshot" v-if="state.frameFacets.length" title="Inspect full snapshot">
+                  🔍
+                </button>
+              </div>
             </div>
             <div class="veil-tree" v-if="state.frameFacets.length">
               <facet-tree
@@ -1510,6 +1597,9 @@ const App = {
           <section class="panel frame-detail" v-if="selectedFrame">
             <div class="panel-header frame-header">
               <h2>Frame {{ selectedFrame.sequence }}</h2>
+              <button class="button button--small" @click="inspectFrame" title="Inspect full frame" style="margin-left: auto;">
+                🔍
+              </button>
               <div class="frame-meta">
                 <span class="meta-pill">UUID: {{ shorten(selectedFrame.uuid, 18) }}</span>
                 <span class="meta-pill">{{ formatTimestamp(selectedFrame.timestamp) }}</span>
@@ -1543,7 +1633,7 @@ const App = {
                 <div class="message-card" v-if="selectedFrame.renderedContext.metadata">
                   <div class="role">metadata</div>
                   <div style="padding: 8px;">
-                    <json-viewer :data="selectedFrame.renderedContext.metadata" />
+                    <json-viewer :data="selectedFrame.renderedContext.metadata" :expandAll="state.jsonExpandAll" />
                   </div>
                 </div>
               </div>
@@ -1551,7 +1641,7 @@ const App = {
             <div class="section" v-if="selectedFrame.renderedContext">
               <h3>LLM Request JSON</h3>
               <div class="section-body">
-                <json-viewer :data="selectedFrame.renderedContext" />
+                <json-viewer :data="selectedFrame.renderedContext" :expandAll="state.jsonExpandAll" />
               </div>
             </div>
             <div class="section">
@@ -1628,6 +1718,9 @@ const App = {
           <section class="panel element-tree">
             <div class="panel-header">
               <h2>Element Tree</h2>
+              <button class="button button--small" @click="inspectElementTree" v-if="state.elementTree" title="Inspect full tree" style="margin-left: auto;">
+                🔍
+              </button>
             </div>
             <ul v-if="state.elementTree" class="tree-view">
               <element-tree
@@ -1646,13 +1739,21 @@ const App = {
           <section class="panel inspector-panel">
             <div class="panel-header inspector-header">
               <h2>Inspector</h2>
-              <button class="button" v-if="state.activeDetail" @click="closeDetail">Close</button>
+              <div class="header-actions" v-if="state.activeDetail">
+                <button class="button button--small" @click="toggleExpandAll" :title="state.jsonExpandAll ? 'Collapse All' : 'Expand All'">
+                  {{ state.jsonExpandAll ? '📁' : '📂' }} {{ state.jsonExpandAll ? 'Collapse' : 'Expand' }}
+                </button>
+                <button class="button button--small" @click="copyToClipboard(state.activeDetail.payload ?? state.activeDetail)" title="Copy to clipboard">
+                  📋 Copy
+                </button>
+                <button class="button" @click="closeDetail">Close</button>
+              </div>
             </div>
             <div v-if="state.activeDetail" class="inspector-body">
               <div class="inspector-title">{{ state.activeDetail.title }}</div>
               <div v-if="state.activeDetail.subtitle" class="inspector-subtitle">{{ state.activeDetail.subtitle }}</div>
               <div class="inspector-json">
-                <json-viewer :data="state.activeDetail.payload ?? state.activeDetail" />
+                <json-viewer :data="state.activeDetail.payload ?? state.activeDetail" :expandAll="state.jsonExpandAll" />
               </div>
             </div>
             <div v-else class="inspector-placeholder">

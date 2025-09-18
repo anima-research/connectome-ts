@@ -286,6 +286,11 @@ body {
   margin: 2px 0;
 }
 
+.json-array-item {
+  margin: 1px 0;
+  padding-left: 0;
+}
+
 .json-bracket-line {
   margin-left: 0;
 }
@@ -294,6 +299,15 @@ body {
   color: #60a5fa;
   margin-right: 6px;
   font-weight: 600;
+}
+
+.json-item .json-key + .json-string,
+.json-item .json-key + .json-number,
+.json-item .json-key + .json-boolean,
+.json-item .json-key + .json-null,
+.json-item .json-key + .json-undefined,
+.json-item .json-key + .json-bracket {
+  margin-left: 4px;
 }
 
 .json-index {
@@ -570,6 +584,7 @@ body {
   gap: 8px;
   flex-wrap: wrap;
   align-items: center;
+  width: 100%;
 }
 
 .meta-pill {
@@ -1488,4 +1503,43 @@ body {
 .button--danger:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Small button variant */
+.button--small {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.875rem;
+}
+
+/* Header actions container */
+.header-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* Header badges container */
+.header-badges {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-left: auto;
+}
+
+/* Frame header adjustments */
+.frame-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.frame-header h2 {
+  margin: 0;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
