@@ -1,8 +1,9 @@
 import { Component } from '../spaces/component';
 import { SpaceEvent } from '../spaces/types';
 import { Space } from '../spaces/space';
-import { IncomingVEILFrame, VEILOperation, Facet } from '../veil/types';
+import { IncomingVEILFrame, VEILOperation, Facet, SpeechFacet, ThoughtFacet } from '../veil/types';
 import { ComponentChange } from '../persistence/transition-types';
+import { FacetType } from '../veil/types';
 
 /**
  * Base component for producing VEIL operations
@@ -156,16 +157,56 @@ export abstract class VEILComponent extends Component {
         };
         break;
       case 'tool':
+        // Tool facets are special - they need a definition
+        // For now, throw an error as we don't support tool facets in this generic method
+        throw new Error('Tool facets require a definition object and should be created using a specialized method');
       case 'speech':
-      case 'thought':
-      case 'action':
-        // These facet types don't have special properties
+        if (!facetDef.content) {
+          throw new Error('Speech facets require content');
+        }
         facet = {
           id: facetDef.id,
-          type: facetDef.type,
+          type: 'speech',
           content: facetDef.content,
           displayName: facetDef.displayName,
-          attributes: facetDef.attributes || {},
+          children: facetDef.children
+        } as SpeechFacet;
+        // Only add attributes if they're provided and include agentGenerated
+        if (facetDef.attributes && 'agentGenerated' in facetDef.attributes) {
+          facet.attributes = facetDef.attributes as any;
+        }
+        break;
+      case 'thought':
+        if (!facetDef.content) {
+          throw new Error('Thought facets require content');
+        }
+        facet = {
+          id: facetDef.id,
+          type: 'thought',
+          content: facetDef.content,
+          displayName: facetDef.displayName,
+          children: facetDef.children
+        } as ThoughtFacet;
+        // Only add attributes if they're provided and include agentGenerated
+        if (facetDef.attributes && 'agentGenerated' in facetDef.attributes) {
+          facet.attributes = facetDef.attributes as any;
+        }
+        break;
+      case 'action':
+        if (!facetDef.displayName) {
+          throw new Error('Action facets require displayName');
+        }
+        // Action facets require specific attributes
+        if (!facetDef.attributes || !('agentGenerated' in facetDef.attributes) || 
+            !('toolName' in facetDef.attributes) || !('parameters' in facetDef.attributes)) {
+          throw new Error('Action facets require attributes with agentGenerated, toolName, and parameters');
+        }
+        facet = {
+          id: facetDef.id,
+          type: 'action',
+          displayName: facetDef.displayName,
+          content: facetDef.content,
+          attributes: facetDef.attributes as any,
           children: facetDef.children
         };
         break;
