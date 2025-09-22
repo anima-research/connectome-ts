@@ -112,7 +112,7 @@ export class ConnectomeHost {
     
     // Start debug server if enabled
     if (this.config.debug?.enabled) {
-      const port = this.config.debug.port || 3000;
+      const port = this.config.debug.port || 3015;
       this.debugServer = new DebugServer(space, { port });
       await this.debugServer.start();
       console.log(`🔍 Debug UI available at http://localhost:${port}`);

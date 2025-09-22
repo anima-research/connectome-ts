@@ -63,3 +63,8 @@ export { ComponentRegistry } from './persistence/component-registry';
 // Debug exports
 export { DebugServer } from './debug';
 export type { DebugServerConfig } from './debug';
+
+// Host exports
+export { ConnectomeHost, type HostConfig } from './host';
+export type { ConnectomeApplication } from './host/types';
+export { reference, external, type RestorableComponent } from './host/decorators';
