@@ -20,6 +20,9 @@ export { FrameTrackingHUD } from './hud/frame-tracking-hud';
 export * from './llm/llm-interface';
 export { MockLLMProvider } from './llm/mock-llm-provider';
 export { AnthropicProvider } from './llm/anthropic-provider';
+export { DebugLLMProvider } from './llm/debug-llm-provider';
+export { debugLLMBridge } from './llm/debug-llm-bridge';
+export type { DebugLLMRequest } from './llm/debug-llm-bridge';
 
 // Space/Element exports
 export { 

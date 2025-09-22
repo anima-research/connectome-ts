@@ -5,6 +5,7 @@ import path from 'path';
 import fs from 'fs';
 import { EventEmitter } from 'events';
 import { performance } from 'perf_hooks';
+import { debugLLMBridge, DebugLLMRequest } from '../llm/debug-llm-bridge';
 
 import type { Space } from '../spaces/space';
 import { VEILStateManager } from '../veil/veil-state';
@@ -527,6 +528,7 @@ export class DebugServer {
     this.setupRoutes();
     this.setupWebSocket();
     this.setupStaticAssets();
+    this.setupDebugLLMBridge();
   }
 
   private loadHistoricalFrames(): void {
@@ -599,6 +601,23 @@ export class DebugServer {
     this.subscriptions = [];
     this.wsServer.close();
     this.httpServer.close();
+  }
+
+  private setupDebugLLMBridge(): void {
+    const handleCreated = (request: DebugLLMRequest) => {
+      this.broadcast({ type: 'debugLLM:request-created', payload: request });
+    };
+    const handleUpdated = (request: DebugLLMRequest) => {
+      this.broadcast({ type: 'debugLLM:request-updated', payload: request });
+    };
+
+    debugLLMBridge.on('request-created', handleCreated);
+    debugLLMBridge.on('request-updated', handleUpdated);
+
+    this.subscriptions.push(() => {
+      debugLLMBridge.off('request-created', handleCreated);
+      debugLLMBridge.off('request-updated', handleUpdated);
+    });
   }
 
   private setupMiddleware(): void {
@@ -708,6 +727,43 @@ export class DebugServer {
       res.json(serializeComponent(comp));
     });
 
+    this.app.get('/api/debug-llm/requests', (_req, res) => {
+      res.json({ requests: debugLLMBridge.getRequests() });
+    });
+
+    this.app.post('/api/debug-llm/requests/:id/complete', (req, res) => {
+      const { id } = req.params;
+      const { content, modelId, tokensUsed } = req.body || {};
+
+      if (typeof content !== 'string' || !content.trim()) {
+        res.status(400).json({ error: 'content is required' });
+        return;
+      }
+
+      let parsedTokens: number | undefined;
+      if (tokensUsed !== undefined) {
+        const numeric = typeof tokensUsed === 'number' ? tokensUsed : parseInt(String(tokensUsed), 10);
+        if (!Number.isFinite(numeric) || numeric < 0) {
+          res.status(400).json({ error: 'tokensUsed must be a non-negative number' });
+          return;
+        }
+        parsedTokens = numeric;
+      }
+
+      const request = debugLLMBridge.completeRequest(id, {
+        content: content.trim(),
+        modelId: typeof modelId === 'string' && modelId.trim() ? modelId.trim() : undefined,
+        tokensUsed: parsedTokens
+      });
+
+      if (!request) {
+        res.status(404).json({ error: 'request not found or already resolved' });
+        return;
+      }
+
+      res.json({ status: 'ok', request });
+    });
+
     this.app.get('/api/metrics', (_req, res) => {
       res.json(this.tracker.getMetrics());
     });
@@ -799,7 +855,8 @@ export class DebugServer {
         payload: {
           frames: [], // Let HTTP API handle initial frame loading with proper pagination
           state: serializeVEILState(this.veilState),
-          metrics: this.tracker.getMetrics()
+          metrics: this.tracker.getMetrics(),
+          debugLLMRequests: debugLLMBridge.getRequests()
         }
       }));
 

@@ -96,7 +96,7 @@ export abstract class VEILComponent extends Component {
    */
   protected addFacet(facetDef: {
     id: string;
-    type: 'event' | 'state' | 'ambient';
+    type: FacetType;
     content?: string;
     displayName?: string;
     scope?: string[];
@@ -105,6 +105,19 @@ export abstract class VEILComponent extends Component {
     transitionRenderers?: Record<string, (newValue: any, oldValue: any) => string | null>;
     children?: Facet[];
   }): void {
+    // Validate input
+    if (!facetDef) {
+      throw new Error('addFacet called with undefined facetDef');
+    }
+    
+    if (!facetDef.id) {
+      throw new Error('addFacet called without required id property');
+    }
+    
+    if (!facetDef.type) {
+      throw new Error('addFacet called without required type property');
+    }
+    
     // Create proper facet based on type
     let facet: Facet;
     
@@ -142,6 +155,24 @@ export abstract class VEILComponent extends Component {
           children: facetDef.children
         };
         break;
+      case 'tool':
+      case 'speech':
+      case 'thought':
+      case 'action':
+        // These facet types don't have special properties
+        facet = {
+          id: facetDef.id,
+          type: facetDef.type,
+          content: facetDef.content,
+          displayName: facetDef.displayName,
+          attributes: facetDef.attributes || {},
+          children: facetDef.children
+        };
+        break;
+      default:
+        // This should never happen with TypeScript's type checking,
+        // but we'll add it for runtime safety
+        throw new Error(`Invalid facet type: ${(facetDef as any).type}. Must be one of: event, state, ambient, tool, speech, thought, action`);
     }
     
     this.addOperation({

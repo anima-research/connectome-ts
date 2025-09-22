@@ -25,7 +25,7 @@ export interface ConnectomeApplication {
   /**
    * Get the component registry for restoration
    */
-  getComponentRegistry(): ComponentRegistry;
+  getComponentRegistry(): typeof ComponentRegistry;
   
   /**
    * Called after successful startup (fresh or restored)

@@ -95,8 +95,8 @@ export class AxonElement extends Element {
       await this.loadComponent();
       
       // Set up hot reload if specified
-      if (this.manifest && this.manifest.dev?.hotReload) {
-        this.setupHotReload(this.manifest.dev.hotReload);
+      if (this.manifest && this.manifest.hotReload) {
+        this.setupHotReload(this.manifest.hotReload);
       }
     } catch (error) {
       console.error(`[AxonElement] Failed to connect:`, error);
@@ -233,7 +233,7 @@ export class AxonElement extends Element {
       }
       
       // Create an instance of the component
-      this.loadedComponent = new ComponentClass() as Component;
+      this.loadedComponent = new ComponentClass() as unknown as Component;
       if (this.loadedComponent) {
         this.addComponent(this.loadedComponent);
         console.log(`[AxonElement] Component loaded and mounted`);
@@ -241,7 +241,7 @@ export class AxonElement extends Element {
         // Handle connection parameters
         if (this.parsedUrl?.params) {
           // Set parameters based on manifest config
-          if (this.manifest.config) {
+          if (this.manifest?.config) {
             for (const [key, value] of Object.entries(this.parsedUrl.params)) {
               if (key in this.manifest.config) {
                 // Set the property directly
@@ -265,7 +265,7 @@ export class AxonElement extends Element {
         if (ComponentClass.persistentProperties) {
           for (const prop of ComponentClass.persistentProperties) {
             if (prop.propertyKey in (this.parsedUrl?.params || {})) {
-              (this.loadedComponent as any)[prop.propertyKey] = this.parsedUrl.params[prop.propertyKey];
+              (this.loadedComponent as any)[prop.propertyKey] = this.parsedUrl!.params[prop.propertyKey];
             }
           }
         }
@@ -353,8 +353,8 @@ export class AxonElement extends Element {
       this.hotReloadWs.onclose = () => {
         console.log(`[AxonElement] Hot reload disconnected, reconnecting...`);
         setTimeout(() => {
-          if (this.manifest?.dev?.hotReload) {
-            this.setupHotReload(this.manifest.dev.hotReload);
+          if (this.manifest?.hotReload) {
+            this.setupHotReload(this.manifest.hotReload);
           }
         }, 1000);
       };

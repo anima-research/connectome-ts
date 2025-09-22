@@ -188,7 +188,7 @@ export class ConnectomeHost {
     
     // Restore elements and components
     const registry = app.getComponentRegistry();
-    await restoreElementTree(space, snapshot.elements, registry);
+    await restoreElementTree(space, snapshot.elements);
     
     // Resolve all references and external resources
     await this.resolveAllReferences(space);
@@ -210,7 +210,7 @@ export class ConnectomeHost {
       if (snapshots.length === 0) return null;
       
       const latest = snapshots[snapshots.length - 1];
-      return await this.storageAdapter.loadSnapshot(latest.sequence);
+      return await this.storageAdapter.loadSnapshot(latest);
     } catch (error) {
       console.error('Failed to load snapshot:', error);
       return null;

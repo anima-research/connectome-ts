@@ -41,6 +41,7 @@ export class PersistenceManager {
     const storagePath = config?.storagePath || './persistence';
     this.config = {
       snapshotInterval: 100,
+      maxSnapshots: 10,
       maxDeltasPerSnapshot: 500,
       compressDeltas: true,
       storagePath,

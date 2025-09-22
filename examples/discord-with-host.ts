@@ -12,6 +12,7 @@ import { ConnectomeHost } from '../src/host';
 import { DiscordApplication } from './discord-app';
 import { AnthropicProvider } from '../src/llm/anthropic-provider';
 import { MockLLMProvider } from '../src/llm/mock-llm-provider';
+import { DebugLLMProvider } from '../src/llm/debug-llm-provider';
 import { join } from 'path';
 import * as yaml from 'js-yaml';
 import * as fs from 'fs';
@@ -24,6 +25,7 @@ async function main() {
   const args = process.argv.slice(2);
   const reset = args.includes('--reset');
   const debugPort = parseInt(args.find(a => a.startsWith('--debug-port='))?.split('=')[1] || '3000');
+  const useDebugLLM = args.includes('--debug-llm');
   
   if (reset) {
     console.log('🔄 Reset flag detected - starting fresh\n');
@@ -39,7 +41,10 @@ async function main() {
   let llmProvider;
   const apiKey = process.env.ANTHROPIC_API_KEY;
   
-  if (apiKey) {
+  if (useDebugLLM) {
+    console.log('🧪 Using Debug LLM provider (manual UI mode)');
+    llmProvider = new DebugLLMProvider({ description: 'Discord Bot Debug Mode' });
+  } else if (apiKey) {
     console.log('✅ Using Anthropic provider with Claude');
     llmProvider = new AnthropicProvider({
       apiKey,
@@ -76,7 +81,8 @@ async function main() {
       port: debugPort
     },
     providers: {
-      'llm.primary': llmProvider
+      'llm.primary': llmProvider,
+      'llm.debug': new DebugLLMProvider({ description: 'UI manual mode' })
     },
     secrets: {
       'discord.token': botToken
@@ -104,6 +110,11 @@ Be friendly, helpful, and engaging!`,
     const space = await host.start(app);
     
     console.log('\n📡 Discord bot is running!');
+    if (useDebugLLM) {
+      console.log('🧪 Debug LLM mode active - use the debug UI to complete responses manually');
+      console.log(`🌐 Debug UI available at: http://localhost:${debugPort}`);
+      console.log('📝 Navigate to "Manual LLM Completions" panel to handle requests');
+    }
     console.log('Send messages in Discord to interact with the bot.\n');
     
     // Keep the process alive

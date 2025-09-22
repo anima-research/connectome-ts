@@ -241,7 +241,12 @@ export class FrameTrackingHUD implements CompressibleHUD {
     for (const operation of frame.operations) {
       switch (operation.type) {
         case 'addFacet':
-          if ('facet' in operation && operation.facet.type === 'state') {
+          if (!('facet' in operation) || !operation.facet) {
+            console.error('[FrameTrackingHUD] Invalid addFacet operation - missing facet:', operation);
+            // Skip invalid operations instead of throwing
+            break;
+          }
+          if (operation.facet.type === 'state') {
             // Skip removed facets
             if (removals?.has(operation.facet.id)) {
               break;
@@ -331,11 +336,15 @@ export class FrameTrackingHUD implements CompressibleHUD {
     for (const operation of frame.operations) {
       switch (operation.type) {
         case 'addFacet':
-          if ('facet' in operation) {
-            // Skip removed facets
-            if (removals?.has(operation.facet.id)) {
-              break;
-            }
+          if (!('facet' in operation) || !operation.facet) {
+            console.error('[FrameTrackingHUD] Invalid addFacet operation in second pass - missing facet:', operation);
+            // Skip invalid operations instead of throwing
+            break;
+          }
+          // Skip removed facets
+          if (removals?.has(operation.facet.id)) {
+            break;
+          }
             
             if (operation.facet.type === 'event') {
               // Events are always rendered
@@ -350,7 +359,6 @@ export class FrameTrackingHUD implements CompressibleHUD {
                 renderedStates.delete(operation.facet.id);
               }
             }
-          }
           break;
           
         case 'changeState':

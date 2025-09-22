@@ -659,7 +659,14 @@ const App = {
       showDeleteDialog: false,
       deleteCount: 1,
       deleting: false,
-      deleteError: null
+      deleteError: null,
+      // Manual LLM provider
+      debugLLMRequests: [],
+      selectedLLMRequestId: null,
+      llmResponseDrafts: {},
+      llmModelOverrides: {},
+      llmSubmitting: false,
+      llmSubmitError: null
     });
 
     const socketRef = ref(null);
@@ -708,6 +715,116 @@ const App = {
       };
       if (state.selectedFrameId === frameId) {
         state.selectedEventIndex = events.length - 1;
+      }
+    }
+
+    function applyDebugLLMRequests(requests) {
+      if (!Array.isArray(requests)) return;
+      const sorted = [...requests].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      state.debugLLMRequests = sorted;
+      ensureSelectedLLMRequest();
+    }
+
+    function applyDebugLLMRequest(request) {
+      if (!request || !request.id) return;
+      const existingIndex = state.debugLLMRequests.findIndex(item => item.id === request.id);
+      let next = [];
+      if (existingIndex === -1) {
+        next = [request, ...state.debugLLMRequests];
+      } else {
+        next = [...state.debugLLMRequests];
+        next[existingIndex] = { ...next[existingIndex], ...request };
+      }
+      next.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      state.debugLLMRequests = next;
+      if (request.status && request.status !== 'pending' && state.selectedLLMRequestId === request.id) {
+        state.llmSubmitError = null;
+      }
+      ensureSelectedLLMRequest();
+    }
+
+    function ensureSelectedLLMRequest() {
+      if (!state.debugLLMRequests.length) {
+        state.selectedLLMRequestId = null;
+        return;
+      }
+      if (state.selectedLLMRequestId) {
+        const stillExists = state.debugLLMRequests.some(request => request.id === state.selectedLLMRequestId);
+        if (stillExists) {
+          return;
+        }
+      }
+      const pending = state.debugLLMRequests.find(request => request.status === 'pending');
+      const nextId = pending ? pending.id : state.debugLLMRequests[0]?.id || null;
+      if (nextId) {
+        selectLLMRequest(nextId);
+      } else {
+        state.selectedLLMRequestId = null;
+      }
+    }
+
+    function selectLLMRequest(requestId) {
+      state.selectedLLMRequestId = requestId;
+      state.llmSubmitError = null;
+      if (requestId && state.llmResponseDrafts[requestId] === undefined) {
+        state.llmResponseDrafts[requestId] = '';
+      }
+    }
+
+    async function loadDebugLLMRequests() {
+      try {
+        const response = await fetch('/api/debug-llm/requests');
+        if (!response.ok) throw new Error(`debug llm requests failed: ${response.status}`);
+        const payload = await response.json();
+        applyDebugLLMRequests(payload.requests || []);
+      } catch (err) {
+        console.warn('Failed to load manual LLM requests', err);
+      }
+    }
+
+    async function submitLLMResponse(requestId) {
+      const targetId = requestId || state.selectedLLMRequestId;
+      if (!targetId) return;
+      const draft = state.llmResponseDrafts[targetId];
+      if (!draft || !draft.trim()) {
+        state.llmSubmitError = 'Response content is required.';
+        return;
+      }
+
+      state.llmSubmitting = true;
+      state.llmSubmitError = null;
+
+      try {
+        const payload = {
+          content: draft.trim()
+        };
+        const overrideModel = state.llmModelOverrides[targetId];
+        if (overrideModel && overrideModel.trim()) {
+          payload.modelId = overrideModel.trim();
+        }
+
+        const response = await fetch(`/api/debug-llm/requests/${targetId}/complete`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error || 'Failed to submit response');
+        }
+
+        if (result.request) {
+          applyDebugLLMRequest(result.request);
+        }
+
+        delete state.llmResponseDrafts[targetId];
+        delete state.llmModelOverrides[targetId];
+        ensureSelectedLLMRequest();
+      } catch (err) {
+        state.llmSubmitError = err.message || 'Failed to submit response';
+      } finally {
+        state.llmSubmitting = false;
       }
     }
 
@@ -972,7 +1089,11 @@ const App = {
     async function refresh() {
       state.error = null;
       debugLog('refresh start', { existingFrames: state.frames.length, selectedFrameId: state.selectedFrameId });
-      await Promise.all([loadFrames({ reset: true }), loadSystemState()]);
+      await Promise.all([
+        loadFrames({ reset: true }),
+        loadSystemState(),
+        loadDebugLLMRequests()
+      ]);
       if (!state.frames.length) {
         await setSelectedFrame(null);
         return;
@@ -1013,6 +1134,9 @@ const App = {
               ...state.metrics,
               ...message.payload.metrics
             };
+          }
+          if (Array.isArray(message.payload?.debugLLMRequests)) {
+            applyDebugLLMRequests(message.payload.debugLLMRequests);
           }
           if (!state.selectedFrameId && state.frames.length) {
             setSelectedFrame(state.frames[0].uuid, { forceReload: true });
@@ -1061,6 +1185,11 @@ const App = {
             // Refresh to get updated state
             refresh();
           }
+          break;
+        }
+        case 'debugLLM:request-created':
+        case 'debugLLM:request-updated': {
+          applyDebugLLMRequest(message.payload);
           break;
         }
         default:
@@ -1397,6 +1526,15 @@ const App = {
       window.removeEventListener('mouseup', stopSidebarPanelResize);
     }
 
+    const pendingLLMRequests = computed(() => {
+      return state.debugLLMRequests.filter(request => request.status === 'pending');
+    });
+
+    const selectedLLMRequest = computed(() => {
+      if (!state.selectedLLMRequestId) return null;
+      return state.debugLLMRequests.find(request => request.id === state.selectedLLMRequestId) || null;
+    });
+
     const filteredFrames = computed(() => {
       const query = state.filters.search.trim().toLowerCase();
       const source = state.frames || [];
@@ -1555,6 +1693,8 @@ const App = {
       selectFrame,
       selectOperation,
       selectEvent,
+      selectLLMRequest,
+      submitLLMResponse,
       closeDetail,
       toggleExpandAll,
       toggleVeilView,
@@ -1571,6 +1711,8 @@ const App = {
       layoutRef,
       sidebarRef,
       layoutStyle,
+      pendingLLMRequests,
+      selectedLLMRequest,
       startInspectorResize,
       startSidebarResize,
       startSidebarPanelResize,
@@ -1691,6 +1833,91 @@ const App = {
         </aside>
         <div class="splitter splitter-left" @mousedown="startSidebarResize"></div>
         <section class="content-area">
+          <section class="panel llm-panel">
+            <div class="panel-header">
+              <h2>Manual LLM Completions</h2>
+              <span class="badge" v-if="pendingLLMRequests.length">{{ pendingLLMRequests.length }} pending</span>
+            </div>
+            <div class="llm-body">
+              <div class="llm-request-list">
+                <div
+                  v-for="request in state.debugLLMRequests"
+                  :key="request.id"
+                  :class="['llm-request-item', { active: state.selectedLLMRequestId === request.id, resolved: request.status !== 'pending' }]"
+                  @click="selectLLMRequest(request.id)"
+                >
+                  <div class="llm-request-header">
+                    <span class="llm-request-id">{{ shorten(request.id, 10) }}</span>
+                    <span class="llm-request-provider">{{ request.providerId || 'debug' }}</span>
+                    <span class="llm-request-status" :class="request.status">{{ request.status }}</span>
+                  </div>
+                  <div class="llm-request-summary">
+                    {{ truncate(request.messages?.[request.messages.length - 1]?.content || '—', 80) }}
+                  </div>
+                  <div class="llm-request-timestamp">{{ formatTimestamp(request.createdAt) }}</div>
+                </div>
+                <div v-if="!state.debugLLMRequests.length" class="llm-empty text-muted">
+                  Awaiting LLM requests…
+                </div>
+              </div>
+              <div class="llm-request-detail" v-if="selectedLLMRequest">
+                <div class="llm-detail-header">
+                  <div class="detail-meta">
+                    <span>Request {{ shorten(selectedLLMRequest.id, 12) }}</span>
+                    <span v-if="selectedLLMRequest.metadata?.description">· {{ selectedLLMRequest.metadata.description }}</span>
+                    <span>· {{ formatTimestamp(selectedLLMRequest.createdAt) }}</span>
+                    <span v-if="selectedLLMRequest.completedAt">· Completed {{ formatTimestamp(selectedLLMRequest.completedAt) }}</span>
+                  </div>
+                  <div class="detail-status" :class="selectedLLMRequest.status">{{ selectedLLMRequest.status }}</div>
+                </div>
+                <div class="llm-context">
+                  <div
+                    v-for="(msg, idx) in selectedLLMRequest.messages"
+                    :key="idx"
+                    class="message-card"
+                  >
+                    <div class="role">{{ msg.role }}</div>
+                    <pre>{{ msg.content }}</pre>
+                  </div>
+                </div>
+                <div v-if="selectedLLMRequest.status === 'pending'" class="llm-response-editor">
+                  <textarea
+                    class="llm-textarea"
+                    v-model="state.llmResponseDrafts[selectedLLMRequest.id]"
+                    placeholder="Type the assistant response…"
+                    rows="6"
+                  ></textarea>
+                  <div class="llm-response-controls">
+                    <input
+                      class="input"
+                      type="text"
+                      placeholder="Model override (optional)"
+                      v-model="state.llmModelOverrides[selectedLLMRequest.id]"
+                    />
+                    <button
+                      class="button"
+                      :disabled="state.llmSubmitting"
+                      @click="submitLLMResponse(selectedLLMRequest.id)"
+                    >
+                      {{ state.llmSubmitting ? 'Submitting…' : 'Send Response' }}
+                    </button>
+                  </div>
+                  <div class="error-message" v-if="state.llmSubmitError">{{ state.llmSubmitError }}</div>
+                </div>
+                <div v-else class="llm-response-view">
+                  <h3>Submitted Response</h3>
+                  <pre>{{ selectedLLMRequest.response?.content || '—' }}</pre>
+                  <div class="llm-response-meta" v-if="selectedLLMRequest.response?.modelId || selectedLLMRequest.response?.tokensUsed">
+                    <span v-if="selectedLLMRequest.response?.modelId">Model: {{ selectedLLMRequest.response.modelId }}</span>
+                    <span v-if="selectedLLMRequest.response?.tokensUsed">Tokens: {{ selectedLLMRequest.response.tokensUsed }}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="llm-request-detail llm-request-placeholder" v-else>
+                <div class="text-muted">Select a request to inspect the prompt and provide a response.</div>
+              </div>
+            </div>
+          </section>
           <section class="panel timeline-panel" v-if="timelineFrames.length">
             <div class="panel-header">
               <h2>Frame Timeline</h2>
