@@ -19,3 +19,4 @@ git-filter-repo.py
 discord-host-state/snapshots/
 discord-host-state/snapshots/*
 *.log
+*.tgz
