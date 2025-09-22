@@ -25,6 +25,7 @@ import { FrameTrackingHUD } from '../hud/frame-tracking-hud';
 import { CompressionEngine } from '../compression/types-v2';
 import { LLMProvider } from '../llm/llm-interface';
 import { VEILStateManager } from '../veil/veil-state';
+import { Element } from '../spaces/element';
 import { 
   TraceStorage, 
   TraceCategory, 

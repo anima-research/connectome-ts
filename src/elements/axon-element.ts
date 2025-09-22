@@ -82,7 +82,7 @@ export class AxonElement extends Element {
         throw new Error(`Failed to fetch manifest: ${response.status} ${response.statusText}`);
       }
       
-      this.manifest = await response.json();
+      this.manifest = await response.json() as IAxonManifest;
       console.log(`[AxonElement] Loaded manifest:`, this.manifest);
       
       // Resolve module URL relative to manifest
