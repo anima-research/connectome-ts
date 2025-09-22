@@ -71,6 +71,15 @@ async function main() {
   }
   
   // Create the Host with configuration
+  const providers: Record<string, any> = {
+    'llm.primary': llmProvider
+  };
+  
+  // Only add debug provider if debug LLM is enabled
+  if (useDebugLLM) {
+    providers['llm.debug'] = new DebugLLMProvider({ description: 'UI manual mode' });
+  }
+  
   const host = new ConnectomeHost({
     persistence: {
       enabled: true,
@@ -80,10 +89,7 @@ async function main() {
       enabled: true,
       port: debugPort
     },
-    providers: {
-      'llm.primary': llmProvider,
-      'llm.debug': new DebugLLMProvider({ description: 'UI manual mode' })
-    },
+    providers,
     secrets: {
       'discord.token': botToken
     },
