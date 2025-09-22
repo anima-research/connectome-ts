@@ -40,11 +40,13 @@ const HISTORY_LIMIT = 50;
 type BridgeEvents = {
   'request-created': (request: DebugLLMRequest) => void;
   'request-updated': (request: DebugLLMRequest) => void;
+  'provider-change': (enabled: boolean) => void;
 };
 
 class DebugLLMBridge extends EventEmitter {
   private readonly pending = new Map<string, PendingEntry>();
   private history: DebugLLMRequest[] = [];
+  private readonly activeProviders = new Set<string>();
 
   createRequest(init: DebugLLMRequestInit): { request: DebugLLMRequest; completion: Promise<LLMResponse> } {
     const id = randomUUID();
@@ -127,6 +129,27 @@ class DebugLLMBridge extends EventEmitter {
     return this.history
       .filter(request => request.status === 'pending')
       .map(request => this.clone(request));
+  }
+
+  registerProvider(providerId: string): void {
+    const wasEnabled = this.isEnabled();
+    this.activeProviders.add(providerId);
+    if (!wasEnabled) {
+      this.emit('provider-change', true);
+    }
+  }
+
+  unregisterProvider(providerId: string): void {
+    if (!this.activeProviders.delete(providerId)) {
+      return;
+    }
+    if (!this.isEnabled()) {
+      this.emit('provider-change', false);
+    }
+  }
+
+  isEnabled(): boolean {
+    return this.activeProviders.size > 0;
   }
 
   on<Event extends keyof BridgeEvents>(event: Event, listener: BridgeEvents[Event]): this {

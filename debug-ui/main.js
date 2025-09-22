@@ -638,6 +638,7 @@ const App = {
         search: ''
       },
       connectionStatus: 'connecting',
+      debugLLMEnabled: false,
       lastUpdated: null,
       loadingFrame: false,
       framePagination: {
@@ -719,6 +720,10 @@ const App = {
     }
 
     function applyDebugLLMRequests(requests) {
+      if (!state.debugLLMEnabled) {
+        state.debugLLMRequests = [];
+        return;
+      }
       if (!Array.isArray(requests)) return;
       const sorted = [...requests].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
       state.debugLLMRequests = sorted;
@@ -726,6 +731,7 @@ const App = {
     }
 
     function applyDebugLLMRequest(request) {
+      if (!state.debugLLMEnabled) return;
       if (!request || !request.id) return;
       const existingIndex = state.debugLLMRequests.findIndex(item => item.id === request.id);
       let next = [];
@@ -771,11 +777,37 @@ const App = {
       }
     }
 
+    function setDebugLLMEnabled(enabled) {
+      if (state.debugLLMEnabled === enabled) {
+        return;
+      }
+      state.debugLLMEnabled = enabled;
+      if (!enabled) {
+        state.debugLLMRequests = [];
+        state.selectedLLMRequestId = null;
+        state.llmResponseDrafts = {};
+        state.llmModelOverrides = {};
+        state.llmSubmitError = null;
+        state.llmSubmitting = false;
+      }
+    }
+
     async function loadDebugLLMRequests() {
+      if (!state.debugLLMEnabled) {
+        state.debugLLMRequests = [];
+        return;
+      }
       try {
         const response = await fetch('/api/debug-llm/requests');
         if (!response.ok) throw new Error(`debug llm requests failed: ${response.status}`);
         const payload = await response.json();
+        if (payload && payload.enabled === false) {
+          setDebugLLMEnabled(false);
+          return;
+        }
+        if (payload && payload.enabled === true && !state.debugLLMEnabled) {
+          setDebugLLMEnabled(true);
+        }
         applyDebugLLMRequests(payload.requests || []);
       } catch (err) {
         console.warn('Failed to load manual LLM requests', err);
@@ -912,6 +944,13 @@ const App = {
             ...state.metrics,
             ...payload.metrics
           };
+        }
+        if (typeof payload.manualLLMEnabled === 'boolean') {
+          const wasEnabled = state.debugLLMEnabled;
+          setDebugLLMEnabled(payload.manualLLMEnabled);
+          if (payload.manualLLMEnabled && !wasEnabled) {
+            await loadDebugLLMRequests();
+          }
         }
       } catch (err) {
         state.error = `Failed to load system state: ${err.message}`;
@@ -1089,11 +1128,14 @@ const App = {
     async function refresh() {
       state.error = null;
       debugLog('refresh start', { existingFrames: state.frames.length, selectedFrameId: state.selectedFrameId });
-      await Promise.all([
+      const tasks = [
         loadFrames({ reset: true }),
-        loadSystemState(),
-        loadDebugLLMRequests()
-      ]);
+        loadSystemState()
+      ];
+      if (state.debugLLMEnabled) {
+        tasks.push(loadDebugLLMRequests());
+      }
+      await Promise.all(tasks);
       if (!state.frames.length) {
         await setSelectedFrame(null);
         return;
@@ -1128,6 +1170,11 @@ const App = {
       debugLog('handleSocketMessage', { type: message.type });
       switch (message.type) {
         case 'hello': {
+          const manualEnabled = Boolean(message.payload?.manualLLMEnabled);
+          setDebugLLMEnabled(manualEnabled);
+          if (manualEnabled) {
+            applyDebugLLMRequests(message.payload?.debugLLMRequests || []);
+          }
           (message.payload?.frames || []).forEach(upsertFrame);
           if (message.payload?.metrics) {
             state.metrics = {
@@ -1190,6 +1237,15 @@ const App = {
         case 'debugLLM:request-created':
         case 'debugLLM:request-updated': {
           applyDebugLLMRequest(message.payload);
+          break;
+        }
+        case 'debugLLM:enabled': {
+          const wasEnabled = state.debugLLMEnabled;
+          const enabled = Boolean(message.payload?.enabled);
+          setDebugLLMEnabled(enabled);
+          if (enabled && !wasEnabled) {
+            loadDebugLLMRequests();
+          }
           break;
         }
         default:
@@ -1527,11 +1583,12 @@ const App = {
     }
 
     const pendingLLMRequests = computed(() => {
+      if (!state.debugLLMEnabled) return [];
       return state.debugLLMRequests.filter(request => request.status === 'pending');
     });
 
     const selectedLLMRequest = computed(() => {
-      if (!state.selectedLLMRequestId) return null;
+      if (!state.debugLLMEnabled || !state.selectedLLMRequestId) return null;
       return state.debugLLMRequests.find(request => request.id === state.selectedLLMRequestId) || null;
     });
 
@@ -1833,7 +1890,7 @@ const App = {
         </aside>
         <div class="splitter splitter-left" @mousedown="startSidebarResize"></div>
         <section class="content-area">
-          <section class="panel llm-panel">
+          <section class="panel llm-panel" v-if="state.debugLLMEnabled">
             <div class="panel-header">
               <h2>Manual LLM Completions</h2>
               <span class="badge" v-if="pendingLLMRequests.length">{{ pendingLLMRequests.length }} pending</span>

@@ -53,11 +53,24 @@ export class FileStorageAdapter implements StorageAdapter {
     
     const filename = `snapshot-${snapshot.sequence}-${Date.now()}.json`;
     const filepath = path.join(this.snapshotDir, filename);
+    const tempPath = filepath + '.tmp';
     
-    await writeFile(filepath, JSON.stringify(snapshot, null, 2));
-    
-    // Clean up old snapshots
-    await this.cleanupOldSnapshots();
+    try {
+      // Write to temporary file first
+      await writeFile(tempPath, JSON.stringify(snapshot, null, 2));
+      
+      // Atomically rename temp file to final destination
+      await promisify(fs.rename)(tempPath, filepath);
+      
+      // Clean up old snapshots
+      await this.cleanupOldSnapshots();
+    } catch (error) {
+      // Clean up temp file if something went wrong
+      try {
+        await unlink(tempPath);
+      } catch {}
+      throw error;
+    }
   }
   
   /**
@@ -67,8 +80,27 @@ export class FileStorageAdapter implements StorageAdapter {
     try {
       const filepath = path.join(this.snapshotDir, id);
       const data = await readFile(filepath, 'utf-8');
-      return JSON.parse(data);
+      const snapshot = JSON.parse(data);
+      
+      // Validate snapshot structure
+      if (!snapshot || typeof snapshot !== 'object') {
+        console.error('Invalid snapshot: not an object');
+        return null;
+      }
+      
+      if (!snapshot.elements || typeof snapshot.elements !== 'object') {
+        console.error('Invalid snapshot: missing or invalid elements');
+        return null;
+      }
+      
+      if (!Array.isArray(snapshot.elements.children)) {
+        console.error('Invalid snapshot: elements.children is not an array');
+        return null;
+      }
+      
+      return snapshot;
     } catch (error) {
+      console.error('Failed to load snapshot:', error);
       return null;
     }
   }

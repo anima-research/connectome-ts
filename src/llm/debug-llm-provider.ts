@@ -14,6 +14,7 @@ export class DebugLLMProvider implements LLMProvider {
   constructor(config: DebugLLMProviderConfig = {}) {
     this.providerId = config.providerId || 'debug';
     this.description = config.description;
+    debugLLMBridge.registerProvider(this.providerId);
   }
 
   async generate(messages: LLMMessage[], options?: LLMOptions): Promise<LLMResponse> {

@@ -511,6 +511,7 @@ export class DebugServer {
   private readonly tracker: DebugStateTracker;
   private readonly veilState: VEILStateManager;
   private subscriptions: Array<() => void> = [];
+  private debugLLMEnabled: boolean;
 
   constructor(private readonly space: Space, config?: Partial<DebugServerConfig>) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -518,6 +519,7 @@ export class DebugServer {
     this.wsServer = new WebSocketServer({ server: this.httpServer });
     this.tracker = new DebugStateTracker(this.config.maxFrames);
     this.veilState = space.getVEILState();
+    this.debugLLMEnabled = debugLLMBridge.isEnabled();
 
     this.space.addDebugObserver(this.tracker);
 
@@ -604,17 +606,25 @@ export class DebugServer {
   }
 
   private setupDebugLLMBridge(): void {
+    const handleProviderChange = (enabled: boolean) => {
+      this.debugLLMEnabled = enabled;
+      this.broadcast({ type: 'debugLLM:enabled', payload: { enabled } });
+    };
     const handleCreated = (request: DebugLLMRequest) => {
+      if (!this.debugLLMEnabled) return;
       this.broadcast({ type: 'debugLLM:request-created', payload: request });
     };
     const handleUpdated = (request: DebugLLMRequest) => {
+      if (!this.debugLLMEnabled) return;
       this.broadcast({ type: 'debugLLM:request-updated', payload: request });
     };
 
+    debugLLMBridge.on('provider-change', handleProviderChange);
     debugLLMBridge.on('request-created', handleCreated);
     debugLLMBridge.on('request-updated', handleUpdated);
 
     this.subscriptions.push(() => {
+      debugLLMBridge.off('provider-change', handleProviderChange);
       debugLLMBridge.off('request-created', handleCreated);
       debugLLMBridge.off('request-updated', handleUpdated);
     });
@@ -666,7 +676,8 @@ export class DebugServer {
       res.json({
         space: serializeElement(this.space),
         veil: serializeVEILState(this.veilState),
-        metrics: this.tracker.getMetrics()
+        metrics: this.tracker.getMetrics(),
+        manualLLMEnabled: this.debugLLMEnabled
       });
     });
 
@@ -728,10 +739,18 @@ export class DebugServer {
     });
 
     this.app.get('/api/debug-llm/requests', (_req, res) => {
-      res.json({ requests: debugLLMBridge.getRequests() });
+      if (!debugLLMBridge.isEnabled()) {
+        res.json({ enabled: false, requests: [] });
+        return;
+      }
+      res.json({ enabled: true, requests: debugLLMBridge.getRequests() });
     });
 
     this.app.post('/api/debug-llm/requests/:id/complete', (req, res) => {
+      if (!debugLLMBridge.isEnabled()) {
+        res.status(503).json({ error: 'Debug LLM provider not enabled' });
+        return;
+      }
       const { id } = req.params;
       const { content, modelId, tokensUsed } = req.body || {};
 
@@ -856,7 +875,8 @@ export class DebugServer {
           frames: [], // Let HTTP API handle initial frame loading with proper pagination
           state: serializeVEILState(this.veilState),
           metrics: this.tracker.getMetrics(),
-          debugLLMRequests: debugLLMBridge.getRequests()
+          manualLLMEnabled: this.debugLLMEnabled,
+          debugLLMRequests: this.debugLLMEnabled ? debugLLMBridge.getRequests() : []
         }
       }));
 
