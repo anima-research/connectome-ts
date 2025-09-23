@@ -1,0 +1,7 @@
+discord:
+  botToken: "YOUR_DISCORD_BOT_TOKEN_HERE"             # MUST BE SET - Get from Discord Developer Portal
+  guild: "YOUR_DISCORD_GUILD_ID_HERE"                 # Discord server/guild ID
+  modulePort: 8080                                    # Port where Discord AXON server runs module serving (default: 8082)
+  autoJoinChannels:                                   # Channels to automatically join
+    - "YOUR_CHANNEL_ID_1"
+    - "YOUR_CHANNEL_ID_2"

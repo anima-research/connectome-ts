@@ -2,11 +2,15 @@
 
 /**
  * Discord Bot Example using Connectome Host
- * 
+ *
  * This demonstrates the simplified architecture where the Host handles
  * all infrastructure concerns (persistence, restoration, debug UI, etc.)
  * and the application just defines the business logic.
  */
+
+// Load environment variables from .env file
+import { config } from 'dotenv';
+config();
 
 import { ConnectomeHost } from '../src/host';
 import { DiscordApplication } from './discord-app';
@@ -31,14 +35,33 @@ async function main() {
     console.log('🔄 Reset flag detected - starting fresh\n');
   }
   
-  // Load Discord config
+  // Load Discord config - environment variables override YAML config
+  let config: any = {};
   const configPath = join(__dirname, '../discord_config.yaml');
-  const config = yaml.load(fs.readFileSync(configPath, 'utf8')) as any;
-  const botToken = config.discord.botToken;
-  const applicationId = config.discord.applicationId;
-  const guildId = config.discord.guild || '1289595876716707911'; // Your test guild
-  const autoJoinChannels = config.discord.autoJoinChannels || ['1289595876716707914']; // Default to #general
-  
+  if (fs.existsSync(configPath)) {
+    config = yaml.load(fs.readFileSync(configPath, 'utf8')) as any;
+  }
+
+  const botToken = process.env.DISCORD_BOT_TOKEN || config.discord?.botToken;
+  const guildId = process.env.DISCORD_GUILD_ID || config.discord?.guild || '1289595876716707911'; // Default guild
+  const autoJoinChannels = process.env.DISCORD_AUTO_JOIN_CHANNELS
+    ? process.env.DISCORD_AUTO_JOIN_CHANNELS.split(',')
+    : config.discord?.autoJoinChannels || ['1289595876716707914']; // Default channels
+  const modulePort = parseInt(process.env.DISCORD_MODULE_PORT || '') || config.discord?.modulePort || 8080;
+
+  // Validate required Discord configuration
+  if (!botToken) {
+    console.error('❌ Discord bot token is required!');
+    console.error('   Set DISCORD_BOT_TOKEN environment variable or configure discord.botToken in discord_config.yaml');
+    process.exit(1);
+  }
+
+  console.log('🔧 Discord Configuration:');
+  console.log(`   Guild ID: ${guildId}`);
+  console.log(`   Auto-join channels: ${autoJoinChannels.join(', ')}`);
+  console.log(`   Module port: ${modulePort}`);
+  console.log(`   Bot token: ${botToken.substring(0, 10)}...\n`);
+
   // Create LLM provider
   let llmProvider;
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -109,7 +132,7 @@ Be friendly, helpful, and engaging!`,
     discord: {
       host: 'localhost:8081',
       guild: guildId,
-      modulePort: 8080,  // The Discord AXON server runs module serving on 8080
+      modulePort: modulePort,  // The Discord AXON server runs module serving
       autoJoinChannels: autoJoinChannels  // Channels to auto-join from config
     }
   });
