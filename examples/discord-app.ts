@@ -2,17 +2,17 @@
  * Discord Application for Connectome
  */
 
-import { ConnectomeApplication } from '../../lightweight-connectome/src/host/types';
-import { Space } from '../../lightweight-connectome/src/spaces/space';
-import { VEILStateManager } from '../../lightweight-connectome/src/veil/veil-state';
-import { ComponentRegistry } from '../../lightweight-connectome/src/persistence/component-registry';
-import { BasicAgent } from '../../lightweight-connectome/src/agent/basic-agent';
-import { AgentComponent } from '../../lightweight-connectome/src/agent/agent-component';
-import { persistable, persistent } from '../../lightweight-connectome/src/persistence/decorators';
-import { AxonElement } from '../../lightweight-connectome/src/elements/axon-element';
-import { Element } from '../../lightweight-connectome/src/spaces/element';
-import { Component } from '../../lightweight-connectome/src/spaces/component';
-import { SpaceEvent } from '../../lightweight-connectome/src/spaces/types';
+import { ConnectomeApplication } from '../../connectome-ts/src/host/types';
+import { Space } from '../../connectome-ts/src/spaces/space';
+import { VEILStateManager } from '../../connectome-ts/src/veil/veil-state';
+import { ComponentRegistry } from '../../connectome-ts/src/persistence/component-registry';
+import { BasicAgent } from '../../connectome-ts/src/agent/basic-agent';
+import { AgentComponent } from '../../connectome-ts/src/agent/agent-component';
+import { persistable, persistent } from '../../connectome-ts/src/persistence/decorators';
+import { AxonElement } from '../../connectome-ts/src/elements/axon-element';
+import { Element } from '../../connectome-ts/src/spaces/element';
+import { Component } from '../../connectome-ts/src/spaces/component';
+import { SpaceEvent } from '../../connectome-ts/src/spaces/types';
 
 export interface DiscordAppConfig {
   agentName: string;
