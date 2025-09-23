@@ -137,7 +137,8 @@ export async function restoreElementTree(
  */
 async function restoreElement(data: SerializedElement): Promise<Element | null> {
   try {
-    // Create the element
+    // Create element - for now only basic Element type is supported
+    // Custom element types would need to be refactored as Components
     const element = new Element(data.name, data.id);
     
     // Restore active state
@@ -150,13 +151,18 @@ async function restoreElement(data: SerializedElement): Promise<Element | null> 
       element.subscribe(topic);
     }
     
-    // Restore components
+    // Restore components and wait for them to fully initialize
+    const componentPromises: Promise<any>[] = [];
     for (const componentData of data.components) {
       const component = await restoreComponent(componentData);
       if (component) {
-        element.addComponent(component);
+        // Use addComponentAsync to properly mount and wait for initialization
+        componentPromises.push(element.addComponentAsync(component));
       }
     }
+    
+    // Wait for all components to finish mounting
+    await Promise.all(componentPromises);
     
     // Restore children recursively
     for (const childData of data.children) {
@@ -180,8 +186,8 @@ async function restoreComponent(data: SerializedComponent): Promise<Component | 
   // Create component instance
   const component = ComponentRegistry.create(data.className);
   if (!component) {
-    console.warn(`No constructor registered for component class: ${data.className}`);
-    return null;
+    // Make this a fatal error - components must be registered for restoration
+    throw new Error(`Component class not found in registry: ${data.className}. Please ensure it's registered in the application's getComponentRegistry() method.`);
   }
   
   // Restore persistent properties

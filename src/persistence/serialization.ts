@@ -23,6 +23,15 @@ export function serializeComponent(component: Component): SerializedComponent | 
     return null;  // Component not marked as persistable
   }
   
+  // Special handling for AxonLoaderComponent - save its loaded component state
+  if (component.constructor.name === 'AxonLoaderComponent') {
+    const axonLoader = component as any;
+    if (axonLoader.loadedComponent) {
+      console.log(`[Serialization] AxonLoader has loaded component, serializing it`);
+      axonLoader.loadedComponentState = serializeComponent(axonLoader.loadedComponent);
+    }
+  }
+  
   const properties: Record<string, SerializableValue> = {};
   
   // Serialize each persistent property
@@ -155,9 +164,21 @@ export function serializeElement(element: Element): SerializedElement {
   
   // Serialize components
   for (const component of element.components) {
-    const serialized = serializeComponent(component);
-    if (serialized) {
-      components.push(serialized);
+    // Skip components that are managed by another component (e.g., dynamically loaded)
+    // Check if this component is the loadedComponent of an AxonLoader
+    let isDynamicallyManaged = false;
+    for (const other of element.components) {
+      if (other.constructor.name === 'AxonLoaderComponent' && (other as any).loadedComponent === component) {
+        isDynamicallyManaged = true;
+        break;
+      }
+    }
+    
+    if (!isDynamicallyManaged) {
+      const serialized = serializeComponent(component);
+      if (serialized) {
+        components.push(serialized);
+      }
     }
   }
   

@@ -49,7 +49,9 @@ export { AgentComponent } from './agent/agent-component';
 
 // Element exports
 export { ConsoleChatComponent } from './elements/console-chat';
-export { AxonElement } from './elements/axon-element';
+
+// Component exports
+export { AxonLoaderComponent } from './components/axon-loader';
 
 // Tracing exports
 export * from './tracing';

@@ -13,6 +13,7 @@ import { ConnectomeApplication } from './types';
 import { getReferenceMetadata, getExternalMetadata, RestorableComponent } from './decorators';
 import { Component } from '../spaces/component';
 import { Element } from '../spaces/element';
+import { SpaceEvent } from '../spaces/types';
 import { restoreVEILState, restoreElementTree } from '../persistence/restoration';
 
 export interface HostConfig {
@@ -62,6 +63,7 @@ export class ConnectomeHost {
     if (config.secrets) {
       Object.entries(config.secrets).forEach(([id, secret]) => {
         this.secrets.set(id, secret);
+        console.log(`[Host] Registered secret: ${id} = ${secret ? '***' + secret.slice(-4) : 'undefined'}`);
       });
     }
   }
@@ -130,6 +132,9 @@ export class ConnectomeHost {
       console.log(`🔍 Debug UI available at http://localhost:${port}`);
     }
     
+    // Set up dynamic component handler
+    this.setupDynamicComponentHandler(space);
+    
     // Let the application perform final initialization
     await app.onStart?.(space, veilState);
     
@@ -195,15 +200,25 @@ export class ConnectomeHost {
     this.referenceRegistry.set('space', space);
     this.referenceRegistry.set('veilState', veilState);
     
+    // Set up dynamic component handler BEFORE restoring elements
+    // This ensures it's ready to handle events from AxonLoader
+    this.setupDynamicComponentHandler(space);
+    
     // Restore VEIL state first
     await restoreVEILState(veilState, snapshot.veilState);
     
-    // Restore elements and components
+    // Restore elements and components (this now waits for async component mounting)
     const registry = app.getComponentRegistry();
     await restoreElementTree(space, snapshot.elementTree);
     
-    // Resolve all references and external resources
+    console.log('✅ All components restored and mounted');
+    
+    // Now resolve all references and external resources after components are ready
     await this.resolveAllReferences(space);
+    
+    // Check for any dynamically loaded components that need resources resolved
+    // This handles components loaded by AxonLoader during restoration
+    await this.resolveDynamicComponents(space);
     
     // Let app do any post-restore setup
     await app.onRestore?.(space, veilState);
@@ -332,5 +347,131 @@ export class ConnectomeHost {
         console.log(`    Injected into ${ext.propertyKey}`);
       }
     }
+  }
+  
+  /**
+   * Resolve resources for any dynamically loaded components
+   */
+  private async resolveDynamicComponents(space: Space): Promise<void> {
+    console.log('[Host] Checking for dynamically loaded components needing resources...');
+    // Find all components that might need external resources
+    const checkElement = async (element: Element) => {
+      console.log(`[Host] Checking element: ${element.name} (${element.id}) with ${element.components.length} components`);
+      for (const component of element.components) {
+        console.log(`[Host]   - Component: ${component.constructor.name}`);
+        
+        // Special handling for AxonLoader - check if it has a loaded component
+        if (component.constructor.name === 'AxonLoaderComponent') {
+          const axonLoader = component as any;
+          if (axonLoader.loadedComponent) {
+            console.log(`[Host]     AxonLoader has loaded component: ${axonLoader.loadedComponent.constructor.name}`);
+            // Also check the loaded component
+            const loadedExternals = getExternalMetadata(axonLoader.loadedComponent);
+            if (loadedExternals.length > 0) {
+              console.log(`[Host]     Loaded component has ${loadedExternals.length} external resources`);
+              let needsResolution = false;
+              for (const ext of loadedExternals) {
+                if (!(axonLoader.loadedComponent as any)[ext.propertyKey]) {
+                  needsResolution = true;
+                  console.log(`[Host]       Missing: ${ext.propertyKey} (${ext.resourcePath})`);
+                }
+              }
+              
+              if (needsResolution) {
+                console.log(`🔌 Resolving resources for dynamically loaded: ${axonLoader.loadedComponent.constructor.name}`);
+                await this.resolveComponentReferences(axonLoader.loadedComponent);
+                await this.resolveExternalResources(axonLoader.loadedComponent);
+                
+                // Call onReferencesResolved if it exists
+                if ('onReferencesResolved' in axonLoader.loadedComponent && 
+                    typeof axonLoader.loadedComponent.onReferencesResolved === 'function') {
+                  axonLoader.loadedComponent.onReferencesResolved();
+                }
+              }
+            }
+          } else {
+            console.log(`[Host]     AxonLoader has not loaded any component yet`);
+          }
+        }
+        // Check if this component has external resources that haven't been resolved
+        const externals = getExternalMetadata(component);
+        if (externals.length > 0) {
+          console.log(`[Host]     Has ${externals.length} external resources`);
+          // Check if any required externals are missing
+          let needsResolution = false;
+          for (const ext of externals) {
+            if (!(component as any)[ext.propertyKey]) {
+              needsResolution = true;
+              break;
+            }
+          }
+          
+          if (needsResolution) {
+            console.log(`🔌 Found component needing resource resolution: ${component.constructor.name}`);
+            await this.resolveComponentReferences(component);
+            await this.resolveExternalResources(component);
+            
+            // Call onReferencesResolved if it exists
+            if ('onReferencesResolved' in component && typeof component.onReferencesResolved === 'function') {
+              component.onReferencesResolved();
+            }
+          }
+        }
+      }
+      
+      // Recursively check children
+      for (const child of element.children) {
+        await checkElement(child);
+      }
+    };
+    
+    // Start from space root
+    await checkElement(space);
+  }
+  
+  /**
+   * Set up handler for dynamically loaded components
+   */
+  private setupDynamicComponentHandler(space: Space): void {
+    const host = this;
+    const hostElement = new Element('_host_handler');
+    hostElement.addComponent(new class extends Component {
+      onMount(): void {
+        console.log('[Host Handler] Mounted and ready to handle dynamic component events');
+      }
+      
+      async handleEvent(event: SpaceEvent): Promise<void> {
+        console.log(`[Host Handler] Received event: ${event.topic}`);
+        if (event.topic === 'axon:component-loaded') {
+          const payload = event.payload as { component: Component; componentClass: string };
+          const component = payload.component;
+          if (component) {
+            console.log(`🔌 Resolving references for dynamically loaded component: ${payload.componentClass}`);
+            await this.resolveComponentReferences(component);
+            await this.resolveExternalResources(component);
+            
+            // Call onReferencesResolved if it exists
+            if ('onReferencesResolved' in component && typeof component.onReferencesResolved === 'function') {
+              component.onReferencesResolved();
+            }
+          }
+        }
+      }
+      
+      private resolveComponentReferences = async (component: Component) => {
+        await host.resolveComponentReferences(component);
+      }
+      
+      private resolveExternalResources = async (component: Component) => {
+        await host.resolveExternalResources(component);
+      }
+    });
+    space.addChild(hostElement);
+    
+    // Subscribe to axon component loaded events at both space and element level
+    space.subscribe('axon:component-loaded');
+    hostElement.subscribe('axon:component-loaded');
+    
+    console.log('[Host] Dynamic component handler setup complete');
   }
 }

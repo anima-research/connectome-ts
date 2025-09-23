@@ -86,10 +86,17 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
   
   /**
    * Internal method to attach to an element
+   * Returns a promise if the component has async initialization
    */
-  _attach(element: Element): void {
+  async _attach(element: Element): Promise<void> {
     this.element = element;
-    this.onMount();
+    const mountResult = this.onMount();
+    
+    // Wait for async mount if it returns a promise
+    if (mountResult !== undefined && mountResult !== null && typeof (mountResult as any).then === 'function') {
+      await mountResult;
+    }
+    
     if (this._enabled) {
       this.onEnable();
     }

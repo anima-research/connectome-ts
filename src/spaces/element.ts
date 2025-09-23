@@ -191,10 +191,23 @@ export class Element {
   
   /**
    * Add a component to this element
+   * Note: Component mounting may be async. Use addComponentAsync if you need to wait for initialization.
    */
   addComponent<T extends Component>(component: T): T {
     this._components.push(component);
-    component._attach(this);
+    // Start async attachment but don't wait for it
+    component._attach(this).catch(error => {
+      console.error(`Failed to attach component ${component.constructor.name}:`, error);
+    });
+    return component;
+  }
+  
+  /**
+   * Add a component and wait for it to fully initialize
+   */
+  async addComponentAsync<T extends Component>(component: T): Promise<T> {
+    this._components.push(component);
+    await component._attach(this);
     return component;
   }
   
