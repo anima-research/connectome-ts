@@ -2,11 +2,15 @@
 
 /**
  * Generic Connectome Host Example
- * 
+ *
  * This demonstrates how to use the Connectome Host architecture
  * for any application, not just Discord. This example creates
  * a simple console-based chat application.
  */
+
+// Load environment variables from .env file
+import { config } from 'dotenv';
+config();
 
 import { ConnectomeHost } from '../src/host';
 import { ConnectomeApplication } from '../src/host/types';

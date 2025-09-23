@@ -2,6 +2,10 @@
  * Test interactive elements - A box with a surprise
  */
 
+// Load environment variables from .env file
+import { config } from 'dotenv';
+config();
+
 import { Space } from '../src/spaces/space';
 import { BasicAgent } from '../src/agent/basic-agent';
 import { AgentConfig, ToolDefinition } from '../src/agent/types';
@@ -299,13 +303,11 @@ async function main() {
     veilState
   );
   
-  // Set agent on space
-  space.setAgent(agent);
-  agent.setSpace(space, 'agent');
-  
-  // Add agent component
+  // Create agent element and add agent component
+  const agentElement = new Element('agent');
   const agentComponent = new AgentComponent(agent);
-  space.addComponent(agentComponent);
+  agentElement.addComponent(agentComponent);
+  space.addChild(agentElement);
   
   // Initialize interactive elements
   initializeBoxState(space, veilState);
