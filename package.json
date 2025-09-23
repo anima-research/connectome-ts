@@ -1,5 +1,5 @@
 {
-  "name": "lightweight-connectome",
+  "name": "connectome-ts",
   "version": "0.1.0",
   "description": "Experimental TypeScript implementation of Connectome without DAG",
   "main": "dist/index.js",
