@@ -78,16 +78,28 @@ export class ConnectomeHost {
       this.storageAdapter = new FileStorageAdapter(storageDir);
     }
     
-    // Check for existing snapshot
-    const snapshot = await this.loadSnapshot();
-    
     let space: Space;
     let veilState: VEILStateManager;
     
-    if (snapshot && !this.config.reset) {
-      console.log('📦 Restoring from snapshot...');
-      ({ space, veilState } = await this.restore(snapshot, app));
-    } else {
+    try {
+      // Check for existing snapshot
+      const snapshot = await this.loadSnapshot();
+      
+      if (snapshot && !this.config.reset) {
+        console.log('📦 Restoring from snapshot...');
+        ({ space, veilState } = await this.restore(snapshot, app));
+      } else {
+        console.log('🌱 Creating fresh application...');
+        ({ space, veilState } = await this.createFresh(app));
+      }
+    } catch (error) {
+      // If persistence is enabled and loading failed, this is a fatal error
+      if (this.config.persistence?.enabled && !this.config.reset) {
+        console.error('❌ Failed to load persisted state:', error);
+        console.error('💥 Persistence loading failed - exiting to prevent data loss');
+        throw error;
+      }
+      // If persistence is not enabled, we can continue with fresh state
       console.log('🌱 Creating fresh application...');
       ({ space, veilState } = await this.createFresh(app));
     }
@@ -188,7 +200,7 @@ export class ConnectomeHost {
     
     // Restore elements and components
     const registry = app.getComponentRegistry();
-    await restoreElementTree(space, snapshot.elements);
+    await restoreElementTree(space, snapshot.elementTree);
     
     // Resolve all references and external resources
     await this.resolveAllReferences(space);
@@ -210,10 +222,19 @@ export class ConnectomeHost {
       if (snapshots.length === 0) return null;
       
       const latest = snapshots[snapshots.length - 1];
-      return await this.storageAdapter.loadSnapshot(latest);
+      const snapshot = await this.storageAdapter.loadSnapshot(latest);
+      
+      // If we have snapshots but they're invalid, we should fail
+      if (!snapshot) {
+        throw new Error(`Failed to load snapshot ${latest}: Invalid snapshot structure`);
+      }
+      
+      return snapshot;
     } catch (error) {
       console.error('Failed to load snapshot:', error);
-      return null;
+      
+      // Re-throw the error to prevent falling back to fresh application
+      throw error;
     }
   }
   

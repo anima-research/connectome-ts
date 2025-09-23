@@ -88,13 +88,13 @@ export class FileStorageAdapter implements StorageAdapter {
         return null;
       }
       
-      if (!snapshot.elements || typeof snapshot.elements !== 'object') {
-        console.error('Invalid snapshot: missing or invalid elements');
+      if (!snapshot.elementTree || typeof snapshot.elementTree !== 'object') {
+        console.error('Invalid snapshot: missing or invalid elementTree');
         return null;
       }
       
-      if (!Array.isArray(snapshot.elements.children)) {
-        console.error('Invalid snapshot: elements.children is not an array');
+      if (!Array.isArray(snapshot.elementTree.children)) {
+        console.error('Invalid snapshot: elementTree.children is not an array');
         return null;
       }
       
