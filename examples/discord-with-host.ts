@@ -8,9 +8,9 @@
  * and the application just defines the business logic.
  */
 
-// Load environment variables from .env file
+// Load environment variables from .env file (don't override existing env vars)
 import { config } from 'dotenv';
-config();
+config({ override: false });
 
 import { ConnectomeHost } from '../src/host';
 import { DiscordApplication } from './discord-app';
@@ -35,24 +35,25 @@ async function main() {
     console.log('🔄 Reset flag detected - starting fresh\n');
   }
   
-  // Load Discord config - environment variables override YAML config
-  let config: any = {};
+  // Load Discord config - priority: env vars > .env file > YAML config > defaults
+  let yamlConfig: any = {};
   const configPath = join(__dirname, '../discord_config.yaml');
   if (fs.existsSync(configPath)) {
-    config = yaml.load(fs.readFileSync(configPath, 'utf8')) as any;
+    yamlConfig = yaml.load(fs.readFileSync(configPath, 'utf8')) as any;
   }
 
-  const botToken = process.env.DISCORD_BOT_TOKEN || config.discord?.botToken;
-  const guildId = process.env.DISCORD_GUILD_ID || config.discord?.guild || '1289595876716707911'; // Default guild
+  const botToken = process.env.DISCORD_BOT_TOKEN || yamlConfig.discord?.botToken;
+  const guildId = process.env.DISCORD_GUILD_ID || yamlConfig.discord?.guild || '1289595876716707911'; // Default guild
   const autoJoinChannels = process.env.DISCORD_AUTO_JOIN_CHANNELS
     ? process.env.DISCORD_AUTO_JOIN_CHANNELS.split(',')
-    : config.discord?.autoJoinChannels || ['1289595876716707914']; // Default channels
-  const modulePort = parseInt(process.env.DISCORD_MODULE_PORT || '') || config.discord?.modulePort || 8080;
+    : yamlConfig.discord?.autoJoinChannels || ['1289595876716707914']; // Default channels
+  const modulePort = parseInt(process.env.DISCORD_MODULE_PORT || '') || yamlConfig.discord?.modulePort || 8080;
 
   // Validate required Discord configuration
   if (!botToken) {
     console.error('❌ Discord bot token is required!');
-    console.error('   Set DISCORD_BOT_TOKEN environment variable or configure discord.botToken in discord_config.yaml');
+    console.error('   Priority: environment variable > .env file > discord_config.yaml');
+    console.error('   Set DISCORD_BOT_TOKEN in environment, .env file, or discord.botToken in discord_config.yaml');
     process.exit(1);
   }
 
