@@ -32,10 +32,12 @@ async function main() {
   }
   
   // Load Discord config
-  const configPath = join(__dirname, '../../connectome-adapters/config/discord_config.yaml');
+  const configPath = join(__dirname, '../discord_config.yaml');
   const config = yaml.load(fs.readFileSync(configPath, 'utf8')) as any;
-  const { bot_token: botToken, application_id: applicationId } = config.adapter;
-  const guildId = config.adapter.guild || '1289595876716707911'; // Your test guild
+  const botToken = config.discord.botToken;
+  const applicationId = config.discord.applicationId;
+  const guildId = config.discord.guild || '1289595876716707911'; // Your test guild
+  const autoJoinChannels = config.discord.autoJoinChannels || ['1289595876716707914']; // Default to #general
   
   // Create LLM provider
   let llmProvider;
@@ -107,7 +109,8 @@ Be friendly, helpful, and engaging!`,
     discord: {
       host: 'localhost:8081',
       guild: guildId,
-      autoJoinChannels: ['1289595876716707914']  // #general channel ID
+      modulePort: 8080,  // The Discord AXON server runs module serving on 8080
+      autoJoinChannels: autoJoinChannels  // Channels to auto-join from config
     }
   });
   

@@ -30,7 +30,11 @@ async function main() {
   
   // Enable auto-registration
   agent.enableAutoActionRegistration();
-  space.setAgent(agent);
+  // Connect agent to space
+  const agentElement = new Element('agent');
+  const agentComponent = new AgentComponent(agent);
+  agentElement.addComponent(agentComponent);
+  space.addChild(agentElement);
   
   // Add dispenser
   console.log('1. Adding dispenser...');

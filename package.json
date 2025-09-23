@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "example": "ts-node examples/basic-usage.ts",
+    "example": "ts-node examples/minimal-example.ts",
     "example:saliency": "ts-node examples/test-saliency-rendering.ts",
     "test:starship": "ts-node examples/test-starship-scenario.ts",
     "test:render": "ts-node examples/test-final-render.ts",
@@ -19,6 +19,9 @@
     "test:dispenser": "ts-node examples/test-box-dispenser.ts",
     "axon:server": "ts-node examples/axon-test/server.ts",
     "test:axon": "ts-node examples/test-axon.ts",
+    "example:discord": "ts-node examples/discord-with-host.ts",
+    "example:discord:reset": "ts-node examples/discord-with-host.ts --reset",
+    "example:discord:debug": "ts-node examples/discord-with-host.ts --debug-llm",
     "test": "jest",
     "lint": "eslint src --ext .ts"
   },

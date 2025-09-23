@@ -21,6 +21,7 @@ export interface DiscordAppConfig {
   discord: {
     host: string;
     guild: string;
+    modulePort?: number;
     autoJoinChannels?: string[];
   };
 }
@@ -161,7 +162,7 @@ export class DiscordApplication implements ConnectomeApplication {
     const registry = ComponentRegistry;
     
     // Register all components that can be restored
-    registry.register('AxonElement', AxonElement);
+    registry.register('AxonElement', AxonElement as any);
     registry.register('AgentComponent', AgentComponent);
     registry.register('DiscordAutoJoinComponent', DiscordAutoJoinComponent);
     

@@ -32,7 +32,11 @@ async function main() {
     veilState
   );
   
-  space.setAgent(agent);
+  // Connect agent to space
+  const agentElement = new Element('agent');
+  const agentComponent = new AgentComponent(agent);
+  agentElement.addComponent(agentComponent);
+  space.addChild(agentElement);
   
   // Add console chat
   space.addComponent(new ConsoleChatComponent());

@@ -1,9 +1,13 @@
 /**
  * Test Console Chat Integration
- * 
+ *
  * Full end-to-end test of the system with interactive console chat.
  * Demonstrates async input handling and complete VEIL → Agent → Response flow.
  */
+
+// Load environment variables from .env file
+import { config } from 'dotenv';
+config();
 
 import { 
   Space, 
@@ -109,13 +113,14 @@ async function runConsoleChatTest() {
     defaultTemperature: 1.0
   }, llmProvider, veilState);
   
-  // Create space and attach agent
+  // Create space and add agent component
   const space = new Space(veilState);
-  space.setAgent(agent);
-  
-  // Add agent component for automatic processing
+
+  // Create agent element and add agent component
+  const agentElement = new Element('agent');
   const agentComponent = new AgentComponent(agent);
-  space.addComponent(agentComponent);
+  agentElement.addComponent(agentComponent);
+  space.addChild(agentElement);
   
   // Subscribe space to all events for monitoring
   space.subscribe('*');
