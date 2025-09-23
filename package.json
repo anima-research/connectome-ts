@@ -19,6 +19,9 @@
     "test:dispenser": "ts-node examples/test-box-dispenser.ts",
     "axon:server": "ts-node examples/axon-test/server.ts",
     "test:axon": "ts-node examples/test-axon.ts",
+    "example:discord": "ts-node examples/discord-with-host.ts",
+    "example:discord:reset": "ts-node examples/discord-with-host.ts --reset",
+    "example:discord:debug": "ts-node examples/discord-with-host.ts --debug-llm",
     "test": "jest",
     "lint": "eslint src --ext .ts"
   },
