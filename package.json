@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "example": "ts-node examples/basic-usage.ts",
+    "example": "ts-node examples/minimal-example.ts",
     "example:saliency": "ts-node examples/test-saliency-rendering.ts",
     "test:starship": "ts-node examples/test-starship-scenario.ts",
     "test:render": "ts-node examples/test-final-render.ts",

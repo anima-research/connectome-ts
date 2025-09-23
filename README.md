@@ -74,7 +74,7 @@ lightweight-connectome/
 │   ├── graph-saliency-example.ts      # Graph-based saliency with links
 │   ├── transient-lifecycle.ts         # Transient decay examples
 │   ├── stream-awareness-example.ts    # Stream operations example
-│   ├── basic-usage.ts                 # How to use the implementation
+│   ├── minimal-example.ts             # Simple example with focus/speak
 │   ├── test-saliency-rendering.ts     # Test saliency-aware rendering
 │   └── reconciliation-summary.md      # Mapping between VEIL and output
 ├── docs/
