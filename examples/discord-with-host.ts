@@ -8,9 +8,9 @@
  * and the application just defines the business logic.
  */
 
-// Load environment variables from .env file (don't override existing env vars)
+// Load environment variables from .env file (won't override existing env vars by default)
 import { config } from 'dotenv';
-config({ override: false });
+config();
 
 import { ConnectomeHost } from '../src/host';
 import { DiscordApplication } from './discord-app';
