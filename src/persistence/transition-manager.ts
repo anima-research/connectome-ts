@@ -40,6 +40,10 @@ export class TransitionManager {
   private transitionsSinceSnapshot: number = 0;
   private currentBranch: string = 'main';
   
+  // Write lock to prevent concurrent snapshot writes
+  private isWritingSnapshot: boolean = false;
+  private snapshotWriteQueue: Array<{resolve: (value: TransitionSnapshot) => void, reject: (error: any) => void}> = [];
+  
   constructor(
     space: Space,
     veilState: VEILStateManager,
@@ -124,36 +128,71 @@ export class TransitionManager {
    * Create a snapshot
    */
   async createSnapshot(sequence?: number): Promise<TransitionSnapshot> {
-    const currentSequence = sequence || this.veilState.getState().currentSequence;
-    
-    // Clean up deleted facets before creating snapshot
-    const cleaned = this.veilState.cleanupDeletedFacets();
-    if (cleaned > 0) {
-      console.log(`[TransitionManager] Cleaned up ${cleaned} deleted facets before snapshot`);
+    // If already writing a snapshot, queue this request
+    if (this.isWritingSnapshot) {
+      console.log('[TransitionManager] Snapshot write already in progress, queueing request...');
+      return new Promise((resolve, reject) => {
+        this.snapshotWriteQueue.push({ resolve, reject });
+      });
     }
     
-    const snapshot: TransitionSnapshot = {
-      sequence: currentSequence,
-      timestamp: new Date().toISOString(),
-      branchName: this.currentBranch,
-      elementTree: serializeElement(this.space),
-      componentStates: this.serializeAllComponents(),
-      veilState: serializeVEILState(this.veilState.getState())
-    };
+    // Acquire write lock
+    this.isWritingSnapshot = true;
     
-    // Save snapshot with timestamp to avoid overwriting
-    const timestamp = Date.now();
-    const filename = `snapshot-${currentSequence}-${this.currentBranch}-${timestamp}.json`;
-    await this.storage.writeFile(
-      `snapshots/${filename}`,
-      JSON.stringify(snapshot, null, 2)
-    );
-    
-    this.lastSnapshotSequence = currentSequence;
-    this.transitionsSinceSnapshot = 0;
-    
-    console.log(`Created snapshot at sequence ${currentSequence}`);
-    return snapshot;
+    try {
+      const currentSequence = sequence || this.veilState.getState().currentSequence;
+      
+      // Clean up deleted facets before creating snapshot
+      const cleaned = this.veilState.cleanupDeletedFacets();
+      if (cleaned > 0) {
+        console.log(`[TransitionManager] Cleaned up ${cleaned} deleted facets before snapshot`);
+      }
+      
+      const snapshot: TransitionSnapshot = {
+        sequence: currentSequence,
+        timestamp: new Date().toISOString(),
+        branchName: this.currentBranch,
+        elementTree: serializeElement(this.space),
+        componentStates: this.serializeAllComponents(),
+        veilState: serializeVEILState(this.veilState.getState())
+      };
+      
+      // Save snapshot with timestamp to avoid overwriting
+      const timestamp = Date.now();
+      const filename = `snapshot-${currentSequence}-${this.currentBranch}-${timestamp}.json`;
+      await this.storage.writeFile(
+        `snapshots/${filename}`,
+        JSON.stringify(snapshot, null, 2)
+      );
+      
+      this.lastSnapshotSequence = currentSequence;
+      this.transitionsSinceSnapshot = 0;
+      
+      console.log(`Created snapshot at sequence ${currentSequence}`);
+      
+      // Process any queued snapshot requests (return the same snapshot)
+      while (this.snapshotWriteQueue.length > 0) {
+        const queued = this.snapshotWriteQueue.shift();
+        if (queued) {
+          console.log('[TransitionManager] Processing queued snapshot request');
+          queued.resolve(snapshot);
+        }
+      }
+      
+      return snapshot;
+    } catch (error) {
+      // Reject all queued requests
+      while (this.snapshotWriteQueue.length > 0) {
+        const queued = this.snapshotWriteQueue.shift();
+        if (queued) {
+          queued.reject(error);
+        }
+      }
+      throw error;
+    } finally {
+      // Release write lock
+      this.isWritingSnapshot = false;
+    }
   }
   
   /**

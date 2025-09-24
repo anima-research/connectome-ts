@@ -89,8 +89,25 @@ export class AxonLoaderComponent extends Component {
   private async restoreLoadedComponentState(): Promise<void> {
     if (!this.loadedComponentState || !this.loadedComponent) return;
     
-    const { getPersistenceMetadata } = require('../persistence/decorators');
     const { deserializeValue } = require('../persistence/serialization');
+    
+    // Check for AXON-style persistence first
+    const componentClass = this.loadedComponent.constructor as any;
+    if (componentClass.persistentProperties) {
+      console.log(`[AxonLoader] Using AXON-style restoration for ${componentClass.name}`);
+      // Restore each property from the static array
+      for (const propDef of componentClass.persistentProperties) {
+        const value = this.loadedComponentState.properties?.[propDef.propertyKey];
+        if (value !== undefined) {
+          (this.loadedComponent as any)[propDef.propertyKey] = deserializeValue(value);
+        }
+      }
+      console.log(`[AxonLoader] Restored ${Object.keys(this.loadedComponentState.properties || {}).length} properties`);
+      return;
+    }
+    
+    // Fall back to decorator-based restoration
+    const { getPersistenceMetadata } = require('../persistence/decorators');
     const metadata = getPersistenceMetadata(this.loadedComponent);
     
     if (!metadata) {

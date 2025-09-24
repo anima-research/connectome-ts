@@ -115,13 +115,8 @@ export class ConnectomeHost {
         storagePath: this.config.persistence.storageDir || './connectome-state'
       });
       
-      // Add shutdown handler
-      process.on('SIGINT', async () => {
-        console.log('\n💾 Saving state before shutdown...');
-        await this.transitionManager?.createSnapshot();
-        console.log('✅ State saved. Goodbye!');
-        process.exit(0);
-      });
+      // Note: Shutdown handler should be added by the application, not here
+      // to avoid duplicate handlers
     }
     
     // Start debug server if enabled
@@ -147,7 +142,8 @@ export class ConnectomeHost {
    * Stop the host and clean up resources
    */
   async stop(): Promise<void> {
-    // Save final snapshot
+    // Save final snapshot (the write lock in TransitionManager will prevent duplicates)
+    console.log('\n💾 Saving state before shutdown...');
     if (this.transitionManager) {
       await this.transitionManager.createSnapshot();
     }
@@ -235,6 +231,9 @@ export class ConnectomeHost {
     try {
       const snapshots = await this.storageAdapter.listSnapshots();
       if (snapshots.length === 0) return null;
+      
+      console.log(`[Host] Found ${snapshots.length} snapshots, selecting newest:`);
+      console.log(`[Host] Loading snapshot: ${snapshots[snapshots.length - 1]}`);
       
       const latest = snapshots[snapshots.length - 1];
       const snapshot = await this.storageAdapter.loadSnapshot(latest);

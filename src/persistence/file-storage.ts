@@ -22,6 +22,9 @@ export class FileStorageAdapter implements StorageAdapter {
   private snapshotDir: string;
   private deltaDir: string;
   
+  // Write locks to prevent concurrent writes to the same file
+  private writeLocks: Map<string, Promise<void>> = new Map();
+  
   constructor(basePath: string) {
     this.basePath = basePath;
     this.snapshotDir = path.join(basePath, 'snapshots');
@@ -113,7 +116,23 @@ export class FileStorageAdapter implements StorageAdapter {
       const files = await readdir(this.snapshotDir);
       return files
         .filter(f => f.startsWith('snapshot-') && f.endsWith('.json'))
-        .sort();
+        .sort((a, b) => {
+          // Extract sequence numbers and timestamps for proper numeric sorting
+          // Format: snapshot-{sequence}-{branch}-{timestamp}.json
+          const aMatch = a.match(/snapshot-(\d+)-\w+-(\d+)\.json/);
+          const bMatch = b.match(/snapshot-(\d+)-\w+-(\d+)\.json/);
+          
+          if (!aMatch || !bMatch) return a.localeCompare(b);
+          
+          const aSeq = parseInt(aMatch[1]);
+          const bSeq = parseInt(bMatch[1]);
+          const aTime = parseInt(aMatch[2]);
+          const bTime = parseInt(bMatch[2]);
+          
+          // Sort by sequence first, then by timestamp
+          if (aSeq !== bSeq) return aSeq - bSeq;
+          return aTime - bTime;
+        });
     } catch (error) {
       return [];
     }
@@ -227,12 +246,38 @@ export class FileStorageAdapter implements StorageAdapter {
    */
   async writeFile(relativePath: string, content: string): Promise<void> {
     const fullPath = path.join(this.basePath, relativePath);
+    
+    // Wait for any existing write to this file to complete
+    const existingWrite = this.writeLocks.get(fullPath);
+    if (existingWrite) {
+      console.log(`[FileStorageAdapter] Waiting for existing write to complete: ${relativePath}`);
+      await existingWrite;
+    }
+    
+    // Create a new write promise
+    const writePromise = this.performWrite(fullPath, content);
+    this.writeLocks.set(fullPath, writePromise);
+    
+    try {
+      await writePromise;
+    } finally {
+      // Clean up the lock
+      this.writeLocks.delete(fullPath);
+    }
+  }
+  
+  private async performWrite(fullPath: string, content: string): Promise<void> {
     const dir = path.dirname(fullPath);
     
     // Ensure directory exists
     await mkdir(dir, { recursive: true });
     
-    await writeFile(fullPath, content);
+    // Write atomically by writing to a temp file first
+    const tempPath = `${fullPath}.tmp`;
+    await writeFile(tempPath, content);
+    
+    // Rename to final location (atomic on most filesystems)
+    await promisify(fs.rename)(tempPath, fullPath);
   }
   
   /**

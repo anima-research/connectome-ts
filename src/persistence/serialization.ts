@@ -18,6 +18,32 @@ import { getPersistenceMetadata } from './decorators';
  * Serialize a component instance
  */
 export function serializeComponent(component: Component): SerializedComponent | null {
+  // First check for AXON-style persistence (static persistentProperties)
+  const componentClass = component.constructor as any;
+  if (componentClass.persistentProperties) {
+    console.log(`[Serialization] Using AXON-style persistence for ${componentClass.name}`);
+    const properties: Record<string, SerializableValue> = {};
+    
+    // Serialize each property from the static array
+    for (const propDef of componentClass.persistentProperties) {
+      const value = (component as any)[propDef.propertyKey];
+      if (value !== undefined) {
+        try {
+          properties[propDef.propertyKey] = serializeValue(value);
+        } catch (error) {
+          console.warn(`Failed to serialize property ${propDef.propertyKey} on ${componentClass.name}:`, error);
+        }
+      }
+    }
+    
+    return {
+      className: componentClass.name,
+      version: 1,  // AXON components don't have version in their metadata
+      properties
+    };
+  }
+  
+  // Fall back to decorator-based persistence
   const metadata = getPersistenceMetadata(component);
   if (!metadata) {
     return null;  // Component not marked as persistable
