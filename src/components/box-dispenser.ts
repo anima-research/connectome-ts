@@ -200,7 +200,7 @@ export class DispenseButtonComponent extends VEILComponent {
 /**
  * Create a box dispenser element with all necessary components
  */
-export function createBoxDispenser(llmProvider: LLMProvider): Element {
+export function createBoxDispenser(llmProvider?: LLMProvider): Element {
   const dispenser = new Element('dispenser', 'dispenser');
   
   // Add all components

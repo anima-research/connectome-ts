@@ -9,7 +9,8 @@ import {
   Element,
   BasicAgent,
   MockLLMProvider,
-  VEILStateManager
+  VEILStateManager,
+  AgentComponent
 } from '../src';
 import { createBoxDispenser } from '../src/components/box-dispenser';
 
@@ -19,12 +20,13 @@ async function main() {
   const veilState = new VEILStateManager();
   const space = new Space(veilState);
   
+  const mockLLM = new MockLLMProvider();
   const agent = new BasicAgent(
     { 
       name: 'test-agent',
       systemPrompt: 'Test agent'
     },
-    new MockLLMProvider(),
+    mockLLM,
     veilState
   );
   
@@ -38,7 +40,7 @@ async function main() {
   
   // Add dispenser
   console.log('1. Adding dispenser...');
-  const dispenser = createBoxDispenser(new MockLLMProvider());
+  const dispenser = createBoxDispenser(mockLLM);
   space.addChild(dispenser);
   
   // Process first frame to initialize components

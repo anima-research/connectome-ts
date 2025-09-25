@@ -9,10 +9,11 @@ import { ComponentRegistry } from '../../connectome-ts/src/persistence/component
 import { BasicAgent } from '../../connectome-ts/src/agent/basic-agent';
 import { AgentComponent } from '../../connectome-ts/src/agent/agent-component';
 import { persistable, persistent } from '../../connectome-ts/src/persistence/decorators';
-import { AxonElement } from '../../connectome-ts/src/elements/axon-element';
+import { AxonLoaderComponent } from '../../connectome-ts/src/components/axon-loader';
 import { Element } from '../../connectome-ts/src/spaces/element';
 import { Component } from '../../connectome-ts/src/spaces/component';
 import { SpaceEvent } from '../../connectome-ts/src/spaces/types';
+import { NotesElement } from '../../connectome-ts/src/elements/notes';
 
 export interface DiscordAppConfig {
   agentName: string;
@@ -102,8 +103,13 @@ export class DiscordApplication implements ConnectomeApplication {
   async initialize(space: Space, veilState: VEILStateManager): Promise<void> {
     console.log('🎮 Initializing Discord application...');
     
-    // Create Discord element using AxonElement to load from server
-    const discordElem = new AxonElement({ id: 'discord' });
+    // Create space notes element (available to all agents)
+    const notesElem = new NotesElement('notes');
+    space.addChild(notesElem);
+    console.log('📝 Space notes available');
+    
+    // Create Discord element with AxonLoaderComponent
+    const discordElem = new Element('discord', 'discord');
     
     // Build the AXON URL with connection parameters
     // Default to module server port (8082)
@@ -119,8 +125,10 @@ export class DiscordApplication implements ConnectomeApplication {
       `keywords=${encodeURIComponent('hi,hello,help,?,connectome')}&` +
       `cooldown=10`;
     
-    // Connect to the AXON component server
-    await discordElem.connect(axonUrl);
+    // Add AxonLoaderComponent to connect to the AXON server
+    const axonLoader = new AxonLoaderComponent();
+    discordElem.addComponent(axonLoader);
+    await axonLoader.connect(axonUrl);
     
     // Add Discord element to space
     space.addChild(discordElem);
@@ -162,7 +170,7 @@ export class DiscordApplication implements ConnectomeApplication {
     const registry = ComponentRegistry;
     
     // Register all components that can be restored
-    registry.register('AxonElement', AxonElement as any);
+    registry.register('AxonLoaderComponent', AxonLoaderComponent);
     registry.register('AgentComponent', AgentComponent);
     registry.register('DiscordAutoJoinComponent', DiscordAutoJoinComponent);
     

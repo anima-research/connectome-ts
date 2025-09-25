@@ -568,8 +568,18 @@ export class DebugServer {
 
   start(): void {
     if (!this.config.enabled) return;
+    
+    this.httpServer.on('error', (error: any) => {
+      if (error.code === 'EADDRINUSE') {
+        console.warn(`⚠️  Debug UI port ${this.config.port} is already in use. Debug UI will not be available.`);
+        console.warn(`    Try running with --debug-port=<different-port> to use a different port.`);
+      } else {
+        console.error('Debug server error:', error);
+      }
+    });
+    
     this.httpServer.listen(this.config.port, this.config.host, () => {
-      console.log(`🔍 Debug UI listening at http://${this.config.host}:${this.config.port}`);
+      console.log(`🔍 Debug UI available at http://${this.config.host}:${this.config.port}`);
     });
 
     const unsubscribe = this.veilState.subscribe(() => {
