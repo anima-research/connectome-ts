@@ -129,7 +129,7 @@ async function main() {
 You can join channels, send messages, and have conversations with users.
 You remember all previous conversations and can reference them.
 Be friendly, helpful, and engaging!`,
-    llmProviderId: 'provider:llm.primary',
+    llmProviderId: 'llm.primary',
     discord: {
       host: 'localhost:8081',
       guild: guildId,

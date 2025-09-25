@@ -45,6 +45,25 @@ export class ConsoleChatComponent extends Component {
     console.log('\n[Console Chat] Mounting...');
     this.tracer = getGlobalTracer();
     
+    // Register console stream with the space
+    const space = this.element.space as Space;
+    if (space) {
+      space.registerStream({
+        streamId: this.consoleStream.streamId,
+        streamType: 'console',
+        adapter: {
+          send: async (content: string, streamId: string) => {
+            // Console only has one stream, so we can ignore streamId
+            console.log(`\n[Agent]: ${content}`);
+            this.rl?.prompt();
+          },
+          isActive: () => this.rl !== undefined,
+          getDisplayName: () => 'Console Chat'
+        },
+        displayName: 'Console Chat'
+      });
+    }
+    
     // Set up readline interface
     this.rl = readline.createInterface({
       input: process.stdin,
@@ -69,6 +88,13 @@ export class ConsoleChatComponent extends Component {
 
   async onUnmount(): Promise<void> {
     console.log('\n[Console Chat] Unmounting...');
+    
+    // Unregister stream
+    const space = this.element.space as Space;
+    if (space) {
+      space.unregisterStream(this.consoleStream.streamId);
+    }
+    
     this.isActive = false;
     this.rl?.close();
   }

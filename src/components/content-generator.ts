@@ -1,22 +1,31 @@
 import { Component } from '../spaces/component';
 import { LLMProvider, LLMMessage } from '../llm/llm-interface';
+import { reference } from '../host/decorators';
+import { persistent } from '../persistence/decorators';
 
 /**
  * Component that generates unique box contents using LLM
  */
 export class ContentGeneratorComponent extends Component {
-  private previousContents: string[] = [];
-  private llmProvider: LLMProvider;
+  @persistent() private previousContents: string[] = [];
+  @reference('provider:llm.content') private llmProvider?: LLMProvider;
   
-  constructor(llmProvider: LLMProvider) {
+  constructor(llmProvider?: LLMProvider) {
     super();
-    this.llmProvider = llmProvider;
+    if (llmProvider) {
+      this.llmProvider = llmProvider;
+    }
   }
   
   /**
    * Generate unique contents for a new box
    */
   async generateContents(size: string, color: string): Promise<string> {
+    // If no LLM provider available, use mock contents
+    if (!this.llmProvider) {
+      return this.generateMockContents(size, color);
+    }
+    
     // For mock provider, generate deterministic content
     if (this.llmProvider.getProviderName() === 'mock') {
       return this.generateMockContents(size, color);
