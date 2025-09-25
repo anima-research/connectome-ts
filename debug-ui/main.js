@@ -1220,6 +1220,38 @@ const App = {
       debugLog('refresh complete', { selectedFrameId: state.selectedFrameId });
     }
 
+    async function activateAgent() {
+      try {
+          const response = await fetch('/api/events', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              topic: 'agent:activate',
+              sourceId: 'debug-ui',
+              payload: {
+                source: 'debug-ui',
+                reason: 'Manual activation from Debug UI',
+                priority: 'high',
+                streamId: 'console:debug-ui'
+              }
+            })
+          });
+        
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to activate agent');
+        }
+        
+        console.log('Agent activation triggered');
+        
+        // Wait a moment for the frame to be created
+        setTimeout(() => refresh(), 500);
+      } catch (error) {
+        console.error('Failed to activate agent:', error);
+        state.error = error.message;
+      }
+    }
+
     async function selectFrame(uuid) {
       if (!uuid) return;
       const forceReload = state.selectedFrameId === uuid;
@@ -1877,6 +1909,7 @@ const App = {
       toggleElement,
       handleTreeDetail,
       refresh,
+      activateAgent,
       loadOlderFrames,
       layoutRef,
       sidebarRef,
@@ -1912,6 +1945,7 @@ const App = {
         </div>
         <div class="controls">
           <button class="button" @click="refresh">Refresh</button>
+          <button class="button button--primary" @click="activateAgent">Activate Agent</button>
           <button class="button button--danger" @click="showDeleteDialog" :disabled="!state.frames.length">Delete Frames</button>
         </div>
       </header>

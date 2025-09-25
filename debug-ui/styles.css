@@ -1858,6 +1858,18 @@ body {
   cursor: not-allowed;
 }
 
+.button--primary {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.button--primary:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.3);
+  border-color: rgba(59, 130, 246, 0.4);
+  color: #93bbfc;
+}
+
 /* Small button variant */
 .button--small {
   padding: 0.2rem 0.5rem;

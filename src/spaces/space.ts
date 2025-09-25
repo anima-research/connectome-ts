@@ -89,6 +89,7 @@ export class Space extends Element {
     
     // Subscribe to agent frame events
     this.subscribe('agent:frame-ready');
+    this.subscribe('agent:activate');
     
     // Subscribe to element lifecycle events for transition tracking
     this.subscribe('element:mount');
@@ -657,9 +658,13 @@ export class Space extends Element {
       } as any);
       
       // Set active stream for response routing
+      if (!payload.streamId) {
+        console.warn('[Space] agent:activate event missing streamId - using console:default as fallback. Agent responses may not route correctly.');
+      }
+      const streamId = payload.streamId || 'console:default';
       this.currentFrame.activeStream = {
-        streamId: payload.streamId,
-        streamType: payload.streamType || payload.streamId.split(':')[0],
+        streamId: streamId,
+        streamType: payload.streamType || streamId.split(':')[0],
         metadata: payload.metadata || {}
       };
     }
