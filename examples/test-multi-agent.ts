@@ -66,9 +66,9 @@ class MultiAgentObserver extends VEILComponent {
 class MultiAgentApp implements ConnectomeApplication {
   name = 'MultiAgentTest';
   
-  async createSpace(): Promise<{ space: Space; veilState: VEILStateManager }> {
+  async createSpace(hostRegistry?: Map<string, any>): Promise<{ space: Space; veilState: VEILStateManager }> {
     const veilState = new VEILStateManager();
-    const space = new Space(veilState);
+    const space = new Space(veilState, hostRegistry);
     
     // Create Alice agent
     const aliceElement = new Element('agent-alice', 'Alice');
@@ -123,11 +123,16 @@ class MultiAgentApp implements ConnectomeApplication {
 async function main() {
   console.log('Starting multi-agent test...');
   
+  // Create LLM provider
+  const { AnthropicProvider } = await import('../src/llm/anthropic-provider');
+  const llmProvider = new AnthropicProvider({
+    apiKey: process.env.ANTHROPIC_API_KEY || 'test-key'
+  });
+  
   const host = new ConnectomeHost({
-    debug: { enabled: true, port: 3000 },
-    llm: {
-      provider: 'anthropic',
-      apiKey: process.env.ANTHROPIC_API_KEY || ''
+    debug: { enabled: true, port: process.env.DEBUG_PORT ? parseInt(process.env.DEBUG_PORT) : 3000 },
+    providers: {
+      'llm.primary': llmProvider
     }
   });
   

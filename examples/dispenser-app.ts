@@ -41,8 +41,8 @@ export class DispenserApplication implements ConnectomeApplication {
     const veilState = new VEILStateManager();
     const space = new Space(veilState, hostRegistry);
     
-    // Register llmProvider reference that will be injected by Host
-    space.registerReference('llmProvider', this.config.llmProviderId);
+    // The Host will inject the actual llmProvider based on the config
+    // No need to register the ID here
     
     return { space, veilState };
   }

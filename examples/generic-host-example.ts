@@ -36,12 +36,12 @@ class ConsoleApplication implements ConnectomeApplication {
     }
   ) {}
   
-  async createSpace(): Promise<{ space: Space; veilState: VEILStateManager }> {
+  async createSpace(hostRegistry?: Map<string, any>): Promise<{ space: Space; veilState: VEILStateManager }> {
     // Create VEIL state manager
     const veilState = new VEILStateManager();
     
     // Create root space
-    const space = new Space(veilState);
+    const space = new Space(veilState, hostRegistry);
     
     // Register the LLM provider reference
     space.registerReference('llmProvider', this.config.llmProviderId);
@@ -122,7 +122,7 @@ async function main() {
   const app = new ConsoleApplication({
     agentName: 'Assistant',
     systemPrompt: 'You are a helpful AI assistant.',
-    llmProviderId: 'provider:llm.primary'
+    llmProviderId: 'llm.primary'
   });
   
   await host.start(app);
