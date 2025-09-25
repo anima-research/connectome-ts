@@ -80,30 +80,42 @@ export class FileStorageAdapter implements StorageAdapter {
    * Load a snapshot
    */
   async loadSnapshot(id: string): Promise<PersistenceSnapshot | null> {
+    const filepath = path.join(this.snapshotDir, id);
+    console.log(`[FileStorageAdapter] Attempting to load snapshot: ${id} from ${filepath}`);
+    
     try {
-      const filepath = path.join(this.snapshotDir, id);
       const data = await readFile(filepath, 'utf-8');
+      console.log(`[FileStorageAdapter] Read ${data.length} bytes from snapshot file`);
+      
       const snapshot = JSON.parse(data);
       
       // Validate snapshot structure
       if (!snapshot || typeof snapshot !== 'object') {
-        console.error('Invalid snapshot: not an object');
+        console.error(`[FileStorageAdapter] Invalid snapshot ${id}: not an object`);
         return null;
       }
       
+      console.log(`[FileStorageAdapter] Snapshot ${id} basic structure:`, {
+        hasElementTree: !!snapshot.elementTree,
+        hasVeilState: !!snapshot.veilState,
+        sequence: snapshot.sequence,
+        frameCount: snapshot.veilState?.frames?.length || 0
+      });
+      
       if (!snapshot.elementTree || typeof snapshot.elementTree !== 'object') {
-        console.error('Invalid snapshot: missing or invalid elementTree');
+        console.error(`[FileStorageAdapter] Invalid snapshot ${id}: missing or invalid elementTree`);
         return null;
       }
       
       if (!Array.isArray(snapshot.elementTree.children)) {
-        console.error('Invalid snapshot: elementTree.children is not an array');
+        console.error(`[FileStorageAdapter] Invalid snapshot ${id}: elementTree.children is not an array`);
         return null;
       }
       
+      console.log(`[FileStorageAdapter] Successfully loaded snapshot ${id} with sequence ${snapshot.sequence}`);
       return snapshot;
     } catch (error) {
-      console.error('Failed to load snapshot:', error);
+      console.error(`[FileStorageAdapter] Failed to load snapshot ${id}:`, error);
       return null;
     }
   }
@@ -114,26 +126,83 @@ export class FileStorageAdapter implements StorageAdapter {
   async listSnapshots(): Promise<string[]> {
     try {
       const files = await readdir(this.snapshotDir);
-      return files
-        .filter(f => f.startsWith('snapshot-') && f.endsWith('.json'))
-        .sort((a, b) => {
-          // Extract sequence numbers and timestamps for proper numeric sorting
-          // Format: snapshot-{sequence}-{branch}-{timestamp}.json
-          const aMatch = a.match(/snapshot-(\d+)-\w+-(\d+)\.json/);
-          const bMatch = b.match(/snapshot-(\d+)-\w+-(\d+)\.json/);
-          
-          if (!aMatch || !bMatch) return a.localeCompare(b);
-          
-          const aSeq = parseInt(aMatch[1]);
-          const bSeq = parseInt(bMatch[1]);
-          const aTime = parseInt(aMatch[2]);
-          const bTime = parseInt(bMatch[2]);
-          
-          // Sort by sequence first, then by timestamp
-          if (aSeq !== bSeq) return aSeq - bSeq;
-          return aTime - bTime;
-        });
+      const snapshotFiles = files.filter(f => f.startsWith('snapshot-') && f.endsWith('.json'));
+      
+      console.log(`[FileStorageAdapter] Found ${snapshotFiles.length} snapshot files in ${this.snapshotDir}:`);
+      snapshotFiles.forEach(f => console.log(`  - ${f}`));
+      
+      const sorted = snapshotFiles.sort((a, b) => {
+        // Extract sequence numbers and timestamps for proper numeric sorting
+        // Handle both formats:
+        // - snapshot-{sequence}-{timestamp}.json (from FileStorageAdapter)
+        // - snapshot-{sequence}-{branch}-{timestamp}.json (from TransitionManager)
+        
+        // Try format with branch first
+        let aMatch = a.match(/snapshot-(\d+)-(\w+)-(\d+)\.json/);
+        let bMatch = b.match(/snapshot-(\d+)-(\w+)-(\d+)\.json/);
+        
+        let aSeq, aTime, bSeq, bTime;
+        
+        if (aMatch) {
+          aSeq = parseInt(aMatch[1]);
+          aTime = parseInt(aMatch[3]); // Note: timestamp is at index 3 when branch is present
+        } else {
+          // Try format without branch
+          aMatch = a.match(/snapshot-(\d+)-(\d+)\.json/);
+          if (aMatch) {
+            aSeq = parseInt(aMatch[1]);
+            aTime = parseInt(aMatch[2]);
+          }
+        }
+        
+        if (bMatch) {
+          bSeq = parseInt(bMatch[1]);
+          bTime = parseInt(bMatch[3]); // Note: timestamp is at index 3 when branch is present
+        } else {
+          // Try format without branch
+          bMatch = b.match(/snapshot-(\d+)-(\d+)\.json/);
+          if (bMatch) {
+            bSeq = parseInt(bMatch[1]);
+            bTime = parseInt(bMatch[2]);
+          }
+        }
+        
+        if (!aMatch || aTime === undefined) {
+          console.warn(`[FileStorageAdapter] Snapshot filename doesn't match expected pattern: ${a}`);
+          if (!bMatch || bTime === undefined) return a.localeCompare(b);
+          return 1; // Put non-matching files at the end
+        }
+        if (!bMatch || bTime === undefined) {
+          console.warn(`[FileStorageAdapter] Snapshot filename doesn't match expected pattern: ${b}`);
+          return -1; // Put non-matching files at the end
+        }
+        
+        // Sort by timestamp in ascending order (oldest to newest)
+        // The host takes the last element, so the newest will be at the end
+        // This allows for deletion of garbage frames, updates, etc.
+        const result = aTime - bTime;
+        console.log(`[FileStorageAdapter] Compare: ${a} (seq=${aSeq}, time=${aTime}) vs ${b} (seq=${bSeq}, time=${bTime}) => ${result}`);
+        return result;
+      });
+      
+      console.log(`[FileStorageAdapter] Sorted snapshots (oldest to newest):`);
+      sorted.forEach((f, i) => {
+        const match = f.match(/snapshot-(\d+)-(?:(\w+)-)?(\d+)\.json/);
+        if (match) {
+          const seq = match[1];
+          const branch = match[2] || 'none';
+          const timestamp = match[3];
+          console.log(`  ${i}: ${f} (seq=${seq}, branch=${branch}, time=${timestamp})`);
+        }
+      });
+      
+      if (sorted.length > 0) {
+        console.log(`[FileStorageAdapter] Latest snapshot will be: ${sorted[sorted.length - 1]}`);
+      }
+      
+      return sorted;
     } catch (error) {
+      console.error('[FileStorageAdapter] Error listing snapshots:', error);
       return [];
     }
   }
