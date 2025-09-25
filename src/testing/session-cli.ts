@@ -1,6 +1,7 @@
 #!/usr/bin/env ts-node
 
 import { SessionClient, EventEnvelope } from './websocket-api';
+import stripAnsi from 'strip-ansi';
 
 type CommandName =
   | 'list'
@@ -68,7 +69,8 @@ function printUsage(): void {
 Commands:
   list                         List active sessions
   subscribe <id|all> [options] Stream live session events (Ctrl+C to exit)
-      --replay=<lines>         Replay the last N log lines when subscribing
+      --replay=<lines>         Replay the last N log lines (default 50)
+      --no-replay              Disable replay entirely
       --json                   Emit JSON envelopes instead of formatted text
   exec <session> <command...>  Run a command inside a session
   tail <session> [--lines=N]   Print recent session output (default 50)
@@ -130,7 +132,10 @@ async function handleTail(
     console.log('No output recorded yet');
     return;
   }
-  output.forEach((line: string) => console.log(line));
+  output
+    .map((line: string) => sanitizeLine(line))
+    .filter((line: string) => line.length > 0)
+    .forEach((line: string) => console.log(line));
 }
 
 async function handleCreate(
@@ -207,15 +212,16 @@ async function handleSubscribe(
   }
 
   const replayFlag = flags.replay ?? flags.r;
-  const replay = typeof replayFlag === 'string' ? parseInt(replayFlag, 10) : undefined;
+  const disableReplay = Boolean(flags['no-replay']);
+  const replay = disableReplay
+    ? 0
+    : typeof replayFlag === 'string'
+      ? parseInt(replayFlag, 10)
+      : undefined;
   const useJson = Boolean(flags.json);
   const all = target === 'all' || Boolean(flags.all);
 
-  await client.subscribe({
-    all,
-    sessionId: all ? undefined : target,
-    replay,
-  });
+  const resolvedReplay = typeof replay === 'number' ? replay : 50;
 
   const render = (envelope: EventEnvelope) => {
     if (!all && envelope.sessionId && envelope.sessionId !== target) {
@@ -225,27 +231,166 @@ async function handleSubscribe(
       console.log(JSON.stringify(envelope));
       return;
     }
+
+    const formatted = formatEvent(envelope);
+    if (!formatted) {
+      return;
+    }
+
     const timestamp = new Date().toISOString();
-    const sessionLabel = envelope.sessionId ? ` ${envelope.sessionId}` : '';
-    console.log(`[${timestamp}] ${envelope.event}${sessionLabel}`);
-    if (envelope.payload) {
-      console.log(JSON.stringify(envelope.payload, null, 2));
+    console.log(`[${timestamp}] ${formatted.header}`);
+    if (formatted.body) {
+      formatted.body.forEach((line) => console.log(`  ${line}`));
     }
   };
 
   const handler = (envelope: EventEnvelope) => render(envelope);
   client.on('event', handler);
 
+  try {
+    await client.subscribe({
+      all,
+      sessionId: all ? undefined : target,
+      replay: resolvedReplay,
+    });
+
+    // Print backfill locally to avoid missing early events from the server.
+    if (!useJson && resolvedReplay > 0) {
+      if (all) {
+        const sessions = await client.listSessions();
+        for (const session of sessions) {
+          const backfill = await client.getOutput(session.id, resolvedReplay);
+          const cleaned = backfill
+            .map((line: string) => sanitizeLine(line))
+            .filter((line: string) => line.length > 0);
+          if (cleaned.length === 0) {
+            if (process.env.DEBUG_SESSION_CLI) {
+              console.error('[session-cli] no backfill for', session.id);
+            }
+            continue;
+          }
+          console.log(`--- ${session.id} ---`);
+          cleaned.forEach((line: string) => console.log(`  ${line}`));
+        }
+      } else {
+        const backfill = await client.getOutput(target, resolvedReplay);
+        const cleaned = backfill
+          .map((line: string) => sanitizeLine(line))
+          .filter((line: string) => line.length > 0);
+        cleaned.forEach((line: string) => console.log(`  ${line}`));
+        if (process.env.DEBUG_SESSION_CLI) {
+          console.error('[session-cli] backfill count', cleaned.length);
+        }
+      }
+    }
+  } catch (error) {
+    client.off('event', handler);
+    client.close();
+    throw error;
+  }
+
   console.log('Streaming events. Press Ctrl+C to exit.');
 
   await new Promise<void>((resolve) => {
     const shutdown = () => {
       client.off('event', handler);
+      client.close();
+      process.removeListener('SIGINT', shutdown);
+      process.removeListener('SIGTERM', shutdown);
       resolve();
     };
-    process.on('SIGINT', shutdown);
-    process.on('SIGTERM', shutdown);
+    process.once('SIGINT', shutdown);
+    process.once('SIGTERM', shutdown);
   });
+}
+
+function sanitizeLine(line: string): string {
+  return stripAnsi(line).replace(/\r+/g, '').trimEnd();
+}
+
+function formatEvent(envelope: EventEnvelope): { header: string; body?: string[] } | null {
+  const sessionPart = envelope.sessionId ? ` ${envelope.sessionId}` : '';
+
+  switch (envelope.event) {
+    case 'session:output': {
+      const payload = envelope.payload as {
+        chunk?: string;
+        lines?: string[];
+      };
+
+      const lines = (payload.lines ?? [])
+        .map((line: string) => sanitizeLine(line))
+        .filter((line: string) => line.length > 0);
+
+      if (lines.length === 0 && payload.chunk) {
+        const chunkLine = sanitizeLine(payload.chunk);
+        if (chunkLine.length > 0) {
+          lines.push(chunkLine);
+        }
+      }
+
+      if (lines.length === 0) {
+        return null;
+      }
+
+      return {
+        header: `session:output${sessionPart}`,
+        body: lines
+      };
+    }
+    case 'session:created':
+      return {
+        header: `session:created${sessionPart}`,
+        body: envelope.payload?.info?.cwd
+          ? [`cwd: ${envelope.payload.info.cwd}`]
+          : undefined
+      };
+    case 'session:exit':
+      return {
+        header: `session:exit${sessionPart}`,
+        body: [`exitCode: ${envelope.payload?.exitCode ?? 'unknown'}`]
+      };
+    case 'command:start':
+      return {
+        header: `command:start${sessionPart}`,
+        body: [envelope.payload?.command ?? '']
+          .filter(Boolean)
+      };
+    case 'command:finished': {
+      const body: string[] = [];
+      if (envelope.payload?.exitCode !== undefined) {
+        body.push(`exitCode: ${envelope.payload.exitCode}`);
+      }
+      if (envelope.payload?.duration !== undefined) {
+        body.push(`duration: ${envelope.payload.duration}ms`);
+      }
+      const output = typeof envelope.payload?.output === 'string'
+        ? envelope.payload.output.split(/\r?\n/).map((line: string) => sanitizeLine(line))
+        : [];
+      const filteredOutput = output.filter((line: string) => line.length > 0);
+      return {
+        header: `command:finished${sessionPart}`,
+        body: body.concat(filteredOutput)
+      };
+    }
+    case 'session:input':
+      return {
+        header: `session:input${sessionPart}`,
+        body: [envelope.payload?.input ?? '']
+          .map((line: string) => sanitizeLine(line))
+          .filter((line: string) => line.length > 0)
+      };
+    case 'session:signal':
+      return {
+        header: `session:signal${sessionPart}`,
+        body: [`signal: ${envelope.payload?.signal ?? 'unknown'}`]
+      };
+    default:
+      return {
+        header: `${envelope.event}${sessionPart}`,
+        body: envelope.payload ? [JSON.stringify(envelope.payload)] : undefined
+      };
+  }
 }
 
 async function main() {

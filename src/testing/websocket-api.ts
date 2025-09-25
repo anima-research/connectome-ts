@@ -24,6 +24,7 @@ interface APIResponse {
 interface SubscriptionState {
   sessions: Set<string>;
   all: boolean;
+  replayLines: number;
 }
 
 export interface EventEnvelope {
@@ -220,22 +221,23 @@ export class SessionAPI {
       }
     }
 
-    const replayLines = typeof params.replay === 'number' ? params.replay : 0;
-    if (replayLines > 0 && targetSessions.size > 0) {
-      for (const sessionId of targetSessions) {
-        try {
-          const logs: string[] = this.server.getOutput(sessionId, replayLines);
-          logs.forEach((line) => {
-            this.sendEvent(ws, 'session:output', {
-              sessionId,
-              chunk: `${line}\n`,
-              lines: [line],
-              timestamp: new Date()
-            });
-          });
-        } catch (error) {
-          // Ignore missing sessions during replay
-        }
+    const replayLines = typeof params.replay === 'number' ? params.replay : subscription.replayLines;
+    if (typeof params.replay === 'number') {
+      subscription.replayLines = params.replay;
+    }
+
+    if (process.env.DEBUG_SESSION_API) {
+      console.error('[SessionAPI] subscribe', {
+        sessions: Array.from(subscription.sessions),
+        all: subscription.all,
+        replayLines,
+      });
+    }
+
+    if (replayLines > 0) {
+      const sessionsToReplay = subscription.all ? this.server.listSessions().map((s) => s.id) : Array.from(targetSessions);
+      for (const sessionId of sessionsToReplay) {
+        this.sendBackfill(ws, sessionId, replayLines);
       }
     }
 
@@ -279,11 +281,37 @@ export class SessionAPI {
     if (!subscription) {
       subscription = {
         sessions: new Set<string>(),
-        all: false
+        all: false,
+        replayLines: 0
       };
       this.subscriptions.set(ws, subscription);
     }
     return subscription;
+  }
+
+  private sendBackfill(ws: WebSocket, sessionId: string, lines: number): void {
+    try {
+      const logs = this.server.getOutput(sessionId, lines);
+      if (!logs.length) {
+        return;
+      }
+      if (process.env.DEBUG_SESSION_API) {
+        console.error('[SessionAPI] backfill', sessionId, { lines, count: logs.length });
+      }
+      for (const line of logs) {
+        const sanitized = typeof line === 'string' ? line : String(line);
+        this.sendEvent(ws, 'session:output', {
+          sessionId,
+          chunk: `${sanitized}\n`,
+          lines: [sanitized],
+          timestamp: new Date()
+        });
+      }
+    } catch (error) {
+      if (process.env.DEBUG_SESSION_API) {
+        console.error('[SessionAPI] Failed to backfill logs:', error);
+      }
+    }
   }
 
   private registerServerListener(event: string, handler: (payload: any) => void): void {
