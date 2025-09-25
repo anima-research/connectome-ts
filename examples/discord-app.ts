@@ -6,6 +6,7 @@ import { ConnectomeApplication } from '../../connectome-ts/src/host/types';
 import { Space } from '../../connectome-ts/src/spaces/space';
 import { VEILStateManager } from '../../connectome-ts/src/veil/veil-state';
 import { ComponentRegistry } from '../../connectome-ts/src/persistence/component-registry';
+import '../../connectome-ts/src/core-components'; // Import core component registrations
 import { BasicAgent } from '../../connectome-ts/src/agent/basic-agent';
 import { AgentComponent } from '../../connectome-ts/src/agent/agent-component';
 import { persistable, persistent } from '../../connectome-ts/src/persistence/decorators';
@@ -167,14 +168,14 @@ export class DiscordApplication implements ConnectomeApplication {
   }
   
   getComponentRegistry(): typeof ComponentRegistry {
-    const registry = ComponentRegistry;
+    // Core components including SpaceNotesComponent are already registered
+    // via the core-components import
     
-    // Register all components that can be restored
-    registry.register('AxonLoaderComponent', AxonLoaderComponent);
-    registry.register('AgentComponent', AgentComponent);
-    registry.register('DiscordAutoJoinComponent', DiscordAutoJoinComponent);
+    // Register application-specific components
+    ComponentRegistry.register('AxonLoaderComponent', AxonLoaderComponent);
+    ComponentRegistry.register('DiscordAutoJoinComponent', DiscordAutoJoinComponent);
     
-    return registry;
+    return ComponentRegistry;
   }
   
   async onStart(space: Space, veilState: VEILStateManager): Promise<void> {

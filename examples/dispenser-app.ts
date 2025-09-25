@@ -9,6 +9,7 @@ import { ConnectomeApplication } from '../src/host/types';
 import { Space } from '../src/spaces/space';
 import { VEILStateManager } from '../src/veil/veil-state';
 import { ComponentRegistry } from '../src/persistence/component-registry';
+import '../src/core-components'; // Import core component registrations
 import { BasicAgent } from '../src/agent/basic-agent';
 import { AgentComponent } from '../src/agent/agent-component';
 import { Element } from '../src/spaces/element';
@@ -130,19 +131,12 @@ export class DispenserApplication implements ConnectomeApplication {
   }
   
   getComponentRegistry(): typeof ComponentRegistry {
-    const registry = ComponentRegistry;
-    
-    // Register all components that can be restored
-    registry.register('AgentComponent', AgentComponent);
-    registry.register('BoxDispenserComponent', BoxDispenserComponent);
-    registry.register('DispenseButtonComponent', DispenseButtonComponent);
-    registry.register('ControlPanelComponent', ControlPanelComponent);
-    registry.register('ContentGeneratorComponent', ContentGeneratorComponent);
-    registry.register('ConsoleChatComponent', ConsoleChatComponent);
+    // Core components including SpaceNotesComponent are already registered
+    // via the '../src/core-components' import
     // Box components are dynamically created, not restored
     // They don't need to be registered
     
-    return registry;
+    return ComponentRegistry;
   }
   
   async onStart(space: Space, veilState: VEILStateManager): Promise<void> {
