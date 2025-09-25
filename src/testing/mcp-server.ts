@@ -127,7 +127,59 @@ export class ConnectomeTestingMCP {
     lines?: number;
   }): Promise<string[]> {
     const sessionId = this.serviceMap.get(params.session) || params.session;
-    return await this.getClient().getOutput(sessionId, params.lines || 50);
+    const rawLogs = await this.getClient().getOutput(sessionId, params.lines || 50);
+    return this.concatenateSameLine(rawLogs);
+  }
+  
+  /**
+   * Concatenate log entries that are on the same line
+   * This handles character-by-character input that gets logged separately
+   */
+  private concatenateSameLine(logs: string[]): string[] {
+    if (logs.length === 0) return logs;
+    
+    const processed: string[] = [];
+    let currentLine = '';
+    
+    for (const entry of logs) {
+      // Check if this entry contains a newline or carriage return
+      if (entry.includes('\n') || entry.includes('\r')) {
+        // This is a complete line or contains line breaks
+        if (currentLine) {
+          // Flush any accumulated characters
+          processed.push(currentLine + entry);
+          currentLine = '';
+        } else {
+          processed.push(entry);
+        }
+      } else if (entry.startsWith('$') || entry.startsWith('[') || entry.startsWith('===')) {
+        // These are likely command prompts or system messages - treat as new lines
+        if (currentLine) {
+          processed.push(currentLine);
+          currentLine = '';
+        }
+        processed.push(entry);
+      } else if (entry.length === 1) {
+        // Single character - likely from interactive input
+        currentLine += entry;
+      } else {
+        // Multi-character entry without newlines
+        if (currentLine) {
+          // Continue accumulating
+          currentLine += entry;
+        } else {
+          // Start a new line or it's a complete entry
+          processed.push(entry);
+        }
+      }
+    }
+    
+    // Don't forget any accumulated characters
+    if (currentLine) {
+      processed.push(currentLine);
+    }
+    
+    return processed;
   }
   
   /**

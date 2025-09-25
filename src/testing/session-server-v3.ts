@@ -11,6 +11,7 @@
 
 import * as pty from 'node-pty';
 import { IPty } from 'node-pty';
+import { EventEmitter } from 'events';
 
 interface SessionInfo {
   id: string;
@@ -34,6 +35,7 @@ interface SessionInfo {
     resolve: (result: CommandResult) => void;
     startTime: number;
   };
+  lineBuffer: string; // Buffer for incomplete lines
 }
 
 interface CommandResult {
@@ -52,7 +54,60 @@ interface ServiceStartOptions {
   shell?: string;
 }
 
-export class PersistentSessionServer {
+type PublicSessionInfo = {
+  id: string;
+  name: string;
+  cwd: string;
+  env: Record<string, string>;
+  isAlive: boolean;
+  createdAt: Date;
+  lastActivity: Date;
+  logSize: number;
+};
+
+type SessionEventMap = {
+  'session:created': {
+    sessionId: string;
+    info: PublicSessionInfo;
+  };
+  'session:output': {
+    sessionId: string;
+    chunk: string;
+    lines: string[];
+    timestamp: Date;
+  };
+  'session:exit': {
+    sessionId: string;
+    exitCode: number | null;
+    timestamp: Date;
+  };
+  'command:start': {
+    sessionId: string;
+    command: string;
+    startedAt: Date;
+  };
+  'command:finished': {
+    sessionId: string;
+    command: string;
+    duration: number;
+    exitCode: number;
+    output: string;
+    finishedAt: Date;
+  };
+  'session:input': {
+    sessionId: string;
+    input: string;
+    appendNewline: boolean;
+    timestamp: Date;
+  };
+  'session:signal': {
+    sessionId: string;
+    signal: string;
+    timestamp: Date;
+  };
+};
+
+export class PersistentSessionServer extends EventEmitter {
   private sessions: Map<string, SessionInfo> = new Map();
   private readonly maxLogSize = 10000; // lines per session
   private readonly commandTimeout = 2000; // 2 seconds - quick return
@@ -60,6 +115,7 @@ export class PersistentSessionServer {
   private readonly exitCodeMarker = '<<<EXIT:';
 
   constructor() {
+    super();
     // Clean up on exit
     process.on('exit', () => this.killAll());
     process.on('SIGINT', () => {
@@ -101,7 +157,8 @@ export class PersistentSessionServer {
       lastActivity: new Date(),
       outputBuffer: '',
       isProcessingCommand: false,
-      commandQueue: []
+      commandQueue: [],
+      lineBuffer: ''
     };
 
     // Handle output
@@ -109,10 +166,32 @@ export class PersistentSessionServer {
       sessionInfo.lastActivity = new Date();
       sessionInfo.outputBuffer += data;
       
-      // Add to logs
-      const lines = data.split('\n').filter(line => line.trim());
-      for (const line of lines) {
-        this.addLog(sessionInfo, line);
+      // Buffer characters and only log complete lines
+      sessionInfo.lineBuffer += data;
+      
+      // Process any complete lines in the buffer
+      const segments = sessionInfo.lineBuffer.split(/\r?\n/);
+      const completedLines: string[] = [];
+      
+      // All but the last element are complete lines
+      for (let i = 0; i < segments.length - 1; i++) {
+        const line = segments[i];
+        if (line.length > 0) {
+          this.addLog(sessionInfo, line);
+          completedLines.push(line);
+        }
+      }
+      
+      // The last element is either empty (if data ended with newline) or incomplete
+      sessionInfo.lineBuffer = segments[segments.length - 1];
+
+      if (data.length > 0) {
+        this.notify('session:output', {
+          sessionId: sessionInfo.id,
+          chunk: data,
+          lines: completedLines,
+          timestamp: new Date()
+        });
       }
 
       // Check if we're done with current command
@@ -122,13 +201,30 @@ export class PersistentSessionServer {
     // Handle exit
     ptyProcess.onExit(({ exitCode }) => {
       sessionInfo.isAlive = false;
+      
+      // Flush any remaining buffered line
+      if (sessionInfo.lineBuffer.length > 0) {
+        this.addLog(sessionInfo, sessionInfo.lineBuffer);
+        sessionInfo.lineBuffer = '';
+      }
+      
       this.addLog(sessionInfo, `[Session terminated with code ${exitCode}]`);
+      this.notify('session:exit', {
+        sessionId: sessionInfo.id,
+        exitCode,
+        timestamp: new Date()
+      });
     });
 
     this.sessions.set(id, sessionInfo);
 
     // Initialize the shell and wait for it to be ready
     await this.initializeShell(sessionInfo);
+
+    this.notify('session:created', {
+      sessionId: id,
+      info: this.toPublicInfo(sessionInfo)
+    });
 
     return id;
   }
@@ -199,6 +295,12 @@ export class PersistentSessionServer {
     // Add command to logs
     this.addLog(session, `$ ${currentCommand.command}`);
 
+    this.notify('command:start', {
+      sessionId: session.id,
+      command: currentCommand.command,
+      startedAt: new Date(currentCommand.startTime)
+    });
+
     // Write command
     session.shell.write(currentCommand.command + '\n');
 
@@ -212,6 +314,15 @@ export class PersistentSessionServer {
         .replace(new RegExp(`${this.promptMarker}\\n?`, 'g'), '')
         .trim();
       
+      this.notify('command:finished', {
+        sessionId: session.id,
+        command: currentCommand.command,
+        duration: Date.now() - currentCommand.startTime,
+        exitCode: 0,
+        output: cleanOutput,
+        finishedAt: new Date()
+      });
+
       currentCommand.resolve({
         output: cleanOutput,
         exitCode: 0, // 0 indicates "still running" rather than error
@@ -246,6 +357,13 @@ export class PersistentSessionServer {
     const dataToSend = appendNewline ? `${input}\n` : input;
     session.shell.write(dataToSend);
     session.lastActivity = new Date();
+
+    this.notify('session:input', {
+      sessionId,
+      input,
+      appendNewline,
+      timestamp: new Date()
+    });
   }
 
   /**
@@ -265,6 +383,12 @@ export class PersistentSessionServer {
     } else {
       session.shell.kill(signal as any);
     }
+
+    this.notify('session:signal', {
+      sessionId,
+      signal,
+      timestamp: new Date()
+    });
   }
 
   /**
@@ -446,6 +570,26 @@ export class PersistentSessionServer {
     if (session.logs.length > this.maxLogSize) {
       session.logs.shift();
     }
+  }
+
+  private toPublicInfo(session: SessionInfo): PublicSessionInfo {
+    return {
+      id: session.id,
+      name: session.name,
+      cwd: session.cwd,
+      env: session.env,
+      isAlive: session.isAlive,
+      createdAt: session.createdAt,
+      lastActivity: session.lastActivity,
+      logSize: session.logs.length
+    };
+  }
+
+  private notify<K extends keyof SessionEventMap>(
+    event: K,
+    payload: SessionEventMap[K]
+  ): void {
+    this.emit(event, payload);
   }
 
   private sleep(ms: number): Promise<void> {

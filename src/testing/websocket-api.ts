@@ -4,8 +4,9 @@
  * Provides real-time access to terminal sessions
  */
 
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, WebSocket } from 'ws';
 import { createServer } from 'http';
+import { EventEmitter } from 'events';
 import { PersistentSessionServer } from './session-server-v3';
 
 interface APIMessage {
@@ -20,13 +21,48 @@ interface APIResponse {
   error?: string;
 }
 
+interface SubscriptionState {
+  sessions: Set<string>;
+  all: boolean;
+}
+
+export interface EventEnvelope {
+  type: 'event';
+  event: string;
+  sessionId?: string;
+  payload: any;
+}
+
 export class SessionAPI {
   private wss: WebSocketServer;
   private server: PersistentSessionServer;
   private httpServer: any;
+  private subscriptions = new Map<WebSocket, SubscriptionState>();
+  private serverListeners: Array<{ event: string; handler: (payload: any) => void }> = [];
   
   constructor(port: number = 3100) {
     this.server = new PersistentSessionServer();
+    this.registerServerListener('session:created', (payload) => {
+      this.pushEvent('session:created', payload, payload.sessionId);
+    });
+    this.registerServerListener('session:output', (payload) => {
+      this.pushEvent('session:output', payload, payload.sessionId);
+    });
+    this.registerServerListener('session:exit', (payload) => {
+      this.pushEvent('session:exit', payload, payload.sessionId);
+    });
+    this.registerServerListener('command:start', (payload) => {
+      this.pushEvent('command:start', payload, payload.sessionId);
+    });
+    this.registerServerListener('command:finished', (payload) => {
+      this.pushEvent('command:finished', payload, payload.sessionId);
+    });
+    this.registerServerListener('session:input', (payload) => {
+      this.pushEvent('session:input', payload, payload.sessionId);
+    });
+    this.registerServerListener('session:signal', (payload) => {
+      this.pushEvent('session:signal', payload, payload.sessionId);
+    });
     
     // Create HTTP server
     this.httpServer = createServer((req, res) => {
@@ -47,6 +83,7 @@ export class SessionAPI {
     this.wss = new WebSocketServer({ server: this.httpServer });
     
     this.wss.on('connection', (ws) => {
+      this.ensureSubscription(ws);
       if (process.env.DEBUG_SESSION_API) {
         console.error('[SessionAPI] Client connected');
       }
@@ -54,7 +91,7 @@ export class SessionAPI {
       ws.on('message', async (data) => {
         try {
           const message: APIMessage = JSON.parse(data.toString());
-          const response = await this.handleMessage(message);
+          const response = await this.handleMessage(ws, message);
           ws.send(JSON.stringify(response));
         } catch (error: any) {
           ws.send(JSON.stringify({
@@ -68,6 +105,7 @@ export class SessionAPI {
         if (process.env.DEBUG_SESSION_API) {
           console.error('[SessionAPI] Client disconnected');
         }
+        this.subscriptions.delete(ws);
       });
     });
     
@@ -76,13 +114,21 @@ export class SessionAPI {
     });
   }
   
-  private async handleMessage(message: APIMessage): Promise<APIResponse> {
+  private async handleMessage(ws: WebSocket, message: APIMessage): Promise<APIResponse> {
     const { id, method, params } = message;
     
     try {
       let result: any;
       
       switch (method) {
+        case 'session.subscribe':
+          result = await this.handleSubscribe(ws, params);
+          break;
+
+        case 'session.unsubscribe':
+          result = this.handleUnsubscribe(ws, params);
+          break;
+
         case 'session.create':
           result = await this.server.createSession(params);
           break;
@@ -149,20 +195,146 @@ export class SessionAPI {
     }
   }
   
+  private async handleSubscribe(ws: WebSocket, rawParams: any = {}): Promise<{
+    sessionIds: string[];
+    all: boolean;
+  }> {
+    const params = rawParams || {};
+    const subscription = this.ensureSubscription(ws);
+    const targetSessions = new Set<string>();
+
+    if (params.all || params.sessionId === '*' || params.sessions === '*') {
+      subscription.all = true;
+    }
+
+    const provided = Array.isArray(params.sessions)
+      ? params.sessions
+      : params.sessionId
+        ? [params.sessionId]
+        : [];
+
+    for (const id of provided) {
+      if (typeof id === 'string' && id.trim().length > 0) {
+        subscription.sessions.add(id);
+        targetSessions.add(id);
+      }
+    }
+
+    const replayLines = typeof params.replay === 'number' ? params.replay : 0;
+    if (replayLines > 0 && targetSessions.size > 0) {
+      for (const sessionId of targetSessions) {
+        try {
+          const logs: string[] = this.server.getOutput(sessionId, replayLines);
+          logs.forEach((line) => {
+            this.sendEvent(ws, 'session:output', {
+              sessionId,
+              chunk: `${line}\n`,
+              lines: [line],
+              timestamp: new Date()
+            });
+          });
+        } catch (error) {
+          // Ignore missing sessions during replay
+        }
+      }
+    }
+
+    return {
+      sessionIds: Array.from(subscription.sessions),
+      all: subscription.all
+    };
+  }
+
+  private handleUnsubscribe(ws: WebSocket, rawParams: any = {}): {
+    sessionIds: string[];
+    all: boolean;
+  } {
+    const params = rawParams || {};
+    const subscription = this.ensureSubscription(ws);
+
+    if (params.all || params.sessionId === '*' || params.sessions === '*') {
+      subscription.all = false;
+    }
+
+    const provided = Array.isArray(params.sessions)
+      ? params.sessions
+      : params.sessionId
+        ? [params.sessionId]
+        : [];
+
+    for (const id of provided) {
+      if (typeof id === 'string') {
+        subscription.sessions.delete(id);
+      }
+    }
+
+    return {
+      sessionIds: Array.from(subscription.sessions),
+      all: subscription.all
+    };
+  }
+
+  private ensureSubscription(ws: WebSocket): SubscriptionState {
+    let subscription = this.subscriptions.get(ws);
+    if (!subscription) {
+      subscription = {
+        sessions: new Set<string>(),
+        all: false
+      };
+      this.subscriptions.set(ws, subscription);
+    }
+    return subscription;
+  }
+
+  private registerServerListener(event: string, handler: (payload: any) => void): void {
+    this.server.on(event as any, handler);
+    this.serverListeners.push({ event, handler });
+  }
+
+  private pushEvent(event: string, payload: any, sessionId?: string): void {
+    for (const [ws, subscription] of this.subscriptions.entries()) {
+      const targetSession = sessionId ?? payload?.sessionId;
+      const isSubscribed = subscription.all || (targetSession && subscription.sessions.has(targetSession));
+      if (!isSubscribed) {
+        continue;
+      }
+      this.sendEvent(ws, event, payload);
+    }
+  }
+
+  private sendEvent(ws: WebSocket, event: string, payload: any): void {
+    if (ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    const envelope: EventEnvelope = {
+      type: 'event',
+      event,
+      sessionId: payload?.sessionId,
+      payload
+    };
+    ws.send(JSON.stringify(envelope));
+  }
+
   stop(): void {
     this.server.killAll();
     this.wss.close();
     this.httpServer.close();
+    for (const { event, handler } of this.serverListeners) {
+      this.server.off(event as any, handler);
+    }
+    this.serverListeners = [];
+    this.subscriptions.clear();
   }
 }
 
 // Simple client for testing
-export class SessionClient {
+export class SessionClient extends EventEmitter {
   private ws: any; // WebSocket from 'ws' package
   private pending = new Map<string, (response: APIResponse) => void>();
   private connected: Promise<void>;
   
   constructor(url: string = 'ws://localhost:3100') {
+    super();
     const WebSocket = require('ws');
     this.ws = new WebSocket(url);
     
@@ -182,10 +354,22 @@ export class SessionClient {
     });
     
     this.ws.on('message', (data: Buffer) => {
-      const response: APIResponse = JSON.parse(data.toString());
+      const payload = JSON.parse(data.toString());
       if (process.env.MCP_DEBUG) {
-        console.error('[Client] Received response:', response);
+        console.error('[Client] Received response:', payload);
       }
+
+      if (payload && payload.type === 'event') {
+        const envelope = payload as EventEnvelope;
+        this.emit('event', envelope);
+        this.emit(envelope.event, envelope);
+        if (envelope.sessionId) {
+          this.emit(`${envelope.event}:${envelope.sessionId}`, envelope);
+        }
+        return;
+      }
+
+      const response: APIResponse = payload;
       const handler = this.pending.get(response.id);
       if (handler) {
         handler(response);
@@ -257,6 +441,23 @@ export class SessionClient {
     return this.request('session.pwd', { sessionId });
   }
   
+  async subscribe(params: {
+    sessionId?: string;
+    sessions?: string[];
+    all?: boolean;
+    replay?: number;
+  }) {
+    return this.request('session.subscribe', params);
+  }
+
+  async unsubscribe(params: {
+    sessionId?: string;
+    sessions?: string[];
+    all?: boolean;
+  }) {
+    return this.request('session.unsubscribe', params);
+  }
+
   async killAll() {
     return this.request('session.killAll');
   }

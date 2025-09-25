@@ -31,7 +31,8 @@
     "session-server": "ts-node src/testing/start-session-server.ts",
     "session-server:dev": "nodemon --watch src/testing --exec ts-node src/testing/start-session-server.ts",
     "session-server:mcp": "SESSION_SERVER_PORT=3101 ts-node src/testing/start-session-server.ts",
-    "mcp-server": "ts-node src/testing/mcp-stdio-server.ts"
+    "mcp-server": "ts-node src/testing/mcp-stdio-server.ts",
+    "session-cli": "ts-node src/testing/session-cli.ts"
   },
   "keywords": [
     "llm",
@@ -63,6 +64,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.61.0",
+    "@modelcontextprotocol/sdk": "^1.11.2",
     "node-pty": "^1.0.0"
   }
 }

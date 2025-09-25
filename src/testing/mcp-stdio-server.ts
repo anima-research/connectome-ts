@@ -109,6 +109,18 @@ const TOOLS = {
       type: 'object',
       properties: {}
     }
+  },
+  searchLogs: {
+    description: 'Search for patterns in session logs',
+    parameters: {
+      type: 'object',
+      properties: {
+        session: { type: 'string', description: 'Session to search in' },
+        pattern: { type: 'string', description: 'Pattern to search for (regex supported)' },
+        context: { type: 'number', description: 'Number of context lines to show (default: 3)' }
+      },
+      required: ['session', 'pattern']
+    }
   }
 };
 
@@ -188,6 +200,9 @@ rl.on('line', async (line) => {
               break;
             case 'killAll':
               result = await mcpInstance.killAll();
+              break;
+            case 'searchLogs':
+              result = await mcpInstance.searchLogs(args);
               break;
             default:
               throw new Error(`Unknown tool: ${name}`);

@@ -8,10 +8,19 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import type { CallToolRequest } from '@modelcontextprotocol/sdk/types.js';
 import { ConnectomeTestingMCP } from './mcp-server';
 
 // Create MCP instance
 const mcp = new ConnectomeTestingMCP();
+
+type StartServiceArgs = Parameters<ConnectomeTestingMCP['startService']>[0];
+type RunCommandArgs = Parameters<ConnectomeTestingMCP['runCommand']>[0];
+type TailLogsArgs = Parameters<ConnectomeTestingMCP['tailLogs']>[0];
+type SearchLogsArgs = Parameters<ConnectomeTestingMCP['searchLogs']>[0];
+type KillSessionArgs = Parameters<ConnectomeTestingMCP['killSession']>[0];
+type CreateSessionArgs = Parameters<ConnectomeTestingMCP['createSession']>[0];
 
 // Create MCP server
 const server = new Server({
@@ -24,7 +33,7 @@ const server = new Server({
 });
 
 // Register all MCP methods as tools
-server.setRequestHandler('tools/list', async () => {
+server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
       {
@@ -124,33 +133,34 @@ server.setRequestHandler('tools/list', async () => {
 });
 
 // Handle tool calls
-server.setRequestHandler('tools/call', async (request: any) => {
-  const { name, arguments: args } = request.params;
+server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest) => {
+  const { name } = request.params;
+  const args = (request.params.arguments ?? {}) as unknown;
   
   try {
     let result;
     
     switch (name) {
       case 'startService':
-        result = await mcp.startService(args);
+        result = await mcp.startService(args as StartServiceArgs);
         break;
       case 'runCommand':
-        result = await mcp.runCommand(args);
+        result = await mcp.runCommand(args as RunCommandArgs);
         break;
       case 'tailLogs':
-        result = await mcp.tailLogs(args);
+        result = await mcp.tailLogs(args as TailLogsArgs);
         break;
       case 'searchLogs':
-        result = await mcp.searchLogs(args);
+        result = await mcp.searchLogs(args as SearchLogsArgs);
         break;
       case 'listSessions':
         result = await mcp.listSessions();
         break;
       case 'killSession':
-        result = await mcp.killSession(args);
+        result = await mcp.killSession(args as KillSessionArgs);
         break;
       case 'createSession':
-        result = await mcp.createSession(args);
+        result = await mcp.createSession(args as CreateSessionArgs);
         break;
       default:
         throw new Error(`Unknown tool: ${name}`);
@@ -194,4 +204,3 @@ main().catch((error) => {
   console.error('Fatal error:', error);
   process.exit(1);
 });
-
