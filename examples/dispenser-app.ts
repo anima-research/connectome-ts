@@ -19,6 +19,7 @@ import {
 import { ControlPanelComponent } from '../src/components/control-panel';
 import { ContentGeneratorComponent } from '../src/components/content-generator';
 import { ConsoleChatComponent } from '../src/elements/console-chat';
+import { NotesElement } from '../src/elements/notes';
 
 export interface DispenserAppConfig {
   agentName: string;
@@ -47,6 +48,11 @@ export class DispenserApplication implements ConnectomeApplication {
   
   async initialize(space: Space, veilState: VEILStateManager): Promise<void> {
     console.log('🎮 Initializing Box Dispenser application...');
+    
+    // Create space notes element (available to all agents)
+    const notesElem = new NotesElement('notes');
+    space.addChild(notesElem);
+    console.log('📝 Space notes available');
     
     // Create agent element
     const agentElem = new Element('dispenser-agent');

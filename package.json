@@ -25,6 +25,7 @@
     "example:discord": "ts-node examples/discord-with-host.ts",
     "example:discord:reset": "ts-node examples/discord-with-host.ts --reset",
     "example:discord:debug": "ts-node examples/discord-with-host.ts --debug-llm",
+    "test:notes": "ts-node examples/test-shared-notes.ts",
     "test": "jest",
     "lint": "eslint src --ext .ts"
   },

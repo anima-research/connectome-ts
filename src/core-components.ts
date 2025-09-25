@@ -11,10 +11,12 @@ import { ComponentRegistry } from './persistence/component-registry';
 // Core components
 import { AgentComponent } from './agent/agent-component';
 import { ConsoleChatComponent } from './elements/console-chat';
+import { SpaceNotesComponent } from './components/space-notes';
 
 // Register core components
 ComponentRegistry.register('AgentComponent', AgentComponent);
 ComponentRegistry.register('ConsoleChatComponent', ConsoleChatComponent);
+ComponentRegistry.register('SpaceNotesComponent', SpaceNotesComponent);
 
 // Temporary: Register test components
 // TODO: Move these to AXON extensions
