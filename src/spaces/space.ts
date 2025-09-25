@@ -312,7 +312,7 @@ export class Space extends Element {
       // Check if frame has content
       const hasOperations = this.currentFrame.operations.length > 0;
       const hasActivation = this.currentFrame.operations.some(
-        op => op.type === 'agentActivation'
+        op => op.type === 'addFacet' && (op as any).facet?.type === 'agentActivation'
       );
       
       // Apply frame BEFORE emitting frame:end
@@ -639,12 +639,21 @@ export class Space extends Element {
     if (event.topic === 'agent:activate' && this.currentFrame) {
       const payload = event.payload as any;
       
-      // Add activation operation
+      // Add activation facet
       this.currentFrame.operations.push({
-        type: 'agentActivation',
-        source: payload.source || 'system',
-        reason: payload.reason || 'requested',
-        priority: payload.priority || 'normal'
+        type: 'addFacet',
+        facet: {
+          id: `agent-activation-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          type: 'agentActivation',
+          content: payload.reason || 'Agent activation requested',
+          attributes: {
+            source: payload.source || 'system',
+            reason: payload.reason || 'requested',
+            priority: payload.priority || 'normal',
+            targetAgent: payload.targetAgent,
+            config: payload.config
+          }
+        }
       } as any);
       
       // Set active stream for response routing
@@ -690,16 +699,20 @@ export class Space extends Element {
       
       // Process tool calls synchronously to avoid starting new frames
       for (const op of frame.operations) {
-        if (op.type === 'action') {
+        if (op.type === 'act') {
           // Process action directly instead of emitting events
-          const targetId = op.elementId || (op.path && op.path.length > 0 ? op.path[0] : undefined);
+          // Extract element ID from toolName (e.g., 'dispenser.dispense' -> 'dispenser')
+          const targetId = op.target || op.toolName.split('.')[0];
           const targetElement = targetId ? this.findElementByIdInTree(this, targetId) : null;
           if (targetElement) {
+            // Extract action name from toolName
+            const actionParts = op.toolName.split('.');
+            const actionName = actionParts.slice(1).join('.');
             await targetElement.handleEvent({
               topic: 'element:action',
               source: this.getRef(),
               payload: {
-                path: op.path,
+                action: actionName,
                 parameters: op.parameters
               },
               timestamp: Date.now()

@@ -28,11 +28,15 @@ class TestMessageComponent extends VEILComponent {
     });
     
     // Activate the agent
-    this.addOperation({
+    this.addFacet({
+      id: 'agent-activation-test-1',
       type: 'agentActivation',
-      source: 'test',
-      priority: 'high',
-      reason: 'User sent a message'
+      content: 'User sent a message',
+      attributes: {
+        source: 'test',
+        priority: 'high',
+        reason: 'User sent a message'
+      }
     });
     
     console.log('✅ Message and activation added to current frame');

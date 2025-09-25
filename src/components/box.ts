@@ -147,12 +147,16 @@ class BoxInteractionComponent extends InteractiveComponent {
     // Open the box
     this.stateComponent.open();
     
-    // Emit activation for agent to react
-    this.addOperation({
+    // Request agent activation for high-priority reaction
+    this.addFacet({
+      id: `agent-activation-box-${Date.now()}`,
       type: 'agentActivation',
-      source: this.element.name,
-      reason: `Box opened ${method}`,
-      priority: 'high'
+      content: `Box opened ${method}`,
+      attributes: {
+        source: this.element.name,
+        reason: `Box opened ${method}`,
+        priority: 'high'
+      }
     });
   }
 }

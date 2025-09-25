@@ -2,7 +2,7 @@
  * Types for the Agent system
  */
 
-import { IncomingVEILFrame, OutgoingVEILFrame, OutgoingVEILOperation, AgentActivationOperation, VEILState, StreamRef } from '../veil/types';
+import { IncomingVEILFrame, OutgoingVEILFrame, OutgoingVEILOperation, VEILState, StreamRef } from '../veil/types';
 import { RenderedContext } from '../hud/types-v2';
 
 /**
@@ -63,7 +63,7 @@ export interface AgentState {
   sleeping: boolean;
   ignoringSources: Set<string>;
   attentionThreshold: number;
-  pendingActivations?: AgentActivationOperation[];
+  // Note: pendingActivations removed - activation facets remain in state until processed
 }
 
 /**
@@ -89,7 +89,7 @@ export interface AgentInterface {
   /**
    * Check if activation should proceed
    */
-  shouldActivate(activation: AgentActivationOperation, state: VEILState): boolean;
+  shouldActivate(activation: any, state: VEILState): boolean;
   
   /**
    * Perform the agent cycle
@@ -113,11 +113,7 @@ export interface AgentInterface {
   
   /**
    * Check if there are pending activations that should be processed
+   * @deprecated Activation facets remain in state until processed
    */
   hasPendingActivations(): boolean;
-  
-  /**
-   * Get and clear the first pending activation
-   */
-  popPendingActivation(): AgentActivationOperation | undefined;
 }

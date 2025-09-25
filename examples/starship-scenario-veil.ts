@@ -150,7 +150,7 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         content: "Lieutenant Rodriguez, can you get me more details on that anomaly? Run a deep scan on sector 7-G, focusing on electromagnetic and subspace frequencies."
       },
       {
-        type: "toolCall",
+        type: "act",
         toolName: "perform_deep_scan",
         parameters: {
           target_sector: "7-G",
@@ -227,7 +227,7 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
     timestamp: "2024-01-15T10:31:55Z",
     operations: [
       {
-        type: "innerThoughts",
+        type: "think",
         content: "Prime numbers? That's a clear sign of intelligence. This changes everything."
       },
       {
@@ -235,7 +235,7 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         content: "All stop. Lt. Rodriguez, record everything. Commander Chen, can you isolate and clean up that transmission?"
       },
       {
-        type: "toolCall",
+        type: "act",
         toolName: "analyze_transmission",
         parameters: {
           frequency: "0.7Hz",
@@ -247,7 +247,7 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         content: "And open a ship-wide channel."
       },
       {
-        type: "toolCall",
+        type: "act",
         toolName: "ship_comms",
         parameters: {
           channel: "ship_wide",
@@ -325,7 +325,7 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
     timestamp: "2024-01-15T10:32:15Z",
     operations: [
       {
-        type: "innerThoughts",
+        type: "think",
         content: "This is what we've been searching for. After nearly a year in deep space, we might have found intelligent life. Need to proceed carefully - this could be automated, ancient, or active. The crew is excited but I need to keep them focused."
       },
       {
@@ -346,11 +346,11 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
     timestamp: "2024-01-15T10:32:20Z",
     operations: [
       {
-        type: "innerThoughts",
+        type: "think",
         content: "I should record this in my personal log. This could be a historic moment."
       },
       {
-        type: "toolCall",
+        type: "act",
         toolName: "open_personal_log",
         parameters: {
           classification: "Captain's Eyes Only"

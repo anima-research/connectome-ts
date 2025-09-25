@@ -15,7 +15,6 @@ import {
   VEILOperation,
   AddStreamOperation,
   AddFacetOperation,
-  AgentActivationOperation 
 } from '../veil/types';
 import { 
   TraceStorage, 
@@ -38,7 +37,7 @@ export class ConsoleChatComponent extends Component {
       terminal: process.env.TERM || 'unknown'
     }
   };
-  private pendingActivation?: AgentActivationOperation;
+  private pendingActivationFacetId?: string;
   private tracer: TraceStorage | undefined;
 
   async onMount(): Promise<void> {
@@ -249,7 +248,7 @@ export class ConsoleChatComponent extends Component {
 
   async handleEvent(event: SpaceEvent): Promise<void> {
     // Handle frame:start - add pending message or activation operations
-    if (event.topic === 'frame:start' && (this.pendingMessage || this.pendingActivation)) {
+    if (event.topic === 'frame:start' && (this.pendingMessage || this.pendingActivationFacetId)) {
       const space = this.element.space as Space;
       const frame = space.getCurrentFrame();
       
@@ -290,15 +289,22 @@ export class ConsoleChatComponent extends Component {
         } as AddFacetOperation);
         
         // Request agent activation
+        const activationId = `agent-activation-${Date.now()}`;
         operations.push({
-          type: 'agentActivation',
-          source: 'console-chat',
-          reason: 'user_message',
-          priority: 'normal'
-        } as AgentActivationOperation);
-      } else if (this.pendingActivation) {
-        // Re-add the pending activation
-        operations.push(this.pendingActivation);
+          type: 'addFacet',
+          facet: {
+            id: activationId,
+            type: 'agentActivation',
+            content: 'User message received',
+            attributes: {
+              source: 'console-chat',
+              reason: 'user_message',
+              priority: 'normal'
+            }
+          }
+        } as AddFacetOperation);
+      } else if (this.pendingActivationFacetId) {
+        // Activation facet persists in state, no need to re-add
       }
       
       // Add operations to frame
@@ -309,7 +315,7 @@ export class ConsoleChatComponent extends Component {
       
       // Clear pending data
       this.pendingMessage = undefined;
-      this.pendingActivation = undefined;
+      this.pendingActivationFacetId = undefined;
     }
     
     // Handle agent responses
@@ -336,10 +342,10 @@ export class ConsoleChatComponent extends Component {
     
     // Handle pending activations after wake
     if (event.topic === 'agent:pending-activation') {
-      const { activation } = event.payload as { activation: AgentActivationOperation };
+      const { facetId } = event.payload as { facetId: string };
       
-      // Store the activation for the next frame
-      this.pendingActivation = activation;
+      // Store the activation facet ID for tracking
+      this.pendingActivationFacetId = facetId;
       
       // Emit event to trigger frame processing
       this.element.emit({

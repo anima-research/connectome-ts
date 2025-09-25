@@ -67,7 +67,7 @@ export const minimalExample = {
       timestamp: "2024-01-15T10:00:10Z",
       operations: [
         {
-          type: "innerThoughts",
+          type: "think",
           content: "User is asking about authentication. I should search for auth-related files."
         },
         {
@@ -75,7 +75,7 @@ export const minimalExample = {
           content: "Let me search the codebase for authentication-related files."
         },
         {
-          type: "toolCall",
+          type: "act",
           toolName: "search_codebase",
           parameters: {
             query: "authentication login",
@@ -110,7 +110,7 @@ export const minimalExample = {
       timestamp: "2024-01-15T10:00:15Z",
       operations: [
         {
-          type: "innerThoughts", 
+          type: "think", 
           content: "Found the auth files. The main logic seems to be split between login handling and middleware."
         },
         {

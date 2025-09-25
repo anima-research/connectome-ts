@@ -213,7 +213,7 @@ export class MockLLMProvider implements LLMProvider {
     
     // Return next response in sequence or default
     if (this.responseIndex < this.responses.length) {
-      const response = this.responses[this.responseIndex++];
+      const response = this.responses[this.responseIndex++] + ` ${Math.floor(1000 + Math.random() * 9000)}`;
       return this.traceAndReturn({
         content: response,
         tokensUsed: this.estimateTokens(response)

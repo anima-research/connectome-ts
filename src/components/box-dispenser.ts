@@ -119,12 +119,16 @@ export class BoxDispenserComponent extends InteractiveComponent {
       }
     }, 'attributesOnly');
     
-    // Trigger agent activation
-    this.addOperation({
+    // Request agent activation by adding a facet
+    this.addFacet({
+      id: `agent-activation-dispenser-${Date.now()}`,
       type: 'agentActivation',
-      source: 'dispenser',
-      reason: 'New box dispensed',
-      priority: 'normal'
+      content: 'New box dispensed',
+      attributes: {
+        source: 'dispenser',
+        reason: 'New box dispensed',
+        priority: 'normal'
+      }
     });
   }
   

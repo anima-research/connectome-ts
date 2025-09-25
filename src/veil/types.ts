@@ -1,6 +1,6 @@
 // VEIL (Virtual Environment Interface Language) Type Definitions
 
-export type FacetType = 'event' | 'state' | 'ambient' | 'tool' | 'speech' | 'thought' | 'action';
+export type FacetType = 'event' | 'state' | 'ambient' | 'tool' | 'speech' | 'thought' | 'action' | 'defineAction' | 'agentActivation';
 
 export interface SaliencyHints {
   // Temporal hints
@@ -86,7 +86,34 @@ export interface ActionFacet extends BaseFacet {
   };
 }
 
-export type Facet = EventFacet | StateFacet | AmbientFacet | ToolFacet | SpeechFacet | ThoughtFacet | ActionFacet;
+export interface DefineActionFacet extends BaseFacet {
+  type: 'defineAction';
+  displayName: string;  // The tool name
+  content?: string;  // Description of the action
+  attributes: {
+    agentGenerated: boolean;
+    toolName: string;
+    parameters: Record<string, any>;
+  };
+}
+
+export interface AgentActivationFacet extends BaseFacet {
+  type: 'agentActivation';
+  content?: string;  // Reason for activation
+  attributes: {
+    source: string;      // Who requested activation
+    priority: 'low' | 'normal' | 'high';
+    reason: string;      // Why activation was requested
+    targetAgent?: string; // Optional specific agent
+    config?: {
+      temperature?: number;
+      maxTokens?: number;
+      [key: string]: any;
+    };
+  };
+}
+
+export type Facet = EventFacet | StateFacet | AmbientFacet | ToolFacet | SpeechFacet | ThoughtFacet | ActionFacet | DefineActionFacet | AgentActivationFacet;
 
 // VEIL Operations
 export interface AddFacetOperation {
@@ -114,17 +141,7 @@ export interface DeleteScopeOperation {
   scope: string;
 }
 
-export interface AgentActivationOperation {
-  type: 'agentActivation';
-  priority?: 'low' | 'normal' | 'high';  // How urgently agent attention is needed
-  source?: string;  // Which element/adapter requested activation
-  reason?: string;  // Why activation was requested
-  config?: {
-    temperature?: number;
-    maxTokens?: number;
-    [key: string]: any;
-  };
-}
+// Note: AgentActivationOperation has been replaced with AgentActivationFacet
 
 export interface AddStreamOperation {
   type: 'addStream';
@@ -153,7 +170,6 @@ export type VEILOperation =
   | ChangeStateOperation 
   | AddScopeOperation 
   | DeleteScopeOperation 
-  | AgentActivationOperation
   | AddStreamOperation
   | UpdateStreamOperation
   | DeleteStreamOperation
@@ -194,23 +210,7 @@ export interface FrameTransition {
   extensions?: Record<string, any>;
 }
 
-export interface ToolCallOperation {
-  type: 'toolCall';
-  toolName: string;
-  parameters: Record<string, any>;
-}
-
-export interface CycleRequestOperation {
-  type: 'cycleRequest';
-  reason?: string;
-  delayMs?: number;
-}
-
-export interface InnerThoughtsOperation {
-  type: 'innerThoughts';
-  content: string;
-}
-
+// Agent-specific operations (these create facets internally)
 export interface SpeakOperation {
   type: 'speak';
   content: string;
@@ -218,21 +218,22 @@ export interface SpeakOperation {
   targets?: string[]; // Optional multiple targets for broadcasting
 }
 
-export interface ActionOperation {
-  type: 'action';
-  path: string[];        // Full path (e.g., ['chat', 'general', 'say'])
-  elementId?: string;    // Optional explicit element identifier
-  action?: string;       // Optional explicit action (fallback when path is split)
-  parameters?: Record<string, any>;  // Named parameters
-  rawSyntax?: string;    // Original @element.method syntax for reference
+export interface ThinkOperation {
+  type: 'think';
+  content: string;
+}
+
+export interface ActOperation {
+  type: 'act';
+  toolName: string;
+  parameters: Record<string, any>;
+  target?: string; // Optional target element
 }
 
 export type OutgoingVEILOperation = 
-  | ToolCallOperation 
-  | ActionOperation
-  | CycleRequestOperation 
-  | InnerThoughtsOperation
-  | SpeakOperation;
+  | SpeakOperation
+  | ThinkOperation
+  | ActOperation;
 
 export interface OutgoingVEILFrame {
   sequence: number;

@@ -16,6 +16,7 @@ import { deterministicUUID } from '../utils/uuid';
 import { Element } from '../spaces/element';
 import type { Component } from '../spaces/component';
 import type { RenderedContext } from '../hud/types-v2';
+import { serializeVEILState } from '../persistence/serialization';
 
 export interface DebugServerConfig {
   enabled: boolean;
@@ -453,7 +454,9 @@ interface SerializedVEILState {
   sequence: number;
 }
 
-function serializeVEILState(stateManager: VEILStateManager): SerializedVEILState {
+// This function is deprecated - it doesn't include frameHistory!
+// Use the proper serializeVEILState from persistence/serialization instead
+function serializeVEILStateSimple(stateManager: VEILStateManager): SerializedVEILState {
   const state = stateManager.getState();
   return {
     facets: Array.from(state.facets.values()).map(facet => ({
@@ -542,7 +545,7 @@ export class DebugServer {
     // Convert VEIL frames to debug frame records
     frameHistory.forEach(frame => {
       const isOutgoing = 'operations' in frame && frame.operations.some(
-        (op: any) => op.type === 'speak' || op.type === 'toolCall' || op.type === 'action'
+        (op: any) => op.type === 'speak' || op.type === 'act' || op.type === 'think'
       );
       
       const record: DebugFrameRecord = {
@@ -580,7 +583,7 @@ export class DebugServer {
     });
 
     const unsubscribe = this.veilState.subscribe(() => {
-      const state = serializeVEILState(this.veilState);
+      const state = serializeVEILState(this.veilState.getState());
       this.broadcast({ type: 'state:changed', payload: state });
     });
     this.subscriptions.push(unsubscribe);
@@ -685,7 +688,7 @@ export class DebugServer {
     this.app.get('/api/state', (_req, res) => {
       res.json({
         space: serializeElement(this.space),
-        veil: serializeVEILState(this.veilState),
+        veil: serializeVEILState(this.veilState.getState()),
         metrics: this.tracker.getMetrics(),
         manualLLMEnabled: this.debugLLMEnabled
       });
@@ -701,7 +704,7 @@ export class DebugServer {
     });
 
     this.app.get('/api/facets', (_req, res) => {
-      res.json(serializeVEILState(this.veilState));
+      res.json(serializeVEILState(this.veilState.getState()));
     });
 
     this.app.post('/api/events', (req, res) => {
@@ -883,7 +886,7 @@ export class DebugServer {
         type: 'hello',
         payload: {
           frames: [], // Let HTTP API handle initial frame loading with proper pagination
-          state: serializeVEILState(this.veilState),
+          state: serializeVEILState(this.veilState.getState()),
           metrics: this.tracker.getMetrics(),
           manualLLMEnabled: this.debugLLMEnabled,
           debugLLMRequests: this.debugLLMEnabled ? debugLLMBridge.getRequests() : []
@@ -953,20 +956,30 @@ export class DebugServer {
     const state = this.veilState.getState();
     const temp = new VEILStateManager();
     const framesToApply = state.frameHistory.filter(frame => frame.sequence <= sequence);
-    // if (sequence === state.currentSequence) {
-    //   console.log('[DebugServer] live facets count', {
-    //     liveSequence: state.currentSequence,
-    //     totalFacets: state.facets.size,
-    //     facetIds: Array.from(state.facets.keys()).slice(0, 10)
-    //   });
-    // }
+    
+    
     let incomingCount = 0;
     let outgoingCount = 0;
+    let facetOpsCount = { add: 0, remove: 0, hide: 0 };
 
     for (const frame of framesToApply) {
-      if ('activeStream' in frame) {
-        temp.applyIncomingFrame(frame as IncomingVEILFrame);
+      // Determine frame type by checking for outgoing operations
+      const isIncoming = !frame.operations.some((op: any) => 
+        op.type === 'speak' || op.type === 'act' || op.type === 'think'
+      );
+      
+      if (isIncoming) {
+        const inFrame = frame as IncomingVEILFrame;
+        temp.applyIncomingFrame(inFrame);
         incomingCount += 1;
+        
+        // Count facet operations in incoming frames
+        if (inFrame.operations) {
+          for (const op of inFrame.operations) {
+            if (op.type === 'addFacet') facetOpsCount.add++;
+            else if (op.type === 'removeFacet') facetOpsCount.remove++;
+          }
+        }
       } else {
         temp.recordOutgoingFrame(frame as OutgoingVEILFrame);
         outgoingCount += 1;
@@ -976,40 +989,18 @@ export class DebugServer {
     let snapshot = temp.getState();
     let facets = Array.from(snapshot.facets.values());
     let facetDescriptions = facets.map(describeFacet);
+    
+    
     if (facetDescriptions.length <= 1) {
       const lastFrame = framesToApply[framesToApply.length - 1];
-      // console.log('[DebugServer] facet snapshot diagnostic', {
-      //   requestSequence: sequence,
-      //   facetsCount: facetDescriptions.length,
-      //   lastFrameKind: 'agent' in (lastFrame as any) ? 'outgoing' : 'incoming',
-      //   lastFrameOperations: (lastFrame as any).operations?.map((op: any) => op.type),
-      //   lastFrameHasFacets: (lastFrame as any).operations?.some((op: any) => op.type === 'addFacet'),
-      //   lastFrameKeys: Object.keys(lastFrame || {})
-      // });
       const liveState = this.veilState.getState();
       const liveFacets = Array.from(liveState.facets.values());
       if (liveFacets.length > facetDescriptions.length) {
-        // console.log('[DebugServer] facet snapshot fallback to live state', {
-        //   requestSequence: sequence,
-        //   snapshotSequence: snapshot.currentSequence,
-        //   liveSequence: liveState.currentSequence,
-        //   liveFacetCount: liveFacets.length
-        // });
         facets = liveFacets;
         snapshot = liveState;
         facetDescriptions = facets.map(describeFacet);
       }
     }
-    // console.log('[DebugServer] buildFacetSnapshot', {
-    //   requestSequence: sequence,
-    //   historyLength: state.frameHistory.length,
-    //   framesApplied: framesToApply.length,
-    //   incomingCount,
-    //   outgoingCount,
-    //   snapshotSequence: snapshot.currentSequence,
-    //   requestedFrameSequence: sequence,
-    //   facets: facetDescriptions
-    // });
     return {
       facets: facets.map(facet => sanitizeFacetTreeNode(facet)),
       sequence: snapshot.currentSequence

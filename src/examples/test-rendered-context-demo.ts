@@ -37,11 +37,15 @@ class TestChatComponent extends VEILComponent {
     });
     
     // Activate agent
-    this.addOperation({
+    this.addFacet({
+      id: 'agent-activation-demo-1',
       type: 'agentActivation',
-      source: 'user',
-      priority: 'high',
-      reason: 'User sent a message'
+      content: 'User sent a message',
+      attributes: {
+        source: 'user',
+        priority: 'high',
+        reason: 'User sent a message'
+      }
     });
   }
 }

@@ -127,10 +127,20 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         }
       },
       {
-        type: "agentActivation",
-        config: {
-          temperature: 0.7,
-          maxTokens: 500
+        type: "addFacet",
+        facet: {
+          id: "agent-activation-1",
+          type: "agentActivation",
+          content: "User message received",
+          attributes: {
+            source: "user",
+            reason: "User initiated conversation",
+            priority: "high",
+            config: {
+              temperature: 0.7,
+              maxTokens: 500
+            }
+          }
         }
       }
     ]
@@ -150,7 +160,7 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         content: "Lieutenant Rodriguez, can you get me more details on that anomaly? Run a deep scan on sector 7-G, focusing on electromagnetic and subspace frequencies."
       },
       {
-        type: "toolCall",
+        type: "act",
         toolName: "perform_deep_scan",
         parameters: {
           target_sector: "7-G",
@@ -216,7 +226,17 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         }
       },
       {
-        type: "agentActivation"
+        type: "addFacet",
+        facet: {
+          id: `agent-activation-${Date.now()}`,
+          type: "agentActivation",
+          content: "Continue conversation",
+          attributes: {
+            source: "system",
+            reason: "Conversation continuation",
+            priority: "normal"
+          }
+        }
       }
     ]
   },
@@ -227,7 +247,7 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
     timestamp: "2024-01-15T10:31:55Z",
     operations: [
       {
-        type: "innerThoughts",
+        type: "think",
         content: "Prime numbers? That's a clear sign of intelligence. This changes everything."
       },
       {
@@ -235,7 +255,7 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         content: "All stop. Lt. Rodriguez, record everything. Commander Chen, can you isolate and clean up that transmission?"
       },
       {
-        type: "toolCall",
+        type: "act",
         toolName: "analyze_transmission",
         parameters: {
           frequency: "0.7Hz",
@@ -247,7 +267,7 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         content: "And open a ship-wide channel."
       },
       {
-        type: "toolCall",
+        type: "act",
         toolName: "ship_comms",
         parameters: {
           channel: "ship_wide",
@@ -314,7 +334,17 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         }
       },
       {
-        type: "agentActivation"
+        type: "addFacet",
+        facet: {
+          id: `agent-activation-${Date.now()}`,
+          type: "agentActivation",
+          content: "Continue conversation",
+          attributes: {
+            source: "system",
+            reason: "Conversation continuation",
+            priority: "normal"
+          }
+        }
       }
     ]
   },
@@ -325,18 +355,15 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
     timestamp: "2024-01-15T10:32:15Z",
     operations: [
       {
-        type: "innerThoughts",
+        type: "think",
         content: "This is what we've been searching for. After nearly a year in deep space, we might have found intelligent life. Need to proceed carefully - this could be automated, ancient, or active. The crew is excited but I need to keep them focused."
       },
       {
         type: "speak",
         content: "Dr. Tanaka, good timing. Look at this pattern - prime numbers broadcast at regular intervals. What's your assessment?"
       },
-      {
-        type: "cycleRequest",
-        reason: "awaiting_crew_analysis",
-        delayMs: 2000
-      }
+      // Note: cycleRequest has been removed. The environment should
+      // decide when to activate agents based on the conversation flow.
     ]
   } as OutgoingVEILFrame,
 
@@ -346,11 +373,11 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
     timestamp: "2024-01-15T10:32:20Z",
     operations: [
       {
-        type: "innerThoughts",
+        type: "think",
         content: "I should record this in my personal log. This could be a historic moment."
       },
       {
-        type: "toolCall",
+        type: "act",
         toolName: "open_personal_log",
         parameters: {
           classification: "Captain's Eyes Only"

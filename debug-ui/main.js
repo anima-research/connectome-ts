@@ -34,6 +34,71 @@ function cloneFacetsTree(tree) {
   return JSON.parse(JSON.stringify(tree));
 }
 
+const ACTION_SNIPPET_REGEX = /@[a-zA-Z0-9_.-]+(?:\([^@\n]*?\))?/g;
+
+function extractActionSnippets(facets) {
+  if (!Array.isArray(facets) || facets.length === 0) {
+    return [];
+  }
+
+  const snippets = new Map();
+
+  const addSnippet = (snippet, facet) => {
+    if (!snippet) return;
+    const normalized = snippet.trim();
+    if (!normalized) return;
+    if (snippets.has(normalized)) return;
+    snippets.set(normalized, {
+      text: normalized,
+      source: facet.displayName || facet.id || facet.type || null,
+      facetId: facet.id || null,
+      facetType: facet.type || null
+    });
+  };
+
+  const scanValue = (value, facet) => {
+    if (value === null || value === undefined) {
+      return;
+    }
+    if (typeof value === 'string') {
+      let match;
+      while ((match = ACTION_SNIPPET_REGEX.exec(value)) !== null) {
+        addSnippet(match[0], facet);
+      }
+    } else if (Array.isArray(value)) {
+      for (const item of value) {
+        scanValue(item, facet);
+      }
+    } else if (typeof value === 'object') {
+      for (const key of Object.keys(value)) {
+        scanValue(value[key], facet);
+      }
+    }
+  };
+
+  const walkFacet = facet => {
+    if (!facet || typeof facet !== 'object') {
+      return;
+    }
+    scanValue(facet.content, facet);
+    scanValue(facet.displayName, facet);
+    scanValue(facet.attributes, facet);
+    scanValue(facet.scope, facet);
+    scanValue(facet.saliency, facet);
+    if (Array.isArray(facet.children)) {
+      for (const child of facet.children) {
+        walkFacet(child);
+      }
+    }
+  };
+
+  for (const facet of facets) {
+    walkFacet(facet);
+  }
+
+  return Array.from(snippets.values());
+}
+
 const DEBUG_LOGGING = true;
 
 function debugLog(...args) {
@@ -667,7 +732,14 @@ const App = {
       llmResponseDrafts: {},
       llmModelOverrides: {},
       llmSubmitting: false,
-      llmSubmitError: null
+      llmSubmitError: null,
+      panelCollapsed: {
+        llm: false,
+        timeline: false,
+        frameDetail: false,
+        elementTree: false,
+        inspector: false
+      }
     });
 
     const socketRef = ref(null);
@@ -1592,6 +1664,31 @@ const App = {
       return state.debugLLMRequests.find(request => request.id === state.selectedLLMRequestId) || null;
     });
 
+    function insertActionSnippet(snippet) {
+      if (!snippet) return;
+      const request = selectedLLMRequest.value;
+      if (!request) return;
+      const requestId = request.id;
+      const current = state.llmResponseDrafts[requestId] ?? '';
+      const needsLeadingNewline = current && !current.endsWith('\n') ? '\n' : '';
+      const snippetText = snippet.endsWith('\n') ? snippet : `${snippet}\n`;
+      state.llmResponseDrafts[requestId] = `${current}${needsLeadingNewline}${snippetText}`;
+    }
+
+    function onActionSelect(event) {
+      const value = event?.target?.value;
+      if (!value) return;
+      insertActionSnippet(value);
+      event.target.value = '';
+    }
+
+    function togglePanel(panel) {
+      if (!state.panelCollapsed || !(panel in state.panelCollapsed)) {
+        return;
+      }
+      state.panelCollapsed[panel] = !state.panelCollapsed[panel];
+    }
+
     const filteredFrames = computed(() => {
       const query = state.filters.search.trim().toLowerCase();
       const source = state.frames || [];
@@ -1708,6 +1805,18 @@ const App = {
       return { turns, reversed };
     });
 
+    const availableActions = computed(() => {
+      if (!state.frameFacets || state.frameFacets.length === 0) {
+        return [];
+      }
+      const snippets = extractActionSnippets(state.frameFacets);
+      if (!snippets.length) {
+        return [];
+      }
+      const sorted = [...snippets].sort((a, b) => a.text.localeCompare(b.text));
+      return sorted.slice(0, 30);
+    });
+
     function getTurnLabel(turnType, counter) {
       switch (turnType) {
         case 'agent-speech': return `🗣️ Agent Turn ${counter}`;
@@ -1735,6 +1844,7 @@ const App = {
       selectedEvent,
       timelineFrames,
       processedVeilFacets,
+      availableActions,
       formatTime,
       formatTimestamp,
       shorten,
@@ -1751,6 +1861,9 @@ const App = {
       selectOperation,
       selectEvent,
       selectLLMRequest,
+      insertActionSnippet,
+      onActionSelect,
+      togglePanel,
       submitLLMResponse,
       closeDetail,
       toggleExpandAll,
@@ -1890,12 +2003,29 @@ const App = {
         </aside>
         <div class="splitter splitter-left" @mousedown="startSidebarResize"></div>
         <section class="content-area">
-          <section class="panel llm-panel" v-if="state.debugLLMEnabled">
+          <section
+            class="panel llm-panel"
+            v-if="state.debugLLMEnabled"
+            :class="{ 'panel-collapsed': state.panelCollapsed.llm }"
+          >
             <div class="panel-header">
-              <h2>Manual LLM Completions</h2>
-              <span class="badge" v-if="pendingLLMRequests.length">{{ pendingLLMRequests.length }} pending</span>
+              <div class="panel-header-title">
+                <button
+                  class="panel-toggle"
+                  type="button"
+                  :aria-expanded="!state.panelCollapsed.llm"
+                  :title="state.panelCollapsed.llm ? 'Expand panel' : 'Collapse panel'"
+                  @click="togglePanel('llm')"
+                >
+                  {{ state.panelCollapsed.llm ? '▸' : '▾' }}
+                </button>
+                <h2>Manual LLM Completions</h2>
+              </div>
+              <div class="panel-header-actions" v-if="pendingLLMRequests.length">
+                <span class="badge">{{ pendingLLMRequests.length }} pending</span>
+              </div>
             </div>
-            <div class="llm-body">
+            <div class="llm-body" v-show="!state.panelCollapsed.llm">
               <div class="llm-request-list">
                 <div
                   v-for="request in state.debugLLMRequests"
@@ -1938,6 +2068,29 @@ const App = {
                   </div>
                 </div>
                 <div v-if="selectedLLMRequest.status === 'pending'" class="llm-response-editor">
+                  <div class="llm-action-bar" v-if="availableActions.length">
+                    <label
+                      class="llm-action-label"
+                      :for="'llm-actions-' + selectedLLMRequest.id"
+                    >
+                      Registered Actions
+                    </label>
+                    <select
+                      class="llm-action-select"
+                      :id="'llm-actions-' + selectedLLMRequest.id"
+                      @change="onActionSelect"
+                    >
+                      <option value="">Insert action…</option>
+                      <option
+                        v-for="action in availableActions"
+                        :key="action.text"
+                        :value="action.text"
+                        :title="action.source ? 'Facet: ' + action.source : 'Insert action snippet'"
+                      >
+                        {{ action.text }}
+                      </option>
+                    </select>
+                  </div>
                   <textarea
                     class="llm-textarea"
                     v-model="state.llmResponseDrafts[selectedLLMRequest.id]"
@@ -1975,12 +2128,29 @@ const App = {
               </div>
             </div>
           </section>
-          <section class="panel timeline-panel" v-if="timelineFrames.length">
+          <section
+            class="panel timeline-panel"
+            v-if="timelineFrames.length"
+            :class="{ 'panel-collapsed': state.panelCollapsed.timeline }"
+          >
             <div class="panel-header">
-              <h2>Frame Timeline</h2>
-              <span class="badge">Newest {{ timelineFrames.length }}</span>
+              <div class="panel-header-title">
+                <button
+                  class="panel-toggle"
+                  type="button"
+                  :aria-expanded="!state.panelCollapsed.timeline"
+                  :title="state.panelCollapsed.timeline ? 'Expand panel' : 'Collapse panel'"
+                  @click="togglePanel('timeline')"
+                >
+                  {{ state.panelCollapsed.timeline ? '▸' : '▾' }}
+                </button>
+                <h2>Frame Timeline</h2>
+              </div>
+              <div class="panel-header-actions">
+                <span class="badge">Newest {{ timelineFrames.length }}</span>
+              </div>
             </div>
-            <div class="timeline-body">
+            <div class="timeline-body" v-show="!state.panelCollapsed.timeline">
               <div
                 v-for="frame in timelineFrames"
                 :key="frame.uuid"
@@ -1992,152 +2162,205 @@ const App = {
               </div>
             </div>
           </section>
-          <section class="panel frame-detail" v-if="selectedFrame">
+          <section
+            class="panel frame-detail"
+            :class="{ 'panel-collapsed': state.panelCollapsed.frameDetail }"
+          >
             <div class="panel-header frame-header">
-              <h2>Frame {{ selectedFrame.sequence }}</h2>
-              <button class="button button--small" @click="inspectFrame" title="Inspect full frame" style="margin-left: auto;">
-                🔍
-              </button>
-              <div class="frame-meta">
-                <span class="meta-pill">UUID: {{ shorten(selectedFrame.uuid, 18) }}</span>
-                <span class="meta-pill">{{ formatTimestamp(selectedFrame.timestamp) }}</span>
-                <span class="meta-pill kind" :class="selectedFrame.kind">{{ selectedFrame.kind }}</span>
-                <span class="meta-pill" v-if="state.frameFacetsSequence != null">VEIL seq {{ state.frameFacetsSequence }}</span>
-                <span
-                  class="meta-pill"
-                  v-if="selectedFrame.activeStream"
+              <div class="panel-header-title">
+                <button
+                  class="panel-toggle"
+                  type="button"
+                  :aria-expanded="!state.panelCollapsed.frameDetail"
+                  :title="state.panelCollapsed.frameDetail ? 'Expand panel' : 'Collapse panel'"
+                  @click="togglePanel('frameDetail')"
                 >
-                  Stream: {{ shorten(selectedFrame.activeStream.streamId, 18) }}
-                </span>
-                <span
-                  class="meta-pill"
-                  v-if="selectedFrame.agent"
+                  {{ state.panelCollapsed.frameDetail ? '▸' : '▾' }}
+                </button>
+                <h2 v-if="selectedFrame">Frame {{ selectedFrame.sequence }}</h2>
+                <h2 v-else>Frame Details</h2>
+              </div>
+              <div class="panel-header-actions frame-header-actions">
+                <button
+                  class="button button--small"
+                  v-if="selectedFrame"
+                  @click="inspectFrame"
+                  title="Inspect full frame"
                 >
-                  Agent: {{ shorten(selectedFrame.agent.name || selectedFrame.agent.id, 18) }}
-                </span>
-              </div>
-            </div>
-            <div class="section" v-if="selectedFrame.renderedContext">
-              <h3>Rendered Context</h3>
-              <div class="section-body message-list">
-                <div
-                  class="message-card"
-                  v-for="(msg, idx) in selectedFrame.renderedContext.messages"
-                  :key="idx"
-                >
-                  <div class="role">{{ msg.role }}</div>
-                  <pre>{{ msg.content }}</pre>
-                </div>
-                <div class="message-card" v-if="selectedFrame.renderedContext.metadata">
-                  <div class="role">metadata</div>
-                  <div style="padding: 8px;">
-                    <json-viewer :data="selectedFrame.renderedContext.metadata" :expandAll="state.jsonExpandAll" />
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="section" v-if="selectedFrame.renderedContext">
-              <h3>LLM Request JSON</h3>
-              <div class="section-body">
-                <json-viewer :data="selectedFrame.renderedContext" :expandAll="state.jsonExpandAll" />
-              </div>
-            </div>
-            <div class="section">
-              <h3>Operations</h3>
-              <div class="log-viewer operations">
-                <div v-if="!selectedFrame.operations?.length" class="text-muted">No operations.</div>
-                <template v-for="(op, idx) in selectedFrame.operations" :key="idx">
-                  <div v-if="op.type === 'addFacet' && op.facet" class="log-entry facet-entry">
-                    <div class="facet-header" @click="selectOperation(op, idx)">
-                      <span class="log-type">{{ op.type }}</span>
-                      <span class="log-meta" v-if="operationMeta(op)">{{ operationMeta(op) }}</span>
-                    </div>
-                    <inline-facet-tree
-                      :facet="op.facet"
-                      :depth="0"
-                      @show-detail="handleTreeDetail"
-                    />
-                  </div>
-                  <div v-else class="log-entry" @click="selectOperation(op, idx)">
-                    <span class="log-type">{{ op.type }}</span>
-                    <span class="log-content">
-                      <template v-if="op.type === 'speak'">
-                        <span class="log-speak">{{ truncate(op.content, 120) }}</span>
-                        <span class="log-meta" v-if="op.target"> → {{ op.target }}</span>
-                      </template>
-                      <template v-else-if="op.type === 'changeState'">
-                        <span v-if="op.updates?.content" class="log-state">content: {{ truncate(op.updates.content, 80) }}</span>
-                        <span v-else-if="op.updates?.attributes" class="log-state">
-                          {{ Object.keys(op.updates.attributes).join(', ') }}
-                        </span>
-                      </template>
-                      <template v-else-if="op.type === 'action'">
-                        <span class="log-action">{{ (op.path || []).join('.') }}</span>
-                      </template>
-                      <template v-else>
-                        <span class="log-raw">{{ truncate(stringify(op), 100) }}</span>
-                      </template>
-                    </span>
-                    <span class="log-meta" v-if="operationMeta(op)">{{ operationMeta(op) }}</span>
-                  </div>
-                </template>
-              </div>
-            </div>
-            <div class="section">
-              <h3>Events</h3>
-              <div class="log-viewer events">
-                <div v-if="!selectedFrame.events?.length" class="text-muted">No events observed for this frame.</div>
-                <div
-                  v-for="(event, idx) in selectedFrame.events"
-                  :key="event.id || idx"
-                  class="log-entry"
-                  @click="selectEvent(event, idx)"
-                >
-                  <span class="log-timestamp">{{ formatTimestamp(event.timestamp).split(' ')[1] }}</span>
-                  <span class="log-type">{{ event.topic }}</span>
-                  <span class="log-content">
-                    <span v-if="event.phase && event.phase !== 'none'" class="log-phase">[{{ event.phase }}]</span>
-                    <span v-if="event.target" class="log-target">{{ event.target.elementPath?.join('/') || event.target.elementId }}</span>
-                    <span v-if="event.payload" class="log-payload">{{ truncate(stringify(event.payload), 80) }}</span>
+                  🔍
+                </button>
+                <div class="frame-meta" v-if="selectedFrame">
+                  <span class="meta-pill">UUID: {{ shorten(selectedFrame.uuid, 18) }}</span>
+                  <span class="meta-pill">{{ formatTimestamp(selectedFrame.timestamp) }}</span>
+                  <span class="meta-pill kind" :class="selectedFrame.kind">{{ selectedFrame.kind }}</span>
+                  <span class="meta-pill" v-if="state.frameFacetsSequence != null">VEIL seq {{ state.frameFacetsSequence }}</span>
+                  <span
+                    class="meta-pill"
+                    v-if="selectedFrame.activeStream"
+                  >
+                    Stream: {{ shorten(selectedFrame.activeStream.streamId, 18) }}
                   </span>
-                  <span class="log-meta" v-if="eventMeta(event)">{{ eventMeta(event) }}</span>
+                  <span
+                    class="meta-pill"
+                    v-if="selectedFrame.agent"
+                  >
+                    Agent: {{ shorten(selectedFrame.agent.name || selectedFrame.agent.id, 18) }}
+                  </span>
                 </div>
               </div>
             </div>
+            <div class="frame-detail-body" v-show="!state.panelCollapsed.frameDetail">
+              <template v-if="selectedFrame">
+                <div class="section" v-if="selectedFrame.renderedContext">
+                  <h3>Rendered Context</h3>
+                  <div class="section-body message-list">
+                    <div
+                      class="message-card"
+                      v-for="(msg, idx) in selectedFrame.renderedContext.messages"
+                      :key="idx"
+                    >
+                      <div class="role">{{ msg.role }}</div>
+                      <pre>{{ msg.content }}</pre>
+                    </div>
+                    <div class="message-card" v-if="selectedFrame.renderedContext.metadata">
+                      <div class="role">metadata</div>
+                      <div style="padding: 8px;">
+                        <json-viewer :data="selectedFrame.renderedContext.metadata" :expandAll="state.jsonExpandAll" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="section" v-if="selectedFrame.renderedContext">
+                  <h3>LLM Request JSON</h3>
+                  <div class="section-body">
+                    <json-viewer :data="selectedFrame.renderedContext" :expandAll="state.jsonExpandAll" />
+                  </div>
+                </div>
+                <div class="section">
+                  <h3>Operations</h3>
+                  <div class="log-viewer operations">
+                    <div v-if="!selectedFrame.operations?.length" class="text-muted">No operations.</div>
+                    <template v-for="(op, idx) in selectedFrame.operations" :key="idx">
+                      <div v-if="op.type === 'addFacet' && op.facet" class="log-entry facet-entry">
+                        <div class="facet-header" @click="selectOperation(op, idx)">
+                          <span class="log-type">{{ op.type }}</span>
+                          <span class="log-meta" v-if="operationMeta(op)">{{ operationMeta(op) }}</span>
+                        </div>
+                        <inline-facet-tree
+                          :facet="op.facet"
+                          :depth="0"
+                          @show-detail="handleTreeDetail"
+                        />
+                      </div>
+                      <div v-else class="log-entry" @click="selectOperation(op, idx)">
+                        <span class="log-type">{{ op.type }}</span>
+                        <span class="log-content">
+                          <template v-if="op.type === 'speak'">
+                            <span class="log-speak">{{ truncate(op.content, 120) }}</span>
+                            <span class="log-meta" v-if="op.target"> → {{ op.target }}</span>
+                          </template>
+                          <template v-else-if="op.type === 'changeState'">
+                            <span v-if="op.updates?.content" class="log-state">content: {{ truncate(op.updates.content, 80) }}</span>
+                            <span v-else-if="op.updates?.attributes" class="log-state">
+                              {{ Object.keys(op.updates.attributes).join(', ') }}
+                            </span>
+                          </template>
+                          <template v-else-if="op.type === 'action'">
+                            <span class="log-action">{{ (op.path || []).join('.') }}</span>
+                          </template>
+                          <template v-else>
+                            <span class="log-raw">{{ truncate(stringify(op), 100) }}</span>
+                          </template>
+                        </span>
+                        <span class="log-meta" v-if="operationMeta(op)">{{ operationMeta(op) }}</span>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+                <div class="section">
+                  <h3>Events</h3>
+                  <div class="log-viewer events">
+                    <div v-if="!selectedFrame.events?.length" class="text-muted">No events observed for this frame.</div>
+                    <div
+                      v-for="(event, idx) in selectedFrame.events"
+                      :key="event.id || idx"
+                      class="log-entry"
+                      @click="selectEvent(event, idx)"
+                    >
+                      <span class="log-timestamp">{{ formatTimestamp(event.timestamp).split(' ')[1] }}</span>
+                      <span class="log-type">{{ event.topic }}</span>
+                      <span class="log-content">
+                        <span v-if="event.phase && event.phase !== 'none'" class="log-phase">[{{ event.phase }}]</span>
+                        <span v-if="event.target" class="log-target">{{ event.target.elementPath?.join('/') || event.target.elementId }}</span>
+                        <span v-if="event.payload" class="log-payload">{{ truncate(stringify(event.payload), 80) }}</span>
+                      </span>
+                      <span class="log-meta" v-if="eventMeta(event)">{{ eventMeta(event) }}</span>
+                    </div>
+                  </div>
+                </div>
+              </template>
+              <div v-else class="section-body text-muted">
+                Select a frame from the left to inspect operations and rendered context.
+              </div>
+            </div>
           </section>
-          <section v-else class="panel frame-detail">
+          <section
+            class="panel element-tree"
+            :class="{ 'panel-collapsed': state.panelCollapsed.elementTree }"
+          >
             <div class="panel-header">
-              <h2>Frame Details</h2>
+              <div class="panel-header-title">
+                <button
+                  class="panel-toggle"
+                  type="button"
+                  :aria-expanded="!state.panelCollapsed.elementTree"
+                  :title="state.panelCollapsed.elementTree ? 'Expand panel' : 'Collapse panel'"
+                  @click="togglePanel('elementTree')"
+                >
+                  {{ state.panelCollapsed.elementTree ? '▸' : '▾' }}
+                </button>
+                <h2>Element Tree</h2>
+              </div>
+              <div class="panel-header-actions" v-if="state.elementTree">
+                <button class="button button--small" @click="inspectElementTree" title="Inspect full tree">
+                  🔍
+                </button>
+              </div>
             </div>
-            <div class="section-body text-muted">
-              Select a frame from the left to inspect operations and rendered context.
+            <div class="element-tree-body" v-show="!state.panelCollapsed.elementTree">
+              <ul v-if="state.elementTree" class="tree-view">
+                <element-tree
+                  :node="state.elementTree"
+                  :depth="0"
+                  :expanded="expandedElements"
+                  @toggle="toggleElement"
+                  @show-detail="handleTreeDetail"
+                />
+              </ul>
+              <div v-else class="text-muted">Tree not available yet.</div>
             </div>
-          </section>
-          <section class="panel element-tree">
-            <div class="panel-header">
-              <h2>Element Tree</h2>
-              <button class="button button--small" @click="inspectElementTree" v-if="state.elementTree" title="Inspect full tree" style="margin-left: auto;">
-                🔍
-              </button>
-            </div>
-            <ul v-if="state.elementTree" class="tree-view">
-              <element-tree
-                :node="state.elementTree"
-                :depth="0"
-                :expanded="expandedElements"
-                @toggle="toggleElement"
-                @show-detail="handleTreeDetail"
-              />
-            </ul>
-            <div v-else class="text-muted">Tree not available yet.</div>
           </section>
         </section>
         <div class="splitter splitter-right" @mousedown="startInspectorResize"></div>
         <aside class="inspector" :class="{ 'inspector-visible': state.activeDetail }">
-          <section class="panel inspector-panel">
+          <section
+            class="panel inspector-panel"
+            :class="{ 'panel-collapsed': state.panelCollapsed.inspector }"
+          >
             <div class="panel-header inspector-header">
-              <h2>Inspector</h2>
-              <div class="header-actions" v-if="state.activeDetail">
+              <div class="panel-header-title">
+                <button
+                  class="panel-toggle"
+                  type="button"
+                  :aria-expanded="!state.panelCollapsed.inspector"
+                  :title="state.panelCollapsed.inspector ? 'Expand panel' : 'Collapse panel'"
+                  @click="togglePanel('inspector')"
+                >
+                  {{ state.panelCollapsed.inspector ? '▸' : '▾' }}
+                </button>
+                <h2>Inspector</h2>
+              </div>
+              <div class="panel-header-actions header-actions" v-if="state.activeDetail">
                 <button class="button button--small" @click="toggleExpandAll" :title="state.jsonExpandAll ? 'Collapse All' : 'Expand All'">
                   {{ state.jsonExpandAll ? '📁' : '📂' }} {{ state.jsonExpandAll ? 'Collapse' : 'Expand' }}
                 </button>
@@ -2147,15 +2370,17 @@ const App = {
                 <button class="button" @click="closeDetail">Close</button>
               </div>
             </div>
-            <div v-if="state.activeDetail" class="inspector-body">
-              <div class="inspector-title">{{ state.activeDetail.title }}</div>
-              <div v-if="state.activeDetail.subtitle" class="inspector-subtitle">{{ state.activeDetail.subtitle }}</div>
-              <div class="inspector-json">
-                <json-viewer :data="state.activeDetail.payload ?? state.activeDetail" :expandAll="state.jsonExpandAll" />
+            <div class="inspector-content" v-show="!state.panelCollapsed.inspector">
+              <div v-if="state.activeDetail" class="inspector-body">
+                <div class="inspector-title">{{ state.activeDetail.title }}</div>
+                <div v-if="state.activeDetail.subtitle" class="inspector-subtitle">{{ state.activeDetail.subtitle }}</div>
+                <div class="inspector-json">
+                  <json-viewer :data="state.activeDetail.payload ?? state.activeDetail" :expandAll="state.jsonExpandAll" />
+                </div>
               </div>
-            </div>
-            <div v-else class="inspector-placeholder">
-              Select an operation, event, or element to inspect.
+              <div v-else class="inspector-placeholder">
+                Select an operation, event, or element to inspect.
+              </div>
             </div>
           </section>
         </aside>
