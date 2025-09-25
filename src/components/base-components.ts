@@ -16,6 +16,21 @@ export abstract class VEILComponent extends Component {
    * Add an operation to the current frame
    */
   protected addOperation(operation: VEILOperation): void {
+    // Validate operation type
+    const validOperations = ['addFacet', 'changeState', 'addScope', 'deleteScope', 'addStream', 'updateStream', 'deleteStream', 'removeFacet'];
+    if (!validOperations.includes(operation.type)) {
+      console.warn(`[Component] Warning: Unsupported operation type "${operation.type}". Valid operations are: ${validOperations.join(', ')}`);
+      // Legacy operation types that should be updated
+      if (['agentActivation', 'toolCall', 'innerThoughts', 'cycleRequest'].includes(operation.type as any)) {
+        console.warn(`[Component] "${operation.type}" is no longer an operation. Use the new VEIL model:`);
+        console.warn(`  - agentActivation: Use addFacet with type='agentActivation'`);
+        console.warn(`  - toolCall: Use 'act' operation (for agents only)`);
+        console.warn(`  - innerThoughts: Use 'think' operation (for agents only)`);
+        console.warn(`  - cycleRequest: Has been removed - use components/actions instead`);
+      }
+      return;
+    }
+    
     const space = this.element?.space as Space | undefined;
     if (!space) {
       // Element not yet attached to space - defer operation
@@ -210,10 +225,41 @@ export abstract class VEILComponent extends Component {
           children: facetDef.children
         };
         break;
+      case 'defineAction':
+        if (!facetDef.displayName) {
+          throw new Error('DefineAction facets require displayName');
+        }
+        // DefineAction facets require specific attributes
+        if (!facetDef.attributes || !('agentGenerated' in facetDef.attributes) || 
+            !('toolName' in facetDef.attributes) || !('parameters' in facetDef.attributes)) {
+          throw new Error('DefineAction facets require attributes with agentGenerated, toolName, and parameters');
+        }
+        facet = {
+          id: facetDef.id,
+          type: 'defineAction',
+          displayName: facetDef.displayName,
+          content: facetDef.content,
+          attributes: facetDef.attributes as any,
+          children: facetDef.children
+        };
+        break;
+      case 'agentActivation':
+        if (!facetDef.attributes || !('source' in facetDef.attributes) || 
+            !('priority' in facetDef.attributes) || !('reason' in facetDef.attributes)) {
+          throw new Error('AgentActivation facets require attributes with source, priority, and reason');
+        }
+        facet = {
+          id: facetDef.id,
+          type: 'agentActivation',
+          content: facetDef.content,
+          attributes: facetDef.attributes as any,
+          children: facetDef.children
+        };
+        break;
       default:
         // This should never happen with TypeScript's type checking,
         // but we'll add it for runtime safety
-        throw new Error(`Invalid facet type: ${(facetDef as any).type}. Must be one of: event, state, ambient, tool, speech, thought, action`);
+        throw new Error(`Invalid facet type: ${(facetDef as any).type}. Must be one of: event, state, ambient, tool, speech, thought, action, defineAction, agentActivation`);
     }
     
     this.addOperation({

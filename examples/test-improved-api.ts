@@ -103,9 +103,17 @@ async function main() {
         const frame = (this.element as Space).getCurrentFrame();
         if (frame) {
           frame.operations.push({
-            type: 'agentActivation',
-            source: 'demo:console',
-            reason: 'demo'
+            type: 'addFacet',
+            facet: {
+              id: `agent-activation-${Date.now()}`,
+              type: 'agentActivation',
+              content: 'Demo activation',
+              attributes: {
+                source: 'demo:console',
+                reason: 'demo',
+                priority: 'normal'
+              }
+            }
           });
           frame.activeStream = {
             streamId: 'console:main',

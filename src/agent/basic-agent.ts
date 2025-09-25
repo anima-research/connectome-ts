@@ -15,10 +15,8 @@ import {
   IncomingVEILFrame, 
   OutgoingVEILFrame, 
   OutgoingVEILOperation,
-  AgentActivationOperation,
   VEILState,
-  StreamRef,
-  ActionOperation
+  StreamRef
 } from '../veil/types';
 import { RenderedContext } from '../hud/types-v2';
 import { FrameTrackingHUD } from '../hud/frame-tracking-hud';
@@ -38,8 +36,7 @@ export class BasicAgent implements AgentInterface {
   private state: AgentState = {
     sleeping: false,
     ignoringSources: new Set(),
-    attentionThreshold: 0.5,
-    pendingActivations: []
+    attentionThreshold: 0.5
   };
   
   private config: AgentConfig;
@@ -86,14 +83,21 @@ export class BasicAgent implements AgentInterface {
       }
     });
     
-    // Look for activation operations
-    const activations = frame.operations
-      .filter(op => op.type === 'agentActivation') as AgentActivationOperation[];
+    // Look for activation facets in the state
+    const activationFacets = Array.from(state.facets.values())
+      .filter(facet => facet.type === 'agentActivation');
     
-    if (activations.length === 0) return undefined;
+    if (activationFacets.length === 0) return undefined;
     
-    // Check each activation
-    for (const activation of activations) {
+    // Check each activation facet
+    for (const facet of activationFacets) {
+      const activation = facet.attributes as any;
+      
+      // Skip if this targets a different agent
+      if (activation.targetAgent && activation.targetAgent !== this.config.name) {
+        continue;
+      }
+      
       if (this.shouldActivate(activation, state)) {
         try {
           // Build context
@@ -105,6 +109,13 @@ export class BasicAgent implements AgentInterface {
           // Attach rendered context to the response for debug purposes
           if (response) {
             (response as any).renderedContext = context;
+            
+            // Prepend operation to remove the activation facet
+            response.operations.unshift({
+              type: 'removeFacet',
+              facetId: facet.id,
+              mode: 'delete'
+            } as any);
           }
           
           // Return the response frame without recording or processing
@@ -114,26 +125,15 @@ export class BasicAgent implements AgentInterface {
           console.error('Agent cycle error:', error);
         }
       } else if (this.state.sleeping) {
-        // Store activation for when we wake up - only keep latest per source
-        const source = activation.source || 'unknown';
-        const existingIndex = this.state.pendingActivations?.findIndex(
-          a => (a.source || 'unknown') === source
-        );
-        
-        if (existingIndex !== undefined && existingIndex >= 0) {
-          // Replace existing activation from same source
-          this.state.pendingActivations![existingIndex] = activation;
-        } else {
-          // Add new activation
-          this.state.pendingActivations?.push(activation);
-        }
+        // Can't store facets for later - they're in the state, not pending
+        // The facet will remain in state until removed
       }
     }
     
     return undefined;
   }
   
-  shouldActivate(activation: AgentActivationOperation, state: VEILState): boolean {
+  shouldActivate(activation: any, state: VEILState): boolean {
     // Check if sleeping
     if (this.state.sleeping) {
       // Don't activate when sleeping unless explicitly woken
@@ -330,11 +330,13 @@ export class BasicAgent implements AgentInterface {
         }
       }
       
+      // Convert element action to act operation
+      // Path like ['dispenser', 'dispense'] becomes toolName 'dispenser.dispense'
       operations.push({
-        type: 'action',
-        path: pathParts,
-        parameters: Object.keys(parameters).length > 0 ? parameters : undefined,
-        rawSyntax: actionMatch[0]
+        type: 'act',
+        toolName: pathParts.join('.'),
+        parameters: Object.keys(parameters).length > 0 ? parameters : {},
+        target: pathParts[0] // First part is the element
       });
     }
     
@@ -343,7 +345,7 @@ export class BasicAgent implements AgentInterface {
     let thoughtMatch;
     while ((thoughtMatch = thoughtRegex.exec(turnContent)) !== null) {
       operations.push({
-        type: 'innerThoughts',
+        type: 'think',
         content: thoughtMatch[1].trim()
       });
     }
@@ -364,7 +366,7 @@ export class BasicAgent implements AgentInterface {
       }
       
       operations.push({
-        type: 'toolCall',
+        type: 'act',
         toolName,
         parameters: params
       });
@@ -418,12 +420,8 @@ export class BasicAgent implements AgentInterface {
         
       case 'wake':
         this.state.sleeping = false;
-        // Check if we have pending activations
-        if (this.state.pendingActivations && this.state.pendingActivations.length > 0) {
-          // Count unique sources
-          const uniqueSources = new Set(this.state.pendingActivations.map(a => a.source || 'unknown'));
-          console.log(`[Agent] Waking up with ${this.state.pendingActivations.length} pending activation(s) from ${uniqueSources.size} source(s)`);
-        }
+        // Activation facets persist in state and will be processed when awake
+        console.log(`[Agent] Waking up`);
         break;
         
       case 'ignore':
@@ -526,8 +524,7 @@ export class BasicAgent implements AgentInterface {
     return {
       sleeping: this.state.sleeping,
       ignoringSources: new Set(this.state.ignoringSources),
-      attentionThreshold: this.state.attentionThreshold,
-      pendingActivations: this.state.pendingActivations ? [...this.state.pendingActivations] : []
+      attentionThreshold: this.state.attentionThreshold
     };
   }
   
@@ -565,31 +562,14 @@ export class BasicAgent implements AgentInterface {
   
   /**
    * Check if there are pending activations that should be processed
+   * @deprecated Activation facets remain in state until processed
    */
   hasPendingActivations(): boolean {
-    return !this.state.sleeping && 
-           this.state.pendingActivations !== undefined && 
-           this.state.pendingActivations.length > 0;
-  }
-  
-  /**
-   * Get and clear the first pending activation
-   */
-  popPendingActivation(): AgentActivationOperation | undefined {
-    if (!this.hasPendingActivations()) return undefined;
-    return this.state.pendingActivations?.shift();
+    return false;
   }
   
   private buildContext(state: VEILState, streamRef?: StreamRef): RenderedContext {
-    // Count pending activations by source
-    const pendingBySources = new Map<string, number>();
-    if (this.state.pendingActivations) {
-      for (const activation of this.state.pendingActivations) {
-        const source = activation.source || 'unknown';
-        const count = pendingBySources.get(source) || 0;
-        pendingBySources.set(source, count + 1);
-      }
-    }
+    // Note: Pending activations removed - activation facets remain in state
     
     // Render using HUD
     return this.hud.render(
@@ -600,10 +580,6 @@ export class BasicAgent implements AgentInterface {
         systemPrompt: this.config.systemPrompt,
         maxTokens: this.config.contextTokenBudget || 4000,  // Context window budget, not generation limit
         metadata: {
-          pendingActivations: pendingBySources.size > 0 ? {
-            count: this.state.pendingActivations?.length || 0,
-            sources: Array.from(pendingBySources.keys())
-          } : undefined
         },
         formatConfig: {
           assistant: {

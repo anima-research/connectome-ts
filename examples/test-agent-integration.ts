@@ -8,7 +8,6 @@ import { BasicAgent, AgentComponent, ToolDefinition } from '../src/agent';
 import { MockLLMProvider } from '../src/llm/mock-llm-provider';
 import { Component } from '../src/spaces/component';
 import { SpaceEvent } from '../src/spaces/types';
-import { AgentActivationOperation } from '../src/veil/types';
 
 /**
  * Discord-like adapter that generates messages
@@ -77,10 +76,18 @@ class DiscordAdapterComponent extends Component {
       
       // Request agent activation
       frame.operations.push({
-        type: 'agentActivation',
-        source: this.element.getRef().elementId,
-        priority: 'normal'
-      } as AgentActivationOperation);
+        type: 'addFacet',
+        facet: {
+          id: `agent-activation-${Date.now()}-1`,
+          type: 'agentActivation',
+          content: 'User sent initial message',
+          attributes: {
+            source: this.element.getRef().elementId,
+            priority: 'normal',
+            reason: 'User sent initial message'
+          }
+        }
+      });
       
       console.log(`[Discord] Added ${frame.operations.length} operations to frame`);
     } else {
@@ -135,10 +142,18 @@ class DiscordAdapterComponent extends Component {
         
         // Request agent activation
         frame.operations.push({
-          type: 'agentActivation',
-          source: this.element.getRef().elementId,
-          priority: 'normal'
-        } as AgentActivationOperation);
+          type: 'addFacet',
+          facet: {
+            id: `agent-activation-${Date.now()}-2`,
+            type: 'agentActivation',
+            content: 'Waiting user input received',
+            attributes: {
+              source: this.element.getRef().elementId,
+              priority: 'normal',
+              reason: 'Waiting user input received'
+            }
+          }
+        });
         
         console.log(`[Discord] Added ${frame.operations.length} operations to frame`);
         

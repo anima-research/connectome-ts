@@ -102,7 +102,7 @@ export class SimpleTestCompressionEngine implements CompressionEngine {
     ).length;
     
     const agentCount = framesInRange.filter(f =>
-      f.operations.some((op: any) => op.type === 'speak' || op.type === 'toolCall')
+      f.operations.some((op: any) => op.type === 'speak' || op.type === 'act' || op.type === 'think')
     ).length;
     
     const summary = `[Frames ${range.fromFrame}-${range.toFrame}: ${eventCount} events, ${agentCount} agent actions]`;

@@ -219,8 +219,8 @@ export class FrameTrackingHUD implements CompressibleHUD {
   
   private isIncomingFrame(frame: VEILFrame): boolean {
     // Check if frame has any incoming operations
-    const incomingOps = ['addFacet', 'changeState', 'addStream', 'updateStream', 'deleteStream', 'addScope', 'deleteScope', 'agentActivation'];
-    const outgoingOps = ['speak', 'toolCall', 'innerThoughts', 'cycleRequest'];
+    const incomingOps = ['addFacet', 'changeState', 'addStream', 'updateStream', 'deleteStream', 'addScope', 'deleteScope'];
+    const outgoingOps = ['speak', 'think', 'act'];
     
     // Check for any incoming operations
     return frame.operations.some((op: any) => 
@@ -395,7 +395,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
           }
           break;
           
-        case 'toolCall':
+        case 'act':
           if ('toolName' in operation) {
             parts.push(this.renderToolCall(
               operation.toolName,
@@ -404,13 +404,15 @@ export class FrameTrackingHUD implements CompressibleHUD {
           }
           break;
           
-        case 'action':
-          if ('path' in operation && Array.isArray(operation.path)) {
-            parts.push(this.renderAction(operation));
+        // Note: 'action' operations have been replaced by 'act' operations
+        // Handle them as 'act' operations with converted format
+        case 'action' as any:
+          if ('path' in operation && Array.isArray((operation as any).path)) {
+            parts.push(this.renderAction(operation as any));
           }
           break;
           
-        case 'innerThoughts':
+        case 'think':
           if ('content' in operation) {
             parts.push(`<thought>${operation.content}</thought>`);
           }

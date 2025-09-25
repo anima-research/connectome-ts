@@ -85,6 +85,22 @@ export class VEILStateManager {
     
     const frameTimestamp = new Date().toISOString();
     
+    // Validate outgoing operations
+    const validOutgoingOps = ['speak', 'think', 'act'];
+    for (const operation of frame.operations) {
+      if (!validOutgoingOps.includes(operation.type)) {
+        console.warn(`[VEIL] Warning: Unsupported outgoing operation type "${operation.type}". Valid outgoing operations are: ${validOutgoingOps.join(', ')}`);
+        // Legacy operation types that should be updated
+        if (['toolCall', 'innerThoughts', 'cycleRequest'].includes(operation.type as any)) {
+          console.warn(`[VEIL] "${operation.type}" has been renamed:`);
+          console.warn(`  - toolCall: Use 'act' operation`);
+          console.warn(`  - innerThoughts: Use 'think' operation`);
+          console.warn(`  - cycleRequest: Has been removed - use components/actions instead`);
+        }
+        continue; // Skip unsupported operations
+      }
+    }
+    
     // Process agent operations to create facets
     for (const operation of frame.operations) {
       if (operation.type === 'speak') {
@@ -99,7 +115,7 @@ export class VEILStateManager {
           }
         };
         this.state.facets.set(speechFacet.id, speechFacet);
-      } else if (operation.type === 'toolCall') {
+      } else if (operation.type === 'act') {
         // Create an action facet
         const actionFacet: Facet = {
           id: `agent-action-${frame.sequence}-${Math.random().toString(36).substr(2, 9)}`,
@@ -113,7 +129,7 @@ export class VEILStateManager {
           }
         };
         this.state.facets.set(actionFacet.id, actionFacet);
-      } else if (operation.type === 'innerThoughts') {
+      } else if (operation.type === 'think') {
         // Create a thought facet
         const thoughtFacet: Facet = {
           id: `agent-thought-${frame.sequence}-${Math.random().toString(36).substr(2, 9)}`,
@@ -237,8 +253,29 @@ export class VEILStateManager {
   }
 
   private applyOperation(operation: VEILOperation, frameSequence?: number, timestamp?: string): void {
+    // Validate operation type
+    const validOperations = ['addFacet', 'changeState', 'addScope', 'deleteScope', 'addStream', 'updateStream', 'deleteStream', 'removeFacet'];
+    if (!validOperations.includes(operation.type)) {
+      console.warn(`[VEIL] Warning: Unsupported operation type "${operation.type}". Valid operations are: ${validOperations.join(', ')}`);
+      // Legacy operation types that should be updated
+      if (['agentActivation', 'toolCall', 'innerThoughts', 'cycleRequest'].includes(operation.type as any)) {
+        console.warn(`[VEIL] "${operation.type}" is no longer an operation. Use the new VEIL model:`);
+        console.warn(`  - agentActivation: Use addFacet with type='agentActivation'`);
+        console.warn(`  - toolCall: Use 'act' operation`);
+        console.warn(`  - innerThoughts: Use 'think' operation`);
+        console.warn(`  - cycleRequest: Has been removed - use components/actions instead`);
+      }
+      return;
+    }
+    
     switch (operation.type) {
       case 'addFacet':
+        // Validate facet type
+        const validFacetTypes = ['event', 'state', 'ambient', 'tool', 'speech', 'thought', 'action', 'defineAction', 'agentActivation'];
+        if (!validFacetTypes.includes(operation.facet.type)) {
+          console.warn(`[VEIL] Warning: Unsupported facet type "${operation.facet.type}". Valid facet types are: ${validFacetTypes.join(', ')}`);
+          return;
+        }
         this.addFacet(operation.facet, frameSequence, timestamp);
         break;
       
@@ -254,9 +291,7 @@ export class VEILStateManager {
         this.state.scopes.delete(operation.scope);
         break;
       
-      case 'agentActivation':
-        // This is handled by AgentLoop, not state
-        break;
+      // Note: agentActivation is now a facet, not an operation
       
       case 'addStream':
         this.state.streams.set(operation.stream.id, operation.stream);
@@ -602,7 +637,7 @@ export class VEILStateManager {
     const deletedFrames = framesToDelete.map(f => ({
       sequence: f.sequence,
       type: 'operations' in f ? 
-        (f.operations.some((op: any) => op.type === 'speak' || op.type === 'toolCall') ? 'outgoing' : 'incoming') 
+        (f.operations.some((op: any) => op.type === 'speak' || op.type === 'act') ? 'outgoing' : 'incoming') 
         : 'unknown',
       timestamp: f.timestamp,
       operationCount: f.operations.length
@@ -638,7 +673,7 @@ export class VEILStateManager {
         
         if ('operations' in frame) {
           const isIncoming = !frame.operations.some((op: any) => 
-            op.type === 'speak' || op.type === 'toolCall'
+            op.type === 'speak' || op.type === 'act'
           );
           
           if (isIncoming) {

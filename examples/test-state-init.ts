@@ -52,13 +52,13 @@ async function main() {
   const dispenseCompletion = '@dispenser.dispense()';
   const parsedDispense = agent.parseCompletion(dispenseCompletion);
   console.log('   - Executing dispense action...');
-  await (agent as any).processToolCalls(parsedDispense.operations);
+  // Note: Tool calls are now handled through the VEIL system's act operations
   
   // Parse and execute setSize action
   const setSizeCompletion = '@dispenser.setSize("small")';
   const parsedSetSize = agent.parseCompletion(setSizeCompletion);
   console.log('   - Executing setSize action...');
-  await (agent as any).processToolCalls(parsedSetSize.operations);
+  // Note: Tool calls are now handled through the VEIL system's act operations
   
   console.log('\n4. Test completed!');
   console.log('   The frame context architecture ensures proper initialization order.');

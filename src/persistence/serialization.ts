@@ -326,6 +326,26 @@ function serializeFacet(facet: Facet): any {
         serialized.parameters = serializeValue(actionFacet.parameters);
       }
       break;
+      
+    case 'defineAction':
+      const defineActionFacet = facet as any; // DefineActionFacet
+      if (defineActionFacet.actionTarget) {
+        serialized.actionTarget = defineActionFacet.actionTarget;
+      }
+      if (defineActionFacet.actionName) {
+        serialized.actionName = defineActionFacet.actionName;
+      }
+      if (defineActionFacet.parameters) {
+        serialized.parameters = serializeValue(defineActionFacet.parameters);
+      }
+      break;
+      
+    case 'agentActivation':
+      const agentActivationFacet = facet as any; // AgentActivationFacet
+      if (agentActivationFacet.attributes) {
+        serialized.attributes = serializeValue(agentActivationFacet.attributes);
+      }
+      break;
   }
   
   return serialized;

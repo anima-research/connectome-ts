@@ -33,8 +33,8 @@ Tool definitions: Tool definitions don't get rendered. Instructions for using to
   - Hierarchical namespaces (e.g., chat.general.say)
   - Parameter schemas with type information
 Speech: Natural language output from agent speak operations
-Thought: Internal reasoning from agent innerThoughts operations
-Action: Structured actions from agent toolCall operations
+Thought: Internal reasoning from agent think operations
+Action: Structured actions from agent act operations
 
 Events, states and ambient contain content. The content can be a combination of text and images. They also include an id (normally does not get rendered to the agent), displayName (can be blank), and an arbitrary set of key-value pairs. Facets don't normally include a timestamp.
 
@@ -74,8 +74,8 @@ Important: Agent actions are declarations in outgoing frames. Their consequences
 
 Agent operations create specific facet types:
 - `speech` facets from speak operations
-- `action` facets from toolCall operations (or @element.action syntax)
-- `thought` facets from innerThoughts operations
+- `action` facets from act operations (or @element.action syntax)
+- `thought` facets from think operations
 This allows HUDs to render them with appropriate semantic meaning.
 
 Action Syntax:
@@ -269,3 +269,8 @@ Still Pending:
 - reorganize persistence to better support long contexts
 - typing notifications for discord
 - support for deletion and editing of Discord messages
+- resource facets
+- content markup language to reference facets
+- how to communicate to the agent custom llm provider settings
+- llm provider and hud needs to support custom settings
+- llm provider prompt caching support

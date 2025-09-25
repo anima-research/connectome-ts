@@ -545,7 +545,7 @@ export class DebugServer {
     // Convert VEIL frames to debug frame records
     frameHistory.forEach(frame => {
       const isOutgoing = 'operations' in frame && frame.operations.some(
-        (op: any) => op.type === 'speak' || op.type === 'toolCall' || op.type === 'action'
+        (op: any) => op.type === 'speak' || op.type === 'act' || op.type === 'think'
       );
       
       const record: DebugFrameRecord = {
@@ -955,9 +955,7 @@ export class DebugServer {
     for (const frame of framesToApply) {
       // Determine frame type by checking for outgoing operations
       const isIncoming = !frame.operations.some((op: any) => 
-        op.type === 'speak' || op.type === 'toolCall' || 
-        op.type === 'action' || op.type === 'cycleRequest' || 
-        op.type === 'innerThoughts'
+        op.type === 'speak' || op.type === 'act' || op.type === 'think'
       );
       
       if (isIncoming) {

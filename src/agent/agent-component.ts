@@ -101,13 +101,15 @@ export class AgentComponent extends Component implements RestorableComponent {
     const frame = space.getCurrentFrame();
     if (!frame || !event.payload.hasOperations) return;
     
-    // Check if this agent should handle this frame
-    const activations = frame.operations.filter((op: any) => op.type === 'agentActivation');
-    if (activations.length === 0) return;
+    // Check if this agent should handle this frame - look for activation facets
+    const activationOps = frame.operations.filter((op: any) => 
+      op.type === 'addFacet' && op.facet?.type === 'agentActivation'
+    );
+    if (activationOps.length === 0) return;
     
     // Check if any activation targets this agent (or no target specified)
-    const shouldHandle = activations.some((activation: any) => {
-      const targetAgent = activation.targetAgent;
+    const shouldHandle = activationOps.some((op: any) => {
+      const targetAgent = op.facet?.attributes?.targetAgent;
       return !targetAgent || targetAgent === this.element.id || targetAgent === this.element.name;
     });
     
@@ -173,19 +175,15 @@ export class AgentComponent extends Component implements RestorableComponent {
       attentionThreshold: state.attentionThreshold
     });
     
-    // If waking up with pending activations, trigger a frame to process them
-    if (command.type === 'wake' && this.agent.hasPendingActivations()) {
-      // Get the first pending activation
-      const pendingActivation = this.agent.popPendingActivation();
-      if (pendingActivation) {
-        // Create a frame with the pending activation
-        this.element.emit({
-          topic: 'agent:pending-activation',
-          source: this.element.getRef(),
-          payload: { activation: pendingActivation },
-          timestamp: Date.now()
-        });
-      }
+    // If waking up, check for activation facets in state
+    if (command.type === 'wake') {
+      // Activation facets persist in state, so we just need to trigger processing
+      this.element.emit({
+        topic: 'agent:wake',
+        source: this.element.getRef(),
+        payload: {},
+        timestamp: Date.now()
+      });
     }
   }
   
