@@ -60,14 +60,42 @@ export function external(resourcePath: string, required: boolean = true) {
  * Get reference metadata for a component instance
  */
 export function getReferenceMetadata(component: Component): ReferenceMetadata[] {
-  return referenceMetadata.get(component.constructor) || [];
+  // Check the current constructor and all parent constructors
+  let constructor = component.constructor;
+  while (constructor) {
+    const metadata = referenceMetadata.get(constructor);
+    if (metadata && metadata.length > 0) {
+      return metadata;
+    }
+    // Move up the prototype chain
+    constructor = Object.getPrototypeOf(constructor);
+    // Stop at Component base class
+    if (constructor === Component || !constructor) {
+      break;
+    }
+  }
+  return [];
 }
 
 /**
  * Get external resource metadata for a component instance
  */
 export function getExternalMetadata(component: Component): ExternalMetadata[] {
-  return externalMetadata.get(component.constructor) || [];
+  // Check the current constructor and all parent constructors
+  let constructor = component.constructor;
+  while (constructor) {
+    const metadata = externalMetadata.get(constructor);
+    if (metadata && metadata.length > 0) {
+      return metadata;
+    }
+    // Move up the prototype chain
+    constructor = Object.getPrototypeOf(constructor);
+    // Stop at Component base class
+    if (constructor === Component || !constructor) {
+      break;
+    }
+  }
+  return [];
 }
 
 /**

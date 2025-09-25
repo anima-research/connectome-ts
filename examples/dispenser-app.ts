@@ -36,9 +36,9 @@ export interface DispenserAppConfig {
 export class DispenserApplication implements ConnectomeApplication {
   constructor(private config: DispenserAppConfig) {}
   
-  async createSpace(): Promise<{ space: Space; veilState: VEILStateManager }> {
+  async createSpace(hostRegistry?: Map<string, any>): Promise<{ space: Space; veilState: VEILStateManager }> {
     const veilState = new VEILStateManager();
-    const space = new Space(veilState);
+    const space = new Space(veilState, hostRegistry);
     
     // Register llmProvider reference that will be injected by Host
     space.registerReference('llmProvider', this.config.llmProviderId);

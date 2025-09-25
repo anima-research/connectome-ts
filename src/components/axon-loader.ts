@@ -288,6 +288,7 @@ export class AxonLoaderComponent extends Component {
     const url = `${this.moduleUrl}?v=${version}`;
     
     console.log(`[AxonLoader] Loading component from ${url}`);
+    console.log(`[AxonLoader] moduleUrl: ${this.moduleUrl}, manifestUrl: ${this.manifestUrl}`);
     
     try {
       // Fetch the module code

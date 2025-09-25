@@ -95,7 +95,9 @@ export interface SerializedVEILState {
   facets: Array<[string, any]>;  // Facet serialization
   scopes: string[];
   streams: Array<[string, any]>;
+  agents?: Array<[string, any]>;  // Agent serialization
   currentStream?: any;
+  currentAgent?: string;
   currentSequence: number;
   frameHistory?: Array<any>;  // Serialized frame history
   removals?: Array<[string, 'hide' | 'delete']>;  // Removed facets

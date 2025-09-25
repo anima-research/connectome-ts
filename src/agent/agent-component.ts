@@ -16,6 +16,7 @@ import { BasicAgent } from './basic-agent';
 @persistable(1)
 export class AgentComponent extends VEILComponent implements RestorableComponent {
   private agent?: AgentInterface;
+  private agentRegistered = false;
   
   // Persist the agent configuration
   @persistent() private agentConfig?: AgentConfig;
@@ -47,6 +48,8 @@ export class AgentComponent extends VEILComponent implements RestorableComponent
    * Called by Host after all references are resolved
    */
   async onReferencesResolved(): Promise<void> {
+    console.log(`[AgentComponent ${this.element?.id}] onReferencesResolved - config: ${!!this.agentConfig}, agent: ${!!this.agent}, llm: ${!!this.llmProvider}, veil: ${!!this.veilState}`);
+    
     // If we have config but no agent, recreate it
     if (this.agentConfig && !this.agent && this.llmProvider && this.veilState) {
       console.log('✨ Recreating agent from config:', this.agentConfig.name || 'unnamed');
@@ -72,29 +75,12 @@ export class AgentComponent extends VEILComponent implements RestorableComponent
   
   onMount(): void {
     // Subscribe to relevant events
+    this.element.subscribe('frame:start');
     this.element.subscribe('frame:end');
     this.element.subscribe('agent:command');
     this.element.subscribe('agent:pending-activation');
     
-    // Register agent in VEIL state
-    if (this.agent && this.veilState) {
-      const agentInfo = {
-        id: this.element.id,
-        name: this.element.name || 'Agent',
-        type: 'assistant',
-        capabilities: ['chat', 'code', 'search'],
-        metadata: {
-          model: 'unknown',
-          provider: 'anthropic'
-        },
-        createdAt: new Date().toISOString()
-      };
-      
-      this.addOperation({
-        type: 'addAgent',
-        agent: agentInfo
-      });
-    }
+    // Agent registration will happen on first frame:start
   }
   
   onUnmount(): void {
@@ -104,22 +90,48 @@ export class AgentComponent extends VEILComponent implements RestorableComponent
         type: 'removeAgent',
         agentId: this.element.id,
         reason: 'Component unmounted'
-      });
+      } as any);
     }
   }
   
   async handleEvent(event: SpaceEvent): Promise<void> {
-    if (!this.agent) {
-      return; // Skip if agent not set yet (during restoration)
-    }
-    
     switch (event.topic) {
+      case 'frame:start':
+        // Register agent on first frame (agent might be created in onReferencesResolved)
+        console.log(`[AgentComponent ${this.element.id}] frame:start - agent: ${!!this.agent}, veilState: ${!!this.veilState}, registered: ${this.agentRegistered}`);
+        if (!this.agentRegistered && this.agent && this.veilState) {
+          console.log(`[AgentComponent ${this.element.id}] Registering agent...`);
+          const agentInfo = {
+            id: this.element.id,
+            name: this.agentConfig?.name || this.element.name || 'Agent',
+            type: 'assistant',
+            capabilities: ['chat', 'code', 'search'],
+            metadata: {
+              model: (this.agentConfig as any)?.modelName || 'unknown',
+              provider: (this.agentConfig as any)?.provider || 'unknown'
+            },
+            createdAt: new Date().toISOString()
+          };
+          
+          this.addOperation({
+            type: 'addAgent',
+            agent: agentInfo
+          } as any);
+          
+          this.agentRegistered = true;
+        }
+        break;
+        
       case 'frame:end':
-        await this.handleFrameEnd(event as FrameEndEvent);
+        if (this.agent) {
+          await this.handleFrameEnd(event as FrameEndEvent);
+        }
         break;
         
       case 'agent:command':
-        this.handleAgentCommand(event.payload as AgentCommand);
+        if (this.agent) {
+          this.handleAgentCommand(event.payload as AgentCommand);
+        }
         break;
     }
   }

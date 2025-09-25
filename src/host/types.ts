@@ -13,8 +13,9 @@ export interface ConnectomeApplication {
   /**
    * Create the Space and VEILStateManager
    * Called for both fresh starts and restoration
+   * @param hostRegistry - The host's reference registry (optional for backwards compatibility)
    */
-  createSpace(): Promise<{ space: Space; veilState: VEILStateManager }>;
+  createSpace(hostRegistry?: Map<string, any>): Promise<{ space: Space; veilState: VEILStateManager }>;
   
   /**
    * Initialize the space with elements and components

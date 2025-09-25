@@ -43,9 +43,9 @@ export class Space extends Element {
   private eventQueue: EventPriorityQueue = new EventPriorityQueue();
   
   /**
-   * Reference registry for dependency injection
+   * Reference to the host's registry (single source of truth)
    */
-  private referenceRegistry = new Map<string, any>();
+  private hostRegistry: Map<string, any>;
   
   /**
    * VEIL state manager
@@ -82,9 +82,10 @@ export class Space extends Element {
 
   private renderedContextLog: Map<number, RenderedContextRecord> = new Map();
   
-  constructor(veilState: VEILStateManager) {
+  constructor(veilState: VEILStateManager, hostRegistry?: Map<string, any>) {
     super('root');
     this.veilState = veilState;
+    this.hostRegistry = hostRegistry || new Map(); // Fallback for tests
     this.tracer = getGlobalTracer();
     
     // Subscribe to agent frame events
@@ -557,16 +558,25 @@ export class Space extends Element {
   
   /**
    * Register a reference for dependency injection
+   * Delegates to the host registry (single source of truth)
    */
   registerReference(id: string, value: any): void {
-    this.referenceRegistry.set(id, value);
+    this.hostRegistry.set(id, value);
   }
   
   /**
    * Get a reference by ID
+   * Delegates to the host registry (single source of truth)
    */
   getReference(id: string): any {
-    return this.referenceRegistry.get(id);
+    return this.hostRegistry.get(id);
+  }
+  
+  /**
+   * List all available references (for debugging)
+   */
+  listReferences(): string[] {
+    return Array.from(this.hostRegistry.keys());
   }
 
   private notifyDebugFrameStart(frame: IncomingVEILFrame, context: DebugFrameStartContext): void {

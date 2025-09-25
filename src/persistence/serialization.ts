@@ -244,6 +244,14 @@ export function serializeVEILState(state: VEILState): SerializedVEILState {
     streams.push([id, serializeValue(stream)]);
   }
   
+  // Serialize agents
+  const agents: Array<[string, any]> = [];
+  if (state.agents) {
+    for (const [id, agent] of state.agents) {
+      agents.push([id, serializeValue(agent)]);
+    }
+  }
+  
   // Serialize removals (only keep 'hide' entries - 'delete' facets are gone)
   const removals: Array<[string, 'hide' | 'delete']> = [];
   for (const [id, mode] of state.removals) {
@@ -257,7 +265,9 @@ export function serializeVEILState(state: VEILState): SerializedVEILState {
     facets,
     scopes: Array.from(state.scopes),
     streams,
+    agents,
     currentStream: state.currentStream ? serializeValue(state.currentStream) : undefined,
+    currentAgent: state.currentAgent,
     currentSequence: state.currentSequence,
     frameHistory: state.frameHistory.map(frame => serializeValue(frame)),
     removals

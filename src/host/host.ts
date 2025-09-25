@@ -174,7 +174,7 @@ export class ConnectomeHost {
    * Create a fresh application instance
    */
   private async createFresh(app: ConnectomeApplication): Promise<{ space: Space; veilState: VEILStateManager }> {
-    const { space, veilState } = await app.createSpace();
+    const { space, veilState } = await app.createSpace(this.referenceRegistry);
     
     // Register core services before initialization
     this.referenceRegistry.set('space', space);
@@ -190,7 +190,7 @@ export class ConnectomeHost {
    */
   private async restore(snapshot: any, app: ConnectomeApplication): Promise<{ space: Space; veilState: VEILStateManager }> {
     // Create space and VEIL state
-    const { space, veilState } = await app.createSpace();
+    const { space, veilState } = await app.createSpace(this.referenceRegistry);
     
     // Register core services before restoration
     this.referenceRegistry.set('space', space);
@@ -446,8 +446,8 @@ export class ConnectomeHost {
           const component = payload.component;
           if (component) {
             console.log(`🔌 Resolving references for dynamically loaded component: ${payload.componentClass}`);
-            await this.resolveComponentReferences(component);
-            await this.resolveExternalResources(component);
+            await host.resolveComponentReferences(component);
+            await host.resolveExternalResources(component);
             
             // Call onReferencesResolved if it exists
             if ('onReferencesResolved' in component && typeof component.onReferencesResolved === 'function') {
@@ -455,14 +455,6 @@ export class ConnectomeHost {
             }
           }
         }
-      }
-      
-      private resolveComponentReferences = async (component: Component) => {
-        await host.resolveComponentReferences(component);
-      }
-      
-      private resolveExternalResources = async (component: Component) => {
-        await host.resolveExternalResources(component);
       }
     });
     space.addChild(hostElement);

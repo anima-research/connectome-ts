@@ -1,5 +1,6 @@
 import { ComponentLifecycle, EventHandler, SpaceEvent, ElementRef } from './types';
 import type { Element } from './element';
+import type { Space } from './space';
 
 /**
  * Base component class that can be attached to Elements
@@ -83,6 +84,36 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
    * Override to initialize facets, state, etc.
    */
   onFirstFrame?(): void | Promise<void>;
+  
+  /**
+   * Get a reference from the host registry with helpful errors
+   */
+  protected requireReference<T>(id: string): T {
+    const space = this.element?.findSpace() as Space | null;
+    if (!space) {
+      throw new Error(`Component ${this.constructor.name} not mounted - cannot access references`);
+    }
+    
+    const value = space.getReference(id);
+    if (!value) {
+      const available = space.listReferences();
+      throw new Error(
+        `Required reference '${id}' not found for ${this.constructor.name}.\n` +
+        `Available references: ${available.join(', ')}\n` +
+        `Hint: Ensure the reference is registered before component initialization.`
+      );
+    }
+    
+    return value as T;
+  }
+  
+  /**
+   * Get an optional reference
+   */
+  protected getReference<T>(id: string): T | undefined {
+    const space = this.element?.findSpace() as Space | null;
+    return space?.getReference(id) as T | undefined;
+  }
   
   /**
    * Internal method to attach to an element

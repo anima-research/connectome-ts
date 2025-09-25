@@ -279,7 +279,7 @@ export class VEILStateManager {
 
   private applyOperation(operation: VEILOperation, frameSequence?: number, timestamp?: string): void {
     // Validate operation type
-    const validOperations = ['addFacet', 'changeState', 'addScope', 'deleteScope', 'addStream', 'updateStream', 'deleteStream', 'removeFacet'];
+    const validOperations = ['addFacet', 'changeState', 'addScope', 'deleteScope', 'addStream', 'updateStream', 'deleteStream', 'removeFacet', 'addAgent', 'removeAgent', 'updateAgent'];
     if (!validOperations.includes(operation.type)) {
       console.warn(`[VEIL] Warning: Unsupported operation type "${operation.type}". Valid operations are: ${validOperations.join(', ')}`);
       // Legacy operation types that should be updated
