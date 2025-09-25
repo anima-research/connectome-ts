@@ -52,8 +52,8 @@ An incoming VEIL delta can contain any number of the following operations:
 2. Changing a state  
 3. Adding or deleting scopes
 4. Adding, updating, or deleting streams (communication contexts)
-
-5. Removing a facet: suppresses rendering of a facet (and its children) without destroying history. Two modes:
+5. Adding, removing, or updating agents (for multi-agent systems)
+6. Removing a facet: suppresses rendering of a facet (and its children) without destroying history. Two modes:
    - 'hide': For attention management - facet still exists, state changes still apply, but no rendering (including transitions)
    - 'delete': For error correction - facet is effectively gone, state changes are silently ignored
 
@@ -63,20 +63,28 @@ Facets can include saliency hints to help the HUD make intelligent context manag
 - Importance hints: pinned, reference
 - Graph relationships: linkedTo[], linkedFrom[]
 
-An outgoing VEIL delta can contain any number of the following operations (or it can be empty):
+An outgoing VEIL delta uses the same operations as incoming deltas (addFacet, changeState, etc.). Agent behavior is expressed through specific facet types:
 
-1. Speak: Natural language dialogue from the agent (routed to the active stream by default, can override with explicit target)
-2. Command (tool call): Structured tool invocations (also referred to as "action" throughout the codebase)
-3. Cycle request: a request to agent loop to schedule another LLM call immediately
-4. Inner thoughts: Agent's internal reasoning process
+1. Speech facets: Natural language dialogue from the agent (routed to the active stream by default, can override with explicit target)
+2. Action facets: Structured tool invocations from act operations
+3. Thought facets: Agent's internal reasoning process from think operations
+4. AgentActivation facets: Requests for agent processing, can include source and target agent IDs
 
 Important: Agent actions are declarations in outgoing frames. Their consequences (state changes, events) appear in subsequent incoming frames, maintaining clear causality and enabling the agent to observe the results of its actions.
 
-Agent operations create specific facet types:
-- `speech` facets from speak operations
-- `action` facets from act operations (or @element.action syntax)
-- `thought` facets from think operations
-This allows HUDs to render them with appropriate semantic meaning.
+The agent uses VEILStateManager convenience methods that internally create facets via addFacet operations:
+- `speak()` method creates `speech` facets
+- `act()` method creates `action` facets (or @element.action syntax)
+- `think()` method creates `thought` facets
+This allows HUDs to render them with appropriate semantic meaning while maintaining a unified operation model.
+
+Multi-Agent Support:
+The system supports multiple agents operating in the same space through:
+- Agent registration via addAgent/removeAgent/updateAgent operations
+- Agent attribution in facets (agentId and agentName fields)
+- Targeted agent activation using agentActivation facets with sourceAgentId/targetAgentId
+- Automatic attribution of agent-generated facets (speech, thought, action)
+This enables complex multi-agent interactions with clear attribution and targeting.
 
 Action Syntax:
 Agents use @element.action syntax for invoking tools:
@@ -91,6 +99,14 @@ Note: Block format has limitations with nested braces and should be used for sim
 Space/Element System Requirements:
 
 Elements are the basic building blocks arranged in a tree hierarchy, with Space as the root element. Elements can have Components that add behavior. Events flow through the element tree using a topic-based subscription system (e.g., "discord.message", "timer.expired"). Elements produce VEIL operations in response to events.
+
+Reference Injection:
+The ConnectomeHost maintains a unified reference registry that is shared with spaces. Components can:
+- Use @reference decorators to declare dependencies 
+- Access references via requireReference() and getReference() helper methods
+- References are properly resolved for subclasses through prototype chain walking
+- AXON-loaded components receive reference injection after dynamic loading
+This unified approach eliminates synchronization issues and simplifies component development.
 
 AXON Protocol:
 
@@ -119,6 +135,16 @@ First-class events include frame lifecycle (start/end), time events, element lif
 Agent Interface Requirements:
 
 The Space has an optional AgentInterface that processes completed frames. The agent decides whether to activate based on activation operations and their metadata. Empty frames (no VEIL operations, no activations) are discarded to maintain efficiency. The agent interface receives callbacks after all components have processed frame events.
+
+Reference System Architecture:
+
+The ConnectomeHost maintains a unified reference registry that serves as the single source of truth for dependency injection. Key features:
+- Host registry is shared with Spaces, eliminating duplicate registries
+- References are injected into components via @reference decorators
+- Components can access references via helper methods (requireReference, getReference)
+- Reference metadata lookup supports inheritance chains for proper injection into subclasses
+- AXON-loaded components receive reference resolution after dynamic loading
+- The system ensures references are available before component lifecycle methods that need them
 
 Stream References:
 
@@ -228,8 +254,13 @@ Note, that the rendered context is not VEIL. In the rendered context it is impos
 Current Implementation Status:
 
 Completed:
-- VEIL data model with all facet types (event, state, ambient, tool, speech, thought, action)
+- VEIL data model with all facet types (event, state, ambient, tool, speech, thought, action, agentActivation)
 - VEILStateManager for managing facets and frame history
+- Multi-agent support with agent operations (addAgent, removeAgent, updateAgent)
+- Agent attribution in facets (agentId, agentName fields)
+- Targeted agent activation with source/target agent IDs
+- Unified host registry system for references (single source of truth)
+- Improved reference injection supporting inheritance chains
 - FrameTrackingHUD with frame-based rendering (no turn grouping, historical state accuracy)
 - State preservation through incremental replay of operations
 - @element.action syntax with hierarchical paths and named parameters
@@ -255,12 +286,14 @@ Completed:
 - AXON Protocol for dynamic component loading from external services
 - AxonElement implementation for loading components via HTTP/WebSocket
 - Discord adapter integration via AXON protocol (move out of core)
-- Scheduled events and timers (possibly done)
-- Full agent sleep/wake functionality with pending activation processing (possibly done)
-- Full compression implementation with LLM-based summarization (done, needs more testing)
+- Scheduled events and timers
+- Full agent sleep/wake functionality with pending activation processing
+- Full compression implementation with LLM-based summarization
+- MCP (Model Context Protocol) session server for managing long-running services
+- Debug UI with frame tracking and agent state visualization
+- Component helper methods (requireReference, getReference) for easier reference access
 
 Still Pending:
-- Stream reference tracking for communication routing
 - Additional adapters (filesystem, shell terminal, etc.)
 - Discovery mechanism for @element.? syntax
 - Enhanced block parameter parsing (proper grammar/parser)
@@ -274,3 +307,7 @@ Still Pending:
 - how to communicate to the agent custom llm provider settings
 - llm provider and hud needs to support custom settings
 - llm provider prompt caching support
+
+Recently Removed/Deprecated:
+- Legacy operations (agentActivation, toolCall, innerThoughts, cycleRequest) - replaced with facet-based approach
+- Separate stream reference tracking - now handled via stream operations (addStream, updateStream, deleteStream)

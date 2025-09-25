@@ -153,7 +153,16 @@ export class AgentComponent extends VEILComponent implements RestorableComponent
     // Check if any activation targets this agent (or no target specified)
     const shouldHandle = activationOps.some((op: any) => {
       const targetAgent = op.facet?.attributes?.targetAgent;
-      return !targetAgent || targetAgent === this.element.id || targetAgent === this.element.name;
+      const targetAgentId = op.facet?.attributes?.targetAgentId;
+      
+      // Check by ID first, then by name
+      if (targetAgentId) {
+        return targetAgentId === this.element.id;
+      }
+      
+      // If no ID specified, check by name (either element name or agent name from config)
+      const agentName = this.agentConfig?.name || this.element.name;
+      return !targetAgent || targetAgent === this.element.id || targetAgent === this.element.name || targetAgent === agentName;
     });
     
     if (!shouldHandle) return;
