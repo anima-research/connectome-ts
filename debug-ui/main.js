@@ -1222,6 +1222,13 @@ const App = {
 
     async function activateAgent() {
       try {
+          // Get active agents from current state
+          const agents = Array.from(state.veilState?.agents?.values() || []);
+          
+          // If there's only one agent, target it specifically
+          const targetAgentId = agents.length === 1 ? agents[0].id : undefined;
+          const targetAgent = agents.length === 1 ? agents[0].name : undefined;
+          
           const response = await fetch('/api/events', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1230,9 +1237,13 @@ const App = {
               sourceId: 'debug-ui',
               payload: {
                 source: 'debug-ui',
+                sourceAgentId: 'debug-ui',
+                sourceAgentName: 'Debug UI',
                 reason: 'Manual activation from Debug UI',
                 priority: 'high',
-                streamId: 'console:debug-ui'
+                streamId: 'console:debug-ui',
+                targetAgentId,
+                targetAgent
               }
             })
           });
@@ -1242,7 +1253,7 @@ const App = {
           throw new Error(error.error || 'Failed to activate agent');
         }
         
-        console.log('Agent activation triggered');
+        console.log('Agent activation triggered', { targetAgentId, targetAgent });
         
         // Wait a moment for the frame to be created
         setTimeout(() => refresh(), 500);

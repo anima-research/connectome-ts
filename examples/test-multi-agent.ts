@@ -1,142 +1,162 @@
-#!/usr/bin/env node
-
 /**
- * Test multi-agent system with different agents for different purposes
+ * Test multi-agent VEIL operations
  */
 
-import { 
-  Space, 
-  Element,
-  Component,
-  VEILStateManager,
-  BasicAgent,
-  MockLLMProvider,
-  ConsoleChatComponent,
-  AgentComponent
-} from '../src';
+import { ConnectomeHost } from '../src/host';
+import { BasicAgent } from '../src/agent/basic-agent';
+import { AgentComponent } from '../src/agent/agent-component';
+import { Element } from '../src/spaces/element';
+import { VEILComponent } from '../src/components/base-components';
+import { Space } from '../src/spaces/space';
+import { VEILStateManager } from '../src/veil/veil-state';
+import { ConnectomeApplication } from '../src/host/types';
+import { AgentConfig } from '../src/agent/types';
+import { ConsoleChatComponent } from '../src/elements/console-chat';
 
-async function main() {
-  console.log('=== Multi-Agent System Test ===\n');
-  
-  const veilState = new VEILStateManager();
-  const space = new Space(veilState);
-  
-  // Create main reasoning agent (Claude Opus style)
-  const mainAgent = new Element('main-agent', 'main-agent');
-  const mainLLM = new MockLLMProvider();
-  mainLLM.setResponses([
-    "I'm the main reasoning agent. I see a complex calculation is needed. Let me ask the math specialist to help. @math-agent, what is 15 * 23?",
-    "Thank you math specialist! The answer is 345. Now let me ask the creative agent for a fun fact about this number. @creative-agent, tell me something interesting about 345!",
-    "Fascinating! So 345 has these interesting properties. Thank you both for your help!"
-  ]);
-  
-  mainAgent.addComponent(new AgentComponent(
-    new BasicAgent(
-      { 
-        name: 'Claude-Main',
-        systemPrompt: 'You are the main reasoning agent. You can delegate to specialists.'
-      },
-      mainLLM,
-      veilState
-    )
-  ));
-  space.addChild(mainAgent);
-  
-  // Create math specialist agent (like Haiku for tools)
-  const mathAgent = new Element('math-agent', 'math-agent');
-  const mathLLM = new MockLLMProvider();
-  mathLLM.setResponses([
-    "I'm the math specialist. 15 * 23 = 345. This is calculated as (15 * 20) + (15 * 3) = 300 + 45 = 345."
-  ]);
-  
-  mathAgent.addComponent(new AgentComponent(
-    new BasicAgent(
-      { 
-        name: 'Haiku-Math',
-        systemPrompt: 'You are a math specialist. Answer math questions precisely.'
-      },
-      mathLLM,
-      veilState
-    )
-  ));
-  space.addChild(mathAgent);
-  
-  // Create creative agent
-  const creativeAgent = new Element('creative-agent', 'creative-agent');
-  const creativeLLM = new MockLLMProvider();
-  creativeLLM.setResponses([
-    "I'm the creative agent! Here's a fun fact: 345 is a sphenic number (product of 3 distinct primes: 3×5×23). In music, 345 Hz is close to the frequency of F4, and interestingly, Interstate 345 in Dallas is one of the shortest interstates!"
-  ]);
-  
-  creativeAgent.addComponent(new AgentComponent(
-    new BasicAgent(
-      { 
-        name: 'Claude-Creative',
-        systemPrompt: 'You are a creative agent. Provide interesting and fun information.'
-      },
-      creativeLLM,
-      veilState
-    )
-  ));
-  space.addChild(creativeAgent);
-  
-  // Add console chat
-  space.addComponent(new ConsoleChatComponent());
-  
-  // Subscribe agents to targeted activations
-  mathAgent.subscribe('agent:activate');
-  creativeAgent.subscribe('agent:activate');
-  
-  // Log agent responses to see multi-agent interaction
-  class ResponseLogger extends Component {
-    onMount() {
-      this.element.subscribe('agent:response');
-    }
+// Custom agent component that handles config
+class ConfiguredAgentComponent extends AgentComponent {
+  constructor(config: AgentConfig) {
+    super();
+    // Set agentConfig directly - parent class will create agent in onReferencesResolved
+    (this as any).agentConfig = config;
+  }
+}
+
+// Create a component to observe multi-agent interactions
+class MultiAgentObserver extends VEILComponent {
+  onMount() {
+    console.log('[Observer] Mounted');
+    this.element.subscribe('*'); // Subscribe to all events
     
-    async handleEvent(event: any) {
-      if (event.topic === 'agent:response') {
-        const agentName = event.payload.agentName || 'Unknown';
-        console.log(`\n[${agentName}]: ${event.payload.content}`);
+    // Check active agents every 2 seconds
+    setInterval(() => {
+      const veilState = this.element.findSpace()?.veilState?.getState();
+      if (veilState) {
+        console.log('\n=== Active Agents ===');
+        veilState.agents.forEach((agent, id) => {
+          console.log(`- ${agent.name} (${id}): ${agent.type}`);
+        });
+        
+        // Show recent speech facets with agent attribution
+        const recentSpeech = Array.from(veilState.facets.values())
+          .filter(f => f.type === 'speech' && f.attributes?.agentGenerated)
+          .slice(-3);
+          
+        if (recentSpeech.length > 0) {
+          console.log('\n=== Recent Agent Speech ===');
+          recentSpeech.forEach(facet => {
+            const agentName = facet.attributes?.agentName || 'Unknown';
+            console.log(`[${agentName}]: ${facet.content}`);
+          });
+        }
+        console.log('==================\n');
       }
-    }
+    }, 2000);
   }
   
-  const responseLogger = new Element('response-logger');
-  responseLogger.addComponent(new ResponseLogger());
-  space.addChild(responseLogger);
+  handleEvent(event: any) {
+    if (event.topic === 'agent:frame-ready') {
+      const { agentId, agentName } = event.payload;
+      console.log(`[Observer] Agent response from ${agentName} (${agentId})`);
+    }
+  }
+}
+
+// Define the application
+class MultiAgentApp implements ConnectomeApplication {
+  name = 'MultiAgentTest';
   
-  // Activate main agent
-  console.log('Activating main agent to start the conversation...\n');
-  space.activateAgent('console:main', { 
-    reason: 'Testing multi-agent collaboration',
-    targetAgent: 'main-agent'
+  async createSpace(): Promise<{ space: Space; veilState: VEILStateManager }> {
+    const veilState = new VEILStateManager();
+    const space = new Space(veilState);
+    
+    // Create Alice agent
+    const aliceElement = new Element('agent-alice', 'Alice');
+    const aliceConfig: AgentConfig = {
+      name: 'Alice',
+      systemPrompt: `You are Alice, a helpful AI assistant who loves poetry. 
+      Keep your responses brief (1-2 sentences).
+      You can see messages from other agents in the conversation.`,
+      modelName: 'claude-3-5-sonnet-20241022',
+      temperature: 0.7
+    };
+    const aliceComponent = new ConfiguredAgentComponent(aliceConfig);
+    await aliceElement.addComponentAsync(aliceComponent);
+    
+    // Create Bob agent
+    const bobElement = new Element('agent-bob', 'Bob');
+    const bobConfig: AgentConfig = {
+      name: 'Bob',
+      systemPrompt: `You are Bob, a technical AI assistant who loves math and science.
+      Keep your responses brief (1-2 sentences).
+      You can see messages from other agents in the conversation.`,
+      modelName: 'claude-3-5-sonnet-20241022',
+      temperature: 0.7
+    };
+    const bobComponent = new ConfiguredAgentComponent(bobConfig);
+    await bobElement.addComponentAsync(bobComponent);
+    
+    // Create observer
+    const observerElement = new Element('observer', 'Observer');
+    const observer = new MultiAgentObserver();
+    await observerElement.addComponentAsync(observer);
+    
+    // Create console chat for user input
+    const consoleElement = new Element('console', 'Console');
+    const consoleChat = new ConsoleChatComponent();
+    await consoleElement.addComponentAsync(consoleChat);
+    
+    // Add elements to space
+    space.addChild(aliceElement);
+    space.addChild(bobElement);
+    space.addChild(observerElement);
+    space.addChild(consoleElement);
+    
+    return { space, veilState };
+  }
+  
+  async initialize(space: Space): Promise<void> {
+    // No additional initialization needed - agents are created in components
+  }
+}
+
+async function main() {
+  console.log('Starting multi-agent test...');
+  
+  const host = new ConnectomeHost({
+    debug: { enabled: true, port: 3000 },
+    llm: {
+      provider: 'anthropic',
+      apiKey: process.env.ANTHROPIC_API_KEY || ''
+    }
   });
   
-  // Also activate other agents when mentioned
-  // In a real system, this would be handled by a routing component
-  setTimeout(() => {
-    console.log('\n[System] Math specialist activated by mention...');
-    space.activateAgent('console:main', {
-      targetAgent: 'math-agent'
-    });
-  }, 2000);
+  const app = new MultiAgentApp();
+  await host.start(app);
   
-  setTimeout(() => {
-    console.log('\n[System] Creative agent activated by mention...');
-    space.activateAgent('console:main', {
-      targetAgent: 'creative-agent'
-    });
-  }, 4000);
+  console.log('\n✅ Multi-agent system started!');
+  console.log('📍 Debug UI: http://localhost:3000');
+  console.log('\nThe system now tracks which agent creates each facet.');
+  console.log('Use the Debug UI to activate specific agents and see attribution.');
+  console.log('\nTry sending agent:activate events with different targeting:');
+  console.log('- targetAgent: "Alice" - Only Alice will respond');
+  console.log('- targetAgent: "Bob" - Only Bob will respond');
+  console.log('- targetAgentId: "agent-alice" - Target by ID (preferred)');
+  console.log('- targetAgentId: "agent-bob" - Target by ID (preferred)');
+  console.log('- no target - Both agents may respond\n');
+  console.log('All agent-generated facets now include:');
+  console.log('- agentId: The ID of the agent that created it');
+  console.log('- agentName: The human-readable name');
+  console.log('\nActivation facets can include:');
+  console.log('- sourceAgentId/sourceAgentName: Who triggered the activation');
+  console.log('- targetAgentId/targetAgent: Which agent should respond\n');
   
-  // Run for 10 seconds
-  setTimeout(() => {
-    console.log('\n[Test] Multi-agent collaboration complete!');
-    console.log('- Main agent delegated to specialists');
-    console.log('- Math agent handled calculations');
-    console.log('- Creative agent provided interesting facts');
-    console.log('- All agents worked together seamlessly!');
+  // Keep process alive
+  process.on('SIGINT', async () => {
+    console.log('\nShutting down...');
+    await host.stop();
     process.exit(0);
-  }, 10000);
+  });
 }
 
 main().catch(console.error);

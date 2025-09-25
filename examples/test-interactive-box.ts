@@ -15,6 +15,7 @@ import {
   IncomingVEILFrame,
   OutgoingVEILFrame,
   StreamRef,
+  AgentActivationOperation,
   VEILOperation,
   Facet
 } from '../src/veil/types';
@@ -377,17 +378,10 @@ async function main() {
         case 'veil:agent_activation': {
           const payload = event.payload as any;
           frame.operations.push({
-            type: 'addFacet',
-            facet: {
-              id: `agent-activation-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              type: 'agentActivation',
-              content: payload.reason,
-              attributes: {
-                source: payload.source,
-                reason: payload.reason,
-                priority: payload.priority
-              }
-            }
+            type: 'agentActivation',
+            source: payload.source,
+            reason: payload.reason,
+            priority: payload.priority
           });
           break;
         }

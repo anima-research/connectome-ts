@@ -15,6 +15,7 @@ import {
   VEILOperation,
   AddStreamOperation,
   AddFacetOperation,
+  SpeechFacet,
 } from '../veil/types';
 import { 
   TraceStorage, 
@@ -39,29 +40,14 @@ export class ConsoleChatComponent extends Component {
   };
   private pendingActivationFacetId?: string;
   private tracer: TraceStorage | undefined;
+  private displayedSpeechIds = new Set<string>();
 
   async onMount(): Promise<void> {
     console.log('\n[Console Chat] Mounting...');
     this.tracer = getGlobalTracer();
     
-    // Register console stream with the space
-    const space = this.element.space as Space;
-    if (space) {
-      space.registerStream({
-        streamId: this.consoleStream.streamId,
-        streamType: 'console',
-        adapter: {
-          send: async (content: string, streamId: string) => {
-            // Console only has one stream, so we can ignore streamId
-            console.log(`\n[Agent]: ${content}`);
-            this.rl?.prompt();
-          },
-          isActive: () => this.rl !== undefined,
-          getDisplayName: () => 'Console Chat'
-        },
-        displayName: 'Console Chat'
-      });
-    }
+    // Stream registration is now handled through VEIL operations in handleEvent
+    // The space will route messages to this component through the event system
     
     // Set up readline interface
     this.rl = readline.createInterface({
@@ -74,8 +60,8 @@ export class ConsoleChatComponent extends Component {
     this.startListening();
     
     // Subscribe to events we care about
-    this.element.subscribe('agent:response');
     this.element.subscribe('frame:start');
+    this.element.subscribe('frame:end');
     this.element.subscribe('agent:pending-activation');
     
     console.log('[Console Chat] Ready! Type messages to chat with the agent.');
@@ -88,11 +74,7 @@ export class ConsoleChatComponent extends Component {
   async onUnmount(): Promise<void> {
     console.log('\n[Console Chat] Unmounting...');
     
-    // Unregister stream
-    const space = this.element.space as Space;
-    if (space) {
-      space.unregisterStream(this.consoleStream.streamId);
-    }
+    // Stream cleanup is handled automatically by VEIL state
     
     this.isActive = false;
     this.rl?.close();
@@ -298,8 +280,11 @@ export class ConsoleChatComponent extends Component {
             content: 'User message received',
             attributes: {
               source: 'console-chat',
+              sourceAgentId: 'user',  // Special ID for user input
+              sourceAgentName: 'User',
               reason: 'user_message',
               priority: 'normal'
+              // No targetAgentId - let all agents see user messages
             }
           }
         } as AddFacetOperation);
@@ -318,25 +303,46 @@ export class ConsoleChatComponent extends Component {
       this.pendingActivationFacetId = undefined;
     }
     
-    // Handle agent responses
-    if (event.topic === 'agent:response') {
-      const response = event.payload as any;
-      if (response.stream?.streamId === this.consoleStream.streamId) {
-        this.tracer?.record({
-          id: `console-output-${Date.now()}`,
-          timestamp: Date.now(),
-          level: 'info',
-          category: TraceCategory.ADAPTER_OUTPUT,
-          component: 'ConsoleChat',
-          operation: 'handleAgentResponse',
-          data: {
-            content: response.content,
-            stream: response.stream?.streamId
-          }
-        });
+    // Handle frame end - check for speech facets targeted to console
+    if (event.topic === 'frame:end') {
+      const space = this.element.space as Space;
+      const veilState = space?.getVEILState();
+      if (veilState) {
+        const state = veilState.getState();
         
-        console.log(`\n[Agent]: ${response.content}`);
-        this.rl?.prompt();
+        // Find speech facets targeted to our console stream that we haven't displayed yet
+        const consoleSpeech = Array.from(state.facets.values())
+          .filter((f): f is SpeechFacet => 
+            f.type === 'speech' && 
+            f.attributes?.target === this.consoleStream.streamId &&
+            f.attributes?.agentGenerated === true &&
+            !this.displayedSpeechIds.has(f.id)
+          );
+        
+        // Display new speech facets
+        for (const speech of consoleSpeech) {
+          this.displayedSpeechIds.add(speech.id);
+          const agentName = speech.attributes?.agentName || 'Agent';
+          console.log(`\n[${agentName}]: ${speech.content}`);
+          
+          this.tracer?.record({
+            id: `console-output-${Date.now()}`,
+            timestamp: Date.now(),
+            level: 'info',
+            category: TraceCategory.ADAPTER_OUTPUT,
+            component: 'ConsoleChat',
+            operation: 'handleAgentSpeech',
+            data: {
+              content: speech.content,
+              agentName,
+              agentId: speech.attributes?.agentId
+            }
+          });
+        }
+        
+        if (consoleSpeech.length > 0) {
+          this.rl?.prompt();
+        }
       }
     }
     

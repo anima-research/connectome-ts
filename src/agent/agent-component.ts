@@ -2,11 +2,11 @@
  * Component that integrates an AgentInterface with the Space/Element system
  */
 
-import { Component } from '../spaces/component';
+import { VEILComponent } from '../components/base-components';
 import { SpaceEvent, FrameEndEvent, AgentResponseEvent } from '../spaces/types';
 import { AgentInterface, AgentCommand, AgentConfig } from './types';
 import { Space } from '../spaces/space';
-import { OutgoingVEILOperation } from '../veil/types';
+import { OutgoingVEILOperation, AgentInfo } from '../veil/types';
 import { persistable, persistent } from '../persistence/decorators';
 import { reference, RestorableComponent } from '../host/decorators';
 import { LLMProvider } from '../llm/llm-interface';
@@ -14,7 +14,7 @@ import { VEILStateManager } from '../veil/veil-state';
 import { BasicAgent } from './basic-agent';
 
 @persistable(1)
-export class AgentComponent extends Component implements RestorableComponent {
+export class AgentComponent extends VEILComponent implements RestorableComponent {
   private agent?: AgentInterface;
   
   // Persist the agent configuration
@@ -75,6 +75,37 @@ export class AgentComponent extends Component implements RestorableComponent {
     this.element.subscribe('frame:end');
     this.element.subscribe('agent:command');
     this.element.subscribe('agent:pending-activation');
+    
+    // Register agent in VEIL state
+    if (this.agent && this.veilState) {
+      const agentInfo = {
+        id: this.element.id,
+        name: this.element.name || 'Agent',
+        type: 'assistant',
+        capabilities: ['chat', 'code', 'search'],
+        metadata: {
+          model: 'unknown',
+          provider: 'anthropic'
+        },
+        createdAt: new Date().toISOString()
+      };
+      
+      this.addOperation({
+        type: 'addAgent',
+        agent: agentInfo
+      });
+    }
+  }
+  
+  onUnmount(): void {
+    // Unregister agent from VEIL state
+    if (this.veilState) {
+      this.addOperation({
+        type: 'removeAgent',
+        agentId: this.element.id,
+        reason: 'Component unmounted'
+      });
+    }
   }
   
   async handleEvent(event: SpaceEvent): Promise<void> {

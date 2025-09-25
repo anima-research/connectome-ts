@@ -11,7 +11,7 @@ import { Space } from '../src/spaces/space';
 import { VEILStateManager } from '../src/veil/veil-state';
 import { ComponentRegistry } from '../src/persistence/component-registry';
 import { ConnectomeApplication } from '../src/host/types';
-import { ConsoleChatElement } from '../src/elements/console-chat';
+import { ConsoleChatComponent } from '../src/elements/console-chat';
 
 // Create a simple component to observe activations
 class ObserverComponent extends VEILComponent {
@@ -78,12 +78,14 @@ async function main() {
   await observerElement.addComponentAsync(observer);
   
   // Create console chat for agent responses
-  const consoleChat = new ConsoleChatElement();
+  const consoleChatElement = new Element('console-chat', 'Console Chat');
+  const consoleChat = new ConsoleChatComponent();
+  await consoleChatElement.addComponentAsync(consoleChat);
   
   // Add elements to space
   space.addChild(agentElement);
   space.addChild(observerElement);
-  space.addChild(consoleChat);
+  space.addChild(consoleChatElement);
   
   console.log('\n✅ Application started!');
   console.log('📍 Debug UI: http://localhost:3000');

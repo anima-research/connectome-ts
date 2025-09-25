@@ -145,8 +145,19 @@ export class BasicAgent implements AgentInterface {
       return false;
     }
     
-    // For now, always activate if not sleeping and not ignored
-    // In a real implementation, could use priority levels
+    // Check if activation is targeted to a specific agent
+    if (activation.targetAgentId || activation.targetAgent) {
+      // For ID-based targeting, we need the agent to know its own ID
+      // This is typically set by AgentComponent but we check by name for now
+      if (activation.targetAgent && activation.targetAgent !== this.config.name) {
+        return false;
+      }
+      
+      // TODO: Once agents know their IDs, check targetAgentId as well
+      // For now, targetAgentId requires AgentComponent to pass the ID
+    }
+    
+    // Activate if not sleeping, not ignored, and either not targeted or targeted to this agent
     return true;
   }
   

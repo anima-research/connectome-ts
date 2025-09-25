@@ -62,6 +62,10 @@ export interface SpeechFacet extends BaseFacet {
   attributes?: {
     target?: string;  // Which stream/channel this was said to
     agentGenerated: boolean;
+    agentId?: string;  // Which agent created this
+    agentName?: string;  // For display purposes
+    conversationId?: string;  // For threading
+    inReplyTo?: string;  // For conversation flow
   };
 }
 
@@ -71,6 +75,8 @@ export interface ThoughtFacet extends BaseFacet {
   scope?: string[];  // Usually includes 'agent-internal'
   attributes?: {
     agentGenerated: boolean;
+    agentId?: string;  // Which agent created this
+    agentName?: string;  // For display purposes
     private?: boolean;
   };
 }
@@ -81,6 +87,8 @@ export interface ActionFacet extends BaseFacet {
   content?: string;  // JSON stringified parameters
   attributes: {
     agentGenerated: boolean;
+    agentId?: string;  // Which agent created this
+    agentName?: string;  // For display purposes
     toolName: string;
     parameters: Record<string, any>;
   };
@@ -102,9 +110,12 @@ export interface AgentActivationFacet extends BaseFacet {
   content?: string;  // Reason for activation
   attributes: {
     source: string;      // Who requested activation
+    sourceAgentId?: string;  // ID of agent that triggered activation
+    sourceAgentName?: string; // Name of agent that triggered activation
     priority: 'low' | 'normal' | 'high';
     reason: string;      // Why activation was requested
-    targetAgent?: string; // Optional specific agent
+    targetAgent?: string; // Optional specific agent name (legacy)
+    targetAgentId?: string; // Optional specific agent ID (preferred)
     config?: {
       temperature?: number;
       maxTokens?: number;
@@ -165,6 +176,23 @@ export interface RemoveFacetOperation {
   mode: 'hide' | 'delete';
 }
 
+export interface AddAgentOperation {
+  type: 'addAgent';
+  agent: AgentInfo;
+}
+
+export interface RemoveAgentOperation {
+  type: 'removeAgent';
+  agentId: string;
+  reason?: string;  // Why the agent was removed
+}
+
+export interface UpdateAgentOperation {
+  type: 'updateAgent';
+  agentId: string;
+  updates: Partial<Omit<AgentInfo, 'id'>>;
+}
+
 export type VEILOperation = 
   | AddFacetOperation 
   | ChangeStateOperation 
@@ -173,7 +201,10 @@ export type VEILOperation =
   | AddStreamOperation
   | UpdateStreamOperation
   | DeleteStreamOperation
-  | RemoveFacetOperation;
+  | RemoveFacetOperation
+  | AddAgentOperation
+  | RemoveAgentOperation
+  | UpdateAgentOperation;
 
 // Stream information
 export interface StreamInfo {
@@ -187,6 +218,17 @@ export interface StreamRef {
   streamId: string;
   streamType: string;  // "discord", "terminal", "minecraft", etc.
   metadata?: Record<string, any>;  // Adapter-specific metadata
+}
+
+// Agent information
+export interface AgentInfo {
+  id: string;  // Unique agent identifier
+  name: string;  // Human-readable name
+  type?: string;  // e.g., "assistant", "tool", "system"
+  capabilities?: string[];  // What the agent can do
+  metadata?: Record<string, any>;  // Additional agent-specific data
+  createdAt: string;  // When the agent joined
+  lastActiveAt?: string;  // Last activity timestamp
 }
 
 // VEIL Frames
@@ -248,7 +290,9 @@ export interface VEILState {
   facets: Map<string, Facet>;
   scopes: Set<string>;
   streams: Map<string, StreamInfo>;  // Active streams
+  agents: Map<string, AgentInfo>;  // Active agents
   currentStream?: StreamRef;  // Currently active stream
+  currentAgent?: string;  // Currently processing agent
   frameHistory: (IncomingVEILFrame | OutgoingVEILFrame)[];
   currentSequence: number;
   removals: Map<string, 'hide' | 'delete'>;  // Tracks removed facets

@@ -649,9 +649,12 @@ export class Space extends Element {
           content: payload.reason || 'Agent activation requested',
           attributes: {
             source: payload.source || 'system',
+            sourceAgentId: payload.sourceAgentId,
+            sourceAgentName: payload.sourceAgentName,
             reason: payload.reason || 'requested',
             priority: payload.priority || 'normal',
             targetAgent: payload.targetAgent,
+            targetAgentId: payload.targetAgentId,
             config: payload.config
           }
         }
@@ -689,8 +692,8 @@ export class Space extends Element {
         (frame as any).renderedContext = rawCompletion;
       }
 
-      // Record the frame
-      this.veilState.recordOutgoingFrame(frame);
+      // Record the frame with agent information
+      this.veilState.recordOutgoingFrame(frame, { agentId, agentName });
       this.notifyDebugOutgoingFrame(frame, { agentId, agentName });
       
       // If rendered context was provided, record it for the current frame (incoming frame)

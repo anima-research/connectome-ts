@@ -33,7 +33,9 @@ export async function restoreVEILState(
     frameHistory: serialized.frameHistory ? 
       serialized.frameHistory.map(f => deserializeValue(f)) : [],
     currentSequence: serialized.currentSequence,
-    removals: new Map(serialized.removals || [])
+    removals: new Map(serialized.removals || []),
+    agents: new Map(),
+    currentAgent: undefined
   };
   
   // Restore facets

@@ -25,7 +25,9 @@ export class VEILStateManager {
       facets: new Map(),
       scopes: new Set(),
       streams: new Map(),
+      agents: new Map(),
       currentStream: undefined,
+      currentAgent: undefined,
       frameHistory: [],
       currentSequence: 0,
       removals: new Map()
@@ -73,7 +75,7 @@ export class VEILStateManager {
   /**
    * Record an outgoing frame (from agent) and create facets for agent actions
    */
-  recordOutgoingFrame(frame: OutgoingVEILFrame): void {
+  recordOutgoingFrame(frame: OutgoingVEILFrame, agentInfo?: { agentId: string; agentName?: string }): void {
     // Validate sequence - must be exactly the next number
     const expectedSequence = this.state.currentSequence + 1;
     if (frame.sequence !== expectedSequence) {
@@ -85,9 +87,22 @@ export class VEILStateManager {
     
     const frameTimestamp = new Date().toISOString();
     
-    // Validate outgoing operations
+    // Set current agent if provided
+    if (agentInfo?.agentId) {
+      this.state.currentAgent = agentInfo.agentId;
+    }
+    
+    // Validate operations
     const validOutgoingOps = ['speak', 'think', 'act'];
+    const veilManagementOps = ['addFacet', 'removeFacet', 'changeFacet', 'addStream', 'removeStream', 'addScope', 'removeScope', 'addAgent', 'removeAgent', 'updateAgent'];
+    
     for (const operation of frame.operations) {
+      // Skip VEIL management operations - these are valid but not "outgoing"
+      if (veilManagementOps.includes(operation.type)) {
+        continue;
+      }
+      
+      // Validate outgoing operations
       if (!validOutgoingOps.includes(operation.type)) {
         console.warn(`[VEIL] Warning: Unsupported outgoing operation type "${operation.type}". Valid outgoing operations are: ${validOutgoingOps.join(', ')}`);
         // Legacy operation types that should be updated
@@ -111,6 +126,8 @@ export class VEILStateManager {
           content: operation.content,
           attributes: {
             agentGenerated: true,
+            agentId: this.state.currentAgent,
+            agentName: this.state.currentAgent ? this.state.agents.get(this.state.currentAgent)?.name : undefined,
             target: operation.target || this.state.currentStream?.streamId || 'default'
           }
         };
@@ -124,6 +141,8 @@ export class VEILStateManager {
           content: JSON.stringify(operation.parameters),
           attributes: {
             agentGenerated: true,
+            agentId: this.state.currentAgent,
+            agentName: this.state.currentAgent ? this.state.agents.get(this.state.currentAgent)?.name : undefined,
             toolName: operation.toolName,
             parameters: operation.parameters
           }
@@ -138,6 +157,8 @@ export class VEILStateManager {
           scope: ['agent-internal'],
           attributes: {
             agentGenerated: true,
+            agentId: this.state.currentAgent,
+            agentName: this.state.currentAgent ? this.state.agents.get(this.state.currentAgent)?.name : undefined,
             private: true
           }
         };
@@ -158,7 +179,9 @@ export class VEILStateManager {
       facets: new Map(this.state.facets),
       scopes: new Set(this.state.scopes),
       streams: new Map(this.state.streams),
+      agents: new Map(this.state.agents),
       currentStream: this.state.currentStream,
+      currentAgent: this.state.currentAgent,
       frameHistory: [...this.state.frameHistory],
       currentSequence: this.state.currentSequence,
       removals: new Map(this.state.removals)
@@ -230,7 +253,9 @@ export class VEILStateManager {
       facets: new Map(newState.facets),
       scopes: new Set(newState.scopes),
       streams: new Map(newState.streams),
+      agents: new Map(newState.agents || []),
       currentStream: newState.currentStream,
+      currentAgent: newState.currentAgent,
       frameHistory: [...newState.frameHistory],
       currentSequence: newState.currentSequence,
       removals: new Map(newState.removals || [])
@@ -311,6 +336,31 @@ export class VEILStateManager {
       
       case 'removeFacet':
         this.removeFacet(operation.facetId, operation.mode);
+        break;
+        
+      case 'addAgent':
+        this.state.agents.set(operation.agent.id, operation.agent);
+        break;
+        
+      case 'removeAgent':
+        this.state.agents.delete(operation.agentId);
+        // If removed agent was current, clear current
+        if (this.state.currentAgent === operation.agentId) {
+          this.state.currentAgent = undefined;
+        }
+        break;
+        
+      case 'updateAgent':
+        const agent = this.state.agents.get(operation.agentId);
+        if (agent) {
+          this.state.agents.set(operation.agentId, {
+            ...agent,
+            ...operation.updates,
+            lastActiveAt: new Date().toISOString()
+          });
+        } else {
+          console.warn(`[VEIL] Cannot update non-existent agent: ${operation.agentId}`);
+        }
         break;
     }
   }
