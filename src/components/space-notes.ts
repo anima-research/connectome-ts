@@ -18,7 +18,7 @@
  */
 
 import { InteractiveComponent } from './base-components';
-import { persistable, persistent } from '../persistence/decorators';
+import { persistable, persistent, Serializers } from '../persistence/decorators';
 import { SpaceEvent } from '../spaces/types';
 import { createSpaceEvent, removeFacet } from '../helpers/factories';
 
@@ -47,10 +47,11 @@ interface Note {
  */
 @persistable(1)
 export class SpaceNotesComponent extends InteractiveComponent {
-  @persistent() private notes: Map<string, Note> = new Map();
-  @persistent() private openNotes: Set<string> = new Set(); // Currently open in context
+  @persistent({ serializer: Serializers.map<Note>() }) private notes: Map<string, Note> = new Map();
+  @persistent({ serializer: Serializers.set<string>() }) private openNotes: Set<string> = new Set(); // Currently open in context
   
   onMount(): void {
+    
     // Core operations
     this.registerAction('add', this.addNote.bind(this));
     this.registerAction('search', this.searchNotes.bind(this));
@@ -67,18 +68,59 @@ export class SpaceNotesComponent extends InteractiveComponent {
   
   /**
    * Add a note to shared knowledge
+   * Supports multiple syntaxes:
+   * - @notes.add("content")                    → single string
+   * - @notes.add("content", "tag1", "tag2")    → content + tags as positional
+   * - @notes.add({ content: "...", tags: [...] }) → object format (legacy)
    */
-  private async addNote(params: {
-    content: string;
-    tags?: string[];
-  }): Promise<void> {
+  private async addNote(params: any): Promise<void> {
+    // Safety check - should never happen now that restoration is fixed
+    if (!(this.notes instanceof Map)) {
+      console.error('[SpaceNotes] CRITICAL: notes is not a Map! Attempting recovery...');
+      const oldNotes = this.notes as any;
+      this.notes = new Map();
+      
+      if (Array.isArray(oldNotes)) {
+        for (const [key, value] of oldNotes) {
+          this.notes.set(key, value);
+        }
+      } else if (oldNotes && typeof oldNotes === 'object') {
+        for (const [key, value] of Object.entries(oldNotes)) {
+          this.notes.set(key, value as Note);
+        }
+      }
+    }
+    
+    let content: string;
+    let tags: string[] | undefined;
+    
+    // Handle different parameter formats
+    if (typeof params === 'string') {
+      // Direct string: @notes.add("content")
+      content = params;
+    } else if (params.value) {
+      // Single positional: @notes.add("content")
+      content = params.value;
+    } else if (params.values && Array.isArray(params.values)) {
+      // Multiple positional: @notes.add("content", "tag1", "tag2")
+      content = params.values[0];
+      tags = params.values.slice(1);
+    } else if (params.content) {
+      // Object format: @notes.add({ content: "...", tags: [...] })
+      content = params.content;
+      tags = params.tags;
+    } else {
+      // Fallback - try to stringify whatever we got
+      content = typeof params === 'object' ? JSON.stringify(params) : String(params);
+    }
+    
     const noteId = `note-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     
     const note: Note = {
       id: noteId,
-      content: params.content,
+      content,
       created: new Date().toISOString(),
-      tags: params.tags
+      tags
     };
     
     this.notes.set(noteId, note);
@@ -87,7 +129,7 @@ export class SpaceNotesComponent extends InteractiveComponent {
     this.element.emit(
       createSpaceEvent('notes:added', this.element, {
         noteId,
-        preview: params.content.substring(0, 50)
+        preview: content.substring(0, 50)
       })
     );
     
@@ -100,13 +142,24 @@ export class SpaceNotesComponent extends InteractiveComponent {
   
   /**
    * Search notes by keyword
+   * Supports: @notes.search("query") or @notes.search({ query: "...", limit: 10 })
    */
-  private async searchNotes(params: {
-    query: string;
-    limit?: number;
-  }): Promise<void> {
-    const queryLower = params.query.toLowerCase();
-    const limit = params.limit || 10;
+  private async searchNotes(params: any): Promise<void> {
+    let query: string;
+    let limit: number = 10;
+    
+    if (typeof params === 'string') {
+      query = params;
+    } else if (params.value) {
+      query = params.value;
+    } else if (params.query) {
+      query = params.query;
+      limit = params.limit || 10;
+    } else {
+      query = String(params);
+    }
+    
+    const queryLower = query.toLowerCase();
     
     const matches: Note[] = [];
     for (const note of this.notes.values()) {
@@ -171,9 +224,22 @@ export class SpaceNotesComponent extends InteractiveComponent {
   
   /**
    * Load a note into context
+   * Supports: @notes.read("note-id") or @notes.read({ noteId: "..." })
    */
-  private async readNote(params: { noteId: string }): Promise<void> {
-    const note = this.notes.get(params.noteId);
+  private async readNote(params: any): Promise<void> {
+    let noteId: string;
+    
+    if (typeof params === 'string') {
+      noteId = params;
+    } else if (params.value) {
+      noteId = params.value;
+    } else if (params.noteId) {
+      noteId = params.noteId;
+    } else {
+      noteId = String(params);
+    }
+    
+    const note = this.notes.get(noteId);
     if (!note) {
       // Error case - simple one-liner!
       this.addAmbient(
@@ -201,13 +267,26 @@ export class SpaceNotesComponent extends InteractiveComponent {
   
   /**
    * Remove a note from context
+   * Supports: @notes.close("note-id") or @notes.close({ noteId: "..." })
    */
-  private async closeNote(params: { noteId: string }): Promise<void> {
-    this.openNotes.delete(params.noteId);
+  private async closeNote(params: any): Promise<void> {
+    let noteId: string;
+    
+    if (typeof params === 'string') {
+      noteId = params;
+    } else if (params.value) {
+      noteId = params.value;
+    } else if (params.noteId) {
+      noteId = params.noteId;
+    } else {
+      noteId = String(params);
+    }
+    
+    this.openNotes.delete(noteId);
     
     // Remove the facet - one clean function call!
     this.addOperation(
-      removeFacet(`note-${params.noteId}`, 'delete')
+      removeFacet(`note-${noteId}`, 'delete')
     );
   }
   
@@ -232,11 +311,13 @@ export class SpaceNotesComponent extends InteractiveComponent {
     this.addState('notes-help', 
       `Space Notes - Your workspace for thoughts and observations:
 
-@notes.add({ content: "Your note here with -YourName" }) - Write a note
-@notes.search({ query: "concept" }) - Search by meaning
-@notes.browse({ days: 7, limit: 10 }) - Browse recent notes  
-@notes.read({ noteId: "note-id" }) - Load into active context
-@notes.close({ noteId: "note-id" }) - Remove from context
+@notes.add("Your note here with -YourName") - Write a note
+@notes.add("Note content", "tag1", "tag2") - Write with tags
+@notes.search("concept") - Search by meaning
+@notes.browse() - Browse recent notes (defaults to 20)
+@notes.browse({ days: 7, limit: 10 }) - Browse with options  
+@notes.read("note-id") - Load into active context
+@notes.close("note-id") - Remove from context
 @notes.clear() - Clear all from context
 
 Notes exist in this Space - visible to agents here, not beyond.

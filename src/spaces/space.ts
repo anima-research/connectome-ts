@@ -730,7 +730,7 @@ export class Space extends Element {
               topic: 'element:action',
               source: this.getRef(),
               payload: {
-                action: actionName,
+                path: [targetId, actionName],  // Element expects path array
                 parameters: op.parameters
               },
               timestamp: Date.now()

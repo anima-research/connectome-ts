@@ -1,4 +1,5 @@
-import fetch from 'node-fetch';
+const fetch = (...args: Parameters<typeof import('node-fetch')['default']>) =>
+  import('node-fetch').then(({ default: fetch }) => fetch(...args) as any);
 
 interface DebugState {
   space: any;
