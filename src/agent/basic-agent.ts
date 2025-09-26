@@ -29,6 +29,7 @@ import {
   TraceCategory, 
   getGlobalTracer 
 } from '../tracing';
+import { BasicAgentConstructorOptions, isAgentOptions } from './agent-factory';
 import { SpaceEvent } from '../spaces/types';
 import { parseInlineParameters } from './action-parser';
 
@@ -48,21 +49,32 @@ export class BasicAgent implements AgentInterface {
   private tracer: TraceStorage | undefined;
   
   constructor(
-    config: AgentConfig,
-    llmProvider: LLMProvider,
-    veilStateManager?: VEILStateManager,  // Now optional for backward compatibility
+    configOrOptions: AgentConfig | BasicAgentConstructorOptions,
+    llmProvider?: LLMProvider,
+    veilStateManager?: VEILStateManager,
     compressionEngine?: CompressionEngine
   ) {
-    this.config = config;
-    this.llmProvider = llmProvider;
-    this.veilStateManager = veilStateManager!;  // Will be removed in future versions
-    this.compressionEngine = compressionEngine;
+    // Support both old and new constructor patterns
+    if (isAgentOptions(configOrOptions)) {
+      // New intuitive pattern
+      this.config = configOrOptions.config;
+      this.llmProvider = configOrOptions.provider;
+      this.veilStateManager = configOrOptions.veilStateManager!;
+      this.compressionEngine = configOrOptions.compressionEngine;
+    } else {
+      // Old pattern for backward compatibility
+      this.config = configOrOptions;
+      this.llmProvider = llmProvider!;
+      this.veilStateManager = veilStateManager!;
+      this.compressionEngine = compressionEngine;
+    }
+    
     this.hud = new FrameTrackingHUD();
     this.tracer = getGlobalTracer();
     
     // Register tools
-    if (config.tools) {
-      for (const tool of config.tools) {
+    if (this.config.tools) {
+      for (const tool of this.config.tools) {
         this.tools.set(tool.name, tool);
       }
     }

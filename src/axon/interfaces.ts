@@ -88,6 +88,16 @@ export interface IVEILComponent extends IComponent {
 
 export interface IInteractiveComponent extends IVEILComponent {
   registerAction(name: string, handler: (params?: any) => Promise<void>): void;
+  
+  // Helper methods from Component base class (added in API improvements)
+  addAmbient(content: string, idOrAttributes?: string | Record<string, any>, attributes?: Record<string, any>): void;
+  addState(facetId: string, content: string, attributes?: Record<string, any>): void;
+  changeState(facetId: string, updates: { content?: string; attributes?: Record<string, any> }): void;
+  addEvent(displayName: string, content: string, idOrAttributes?: string | Record<string, any>, attributes?: Record<string, any>): void;
+  inFrame(): boolean;
+  requireFrame(): void;
+  getVeilState(): any;
+  deferToNextFrame(operation: () => void): void;
 }
 
 // Decorator metadata interfaces

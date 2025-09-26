@@ -219,6 +219,10 @@ export class ConnectomeHost {
     // Let app do any post-restore setup
     await app.onRestore?.(space, veilState);
     
+    // Complete mounting for all restored components now that external services are ready
+    console.log('🔧 Completing component mounting after restoration...');
+    await space.completeMountForRestoration();
+    
     return { space, veilState };
   }
   
@@ -432,8 +436,52 @@ export class ConnectomeHost {
    * Set up handler for dynamically loaded components
    */
   private setupDynamicComponentHandler(space: Space): void {
+    // Check if a host handler already exists (from persistence)
+    let hostElement = space.children.find(child => child.name === '_host_handler');
+    
+    if (hostElement) {
+      console.log('[Host] Found existing host handler from persistence');
+      console.log(`[Host] Host handler has ${hostElement.components.length} components`);
+      // Ensure it's subscribed to the right events
+      space.subscribe('axon:component-loaded');
+      hostElement.subscribe('axon:component-loaded');
+      
+      // Re-add the handler component if it's missing
+      if (hostElement.components.length === 0) {
+        console.log('[Host] Host handler has no components, adding handler component');
+        const host = this;
+        hostElement.addComponent(new class extends Component {
+          onMount(): void {
+            console.log('[Host Handler] Mounted and ready to handle dynamic component events (restored)');
+          }
+          
+          async handleEvent(event: SpaceEvent): Promise<void> {
+            console.log(`[Host Handler] Received event: ${event.topic}`);
+            if (event.topic === 'axon:component-loaded') {
+              const payload = event.payload as { component: Component; componentClass: string };
+              const component = payload.component;
+              if (component) {
+                console.log(`🔌 Resolving references for dynamically loaded component: ${payload.componentClass}`);
+                await host.resolveComponentReferences(component);
+                await host.resolveExternalResources(component);
+                
+                // Call onReferencesResolved if it exists
+                if ('onReferencesResolved' in component && typeof component.onReferencesResolved === 'function') {
+                  component.onReferencesResolved();
+                }
+              }
+            }
+          }
+        });
+      }
+      
+      return;
+    }
+    
+    // Create new host handler
+    console.log('[Host] Creating new host handler');
     const host = this;
-    const hostElement = new Element('_host_handler');
+    hostElement = new Element('_host_handler');
     hostElement.addComponent(new class extends Component {
       onMount(): void {
         console.log('[Host Handler] Mounted and ready to handle dynamic component events');

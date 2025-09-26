@@ -193,10 +193,10 @@ export class Element {
    * Add a component to this element
    * Note: Component mounting may be async. Use addComponentAsync if you need to wait for initialization.
    */
-  addComponent<T extends Component>(component: T): T {
+  addComponent<T extends Component>(component: T, isRestoring: boolean = false): T {
     this._components.push(component);
     // Start async attachment but don't wait for it
-    component._attach(this).catch(error => {
+    component._attach(this, isRestoring).catch(error => {
       console.error(`Failed to attach component ${component.constructor.name}:`, error);
     });
     return component;
@@ -205,9 +205,9 @@ export class Element {
   /**
    * Add a component and wait for it to fully initialize
    */
-  async addComponentAsync<T extends Component>(component: T): Promise<T> {
+  async addComponentAsync<T extends Component>(component: T, isRestoring: boolean = false): Promise<T> {
     this._components.push(component);
-    await component._attach(this);
+    await component._attach(this, isRestoring);
     return component;
   }
   
@@ -228,6 +228,26 @@ export class Element {
    */
   getComponent<T extends Component>(type: new (...args: any[]) => T): T | null {
     return this._components.find(c => c instanceof type) as T || null;
+  }
+  
+  /**
+   * Complete mounting for all components after restoration
+   * Called after external services are ready
+   */
+  async completeMountForRestoration(): Promise<void> {
+    // Complete mount for all components
+    const promises: Promise<void>[] = [];
+    for (const component of this._components) {
+      promises.push(component._completeMount());
+    }
+    await Promise.all(promises);
+    
+    // Recursively complete mount for all children
+    const childPromises: Promise<void>[] = [];
+    for (const child of this.children) {
+      childPromises.push(child.completeMountForRestoration());
+    }
+    await Promise.all(childPromises);
   }
   
   /**

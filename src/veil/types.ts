@@ -176,6 +176,15 @@ export interface RemoveFacetOperation {
   mode: 'hide' | 'delete';
 }
 
+export interface ChangeFacetOperation {
+  type: 'changeFacet';
+  facetId: string;
+  updates: {
+    content?: string;
+    attributes?: Record<string, any>;
+  };
+}
+
 export interface AddAgentOperation {
   type: 'addAgent';
   agent: AgentInfo;
@@ -202,6 +211,7 @@ export type VEILOperation =
   | UpdateStreamOperation
   | DeleteStreamOperation
   | RemoveFacetOperation
+  | ChangeFacetOperation
   | AddAgentOperation
   | RemoveAgentOperation
   | UpdateAgentOperation;

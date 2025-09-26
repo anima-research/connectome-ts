@@ -189,6 +189,15 @@ export class VEILStateManager {
   }
 
   /**
+   * @deprecated Use getState() instead
+   * Alias for backward compatibility
+   */
+  getCurrentState(): Readonly<VEILState> {
+    console.warn('getCurrentState() is deprecated. Use getState() instead.');
+    return this.getState();
+  }
+
+  /**
    * Get active facets (filtered by scope)
    */
   getActiveFacets(): Map<string, Facet> {
@@ -279,7 +288,7 @@ export class VEILStateManager {
 
   private applyOperation(operation: VEILOperation, frameSequence?: number, timestamp?: string): void {
     // Validate operation type
-    const validOperations = ['addFacet', 'changeState', 'addScope', 'deleteScope', 'addStream', 'updateStream', 'deleteStream', 'removeFacet', 'addAgent', 'removeAgent', 'updateAgent'];
+    const validOperations = ['addFacet', 'changeState', 'addScope', 'deleteScope', 'addStream', 'updateStream', 'deleteStream', 'removeFacet', 'changeFacet', 'addAgent', 'removeAgent', 'updateAgent'];
     if (!validOperations.includes(operation.type)) {
       console.warn(`[VEIL] Warning: Unsupported operation type "${operation.type}". Valid operations are: ${validOperations.join(', ')}`);
       // Legacy operation types that should be updated
@@ -336,6 +345,10 @@ export class VEILStateManager {
       
       case 'removeFacet':
         this.removeFacet(operation.facetId, operation.mode);
+        break;
+        
+      case 'changeFacet':
+        this.changeFacet(operation.facetId, operation.updates);
         break;
         
       case 'addAgent':
@@ -440,6 +453,34 @@ export class VEILStateManager {
       for (const child of facet.children) {
         this.removeFacet(child.id, mode);
       }
+    }
+  }
+
+  private changeFacet(facetId: string, updates: { content?: string; attributes?: Record<string, any> }): void {
+    const facet = this.state.facets.get(facetId);
+    if (!facet) {
+      console.warn(`Cannot change non-existent facet: ${facetId}`);
+      return;
+    }
+
+    // Check if facet is removed
+    const removal = this.state.removals.get(facetId);
+    if (removal === 'delete') {
+      // Silently ignore changes to deleted facets
+      return;
+    }
+    // Note: 'hide' mode still allows changes, just affects rendering
+
+    // Apply updates
+    if (updates.content !== undefined) {
+      facet.content = updates.content;
+    }
+    
+    if (updates.attributes) {
+      facet.attributes = {
+        ...facet.attributes,
+        ...updates.attributes
+      };
     }
   }
 

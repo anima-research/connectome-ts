@@ -1,6 +1,26 @@
+/**
+ * SpaceNotesComponent - Refactored with new helper APIs
+ * 
+ * This component demonstrates how the new helper methods reduce boilerplate:
+ * 
+ * BEFORE: Manual construction of facets, events, and operations
+ * AFTER:  Clean helper methods that handle the details
+ * 
+ * Key improvements shown:
+ * - addAmbient() for quick feedback messages
+ * - addState() for persistent UI elements  
+ * - updateState() for reactive updates
+ * - createSpaceEvent() for clean event creation
+ * - removeFacet() factory for operations
+ * - Frame safety with inFrame() and deferToNextFrame()
+ * 
+ * The component is now focused on its logic, not framework plumbing!
+ */
+
 import { InteractiveComponent } from './base-components';
 import { persistable, persistent, Serializers } from '../persistence/decorators';
 import { SpaceEvent } from '../spaces/types';
+import { createSpaceEvent, removeFacet } from '../helpers/factories';
 
 /**
  * Simple note structure for shared knowledge
@@ -105,16 +125,19 @@ export class SpaceNotesComponent extends InteractiveComponent {
     
     this.notes.set(noteId, note);
     
-    // Emit event for other agents
-    this.element.emit({
-      topic: 'notes:added',
-      source: this.element.getRef(),
-      payload: { noteId, preview: content.substring(0, 50) },
-      timestamp: Date.now()
-    });
+    // Emit event for other agents - much cleaner now!
+    this.element.emit(
+      createSpaceEvent('notes:added', this.element, {
+        noteId,
+        preview: content.substring(0, 50)
+      })
+    );
     
     // Auto-open the note just created
-    await this.readNote(noteId);
+    await this.readNote({ noteId });
+    
+    // Update stats - safe to call anytime!
+    this.changeStats();
   }
   
   /**
@@ -150,19 +173,19 @@ export class SpaceNotesComponent extends InteractiveComponent {
     matches.sort((a, b) => b.created.localeCompare(a.created));
     const results = matches.slice(0, limit);
     
-    // Emit results as ambient facet
-    this.addFacet({
-      id: `search-results-${Date.now()}`,
-      type: 'ambient',
-      displayName: `Search Results: "${params.query}"`,
-      content: results.length === 0 
-        ? 'No notes found'
-        : results.map(n => `[${n.id}] ${n.content.substring(0, 100)}...`).join('\n'),
-      attributes: {
+    // Emit results as ambient facet - so much simpler!
+    const content = results.length === 0 
+      ? 'No notes found'
+      : results.map(n => `[${n.id}] ${n.content.substring(0, 100)}...`).join('\n');
+    
+    this.addAmbient(
+      `Search Results: "${params.query}"\n\n${content}`,
+      {
         resultCount: results.length,
-        noteIds: results.map(n => n.id)
+        noteIds: results.map(n => n.id),
+        searchQuery: params.query
       }
-    });
+    );
   }
   
   /**
@@ -188,18 +211,15 @@ export class SpaceNotesComponent extends InteractiveComponent {
     notes.sort((a, b) => b.created.localeCompare(a.created));
     const results = notes.slice(0, limit);
     
-    // Emit as ambient
-    this.addFacet({
-      id: `browse-results-${Date.now()}`,
-      type: 'ambient',
-      displayName: `Recent Notes (${results.length})`,
-      content: results.length === 0
-        ? 'No notes yet'
-        : results.map(n => `[${n.id}] (${new Date(n.created).toLocaleString()})\n${n.content.substring(0, 100)}...`).join('\n\n'),
-      attributes: {
-        noteCount: results.length
-      }
-    });
+    // Emit as ambient - clean and clear
+    const content = results.length === 0
+      ? 'No notes yet'
+      : results.map(n => `[${n.id}] (${new Date(n.created).toLocaleString()})\n${n.content.substring(0, 100)}...`).join('\n\n');
+    
+    this.addAmbient(
+      `Recent Notes (${results.length})\n\n${content}`,
+      { noteCount: results.length }
+    );
   }
   
   /**
@@ -221,31 +241,28 @@ export class SpaceNotesComponent extends InteractiveComponent {
     
     const note = this.notes.get(noteId);
     if (!note) {
-      this.addFacet({
-        id: `note-error-${Date.now()}`,
-        type: 'ambient',
-        displayName: 'Note Not Found',
-        content: `Note ${params.noteId} not found`
-      });
+      // Error case - simple one-liner!
+      this.addAmbient(
+        `Note Not Found: ${params.noteId} not found`,
+        { error: true, noteId: params.noteId }
+      );
       return;
     }
     
     // Add to open notes
     this.openNotes.add(params.noteId);
     
-    // Add as ambient facet
-    this.addFacet({
-      id: `note-${params.noteId}`,
-      type: 'ambient',
-      displayName: `Note (${new Date(note.created).toLocaleDateString()})`,
-      content: note.content,
-      attributes: {
+    // Add as ambient facet with stable ID for removal
+    this.addAmbient(
+      `Note (${new Date(note.created).toLocaleDateString()})\n\n${note.content}`,
+      `note-${params.noteId}`, // Stable ID
+      {
         noteId: params.noteId,
         created: note.created,
         tags: note.tags || [],
         canClose: true
       }
-    });
+    );
   }
   
   /**
@@ -267,37 +284,32 @@ export class SpaceNotesComponent extends InteractiveComponent {
     
     this.openNotes.delete(noteId);
     
-    // Remove the facet
-    this.addOperation({
-      type: 'removeFacet',
-      facetId: `note-${noteId}`,
-      mode: 'delete'
-    });
+    // Remove the facet - one clean function call!
+    this.addOperation(
+      removeFacet(`note-${noteId}`, 'delete')
+    );
   }
   
   /**
    * Clear all notes from context
    */
   private async clearContext(): Promise<void> {
+    // Batch remove all open notes - so much cleaner!
     for (const noteId of this.openNotes) {
-      this.addOperation({
-        type: 'removeFacet',
-        facetId: `note-${noteId}`,
-        mode: 'delete'
-      });
+      this.addOperation(
+        removeFacet(`note-${noteId}`, 'delete')
+      );
     }
     this.openNotes.clear();
   }
   
   /**
-   * Emit available actions as ambient
+   * Emit available actions as state (persistent UI)
    */
   private emitActions(): void {
-    this.addFacet({
-      id: 'space-notes-actions',
-      type: 'ambient',
-      displayName: 'Space Notes',
-      content: `Space Notes - Your workspace for thoughts and observations:
+    // Use addState for persistent UI elements - they survive frame changes!
+    this.addState('notes-help', 
+      `Space Notes - Your workspace for thoughts and observations:
 
 @notes.add("Your note here with -YourName") - Write a note
 @notes.add("Note content", "tag1", "tag2") - Write with tags
@@ -310,11 +322,12 @@ export class SpaceNotesComponent extends InteractiveComponent {
 
 Notes exist in this Space - visible to agents here, not beyond.
 A place for working memory, processing, and agent-to-agent messages.`,
-      attributes: {
+      {
         component: 'SpaceNotes',
-        persistent: true
+        noteCount: this.notes.size,
+        openNotes: this.openNotes.size
       }
-    });
+    );
   }
   
   async handleEvent(event: SpaceEvent): Promise<void> {
@@ -325,5 +338,27 @@ A place for working memory, processing, and agent-to-agent messages.`,
       this.emitActions();
       this.actionsEmitted = true;
     }
+  }
+  
+  /**
+   * Update the help text with current stats
+   * Demonstrates using the new helper methods
+   */
+  private changeStats(): void {
+    // Safe to call anytime - will defer if not in frame
+    if (!this.inFrame()) {
+      this.deferToNextFrame(() => this.changeStats());
+      return;
+    }
+    
+    // Update just the attributes of our help state
+    this.changeState('notes-help', {
+      attributes: {
+        component: 'SpaceNotes',
+        noteCount: this.notes.size,
+        openNotes: this.openNotes.size,
+        lastUpdate: new Date().toISOString()
+      }
+    });
   }
 }
