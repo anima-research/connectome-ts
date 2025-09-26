@@ -31,6 +31,7 @@ export class SpaceNotesComponent extends InteractiveComponent {
   @persistent({ serializer: Serializers.set<string>() }) private openNotes: Set<string> = new Set(); // Currently open in context
   
   onMount(): void {
+    
     // Core operations
     this.registerAction('add', this.addNote.bind(this));
     this.registerAction('search', this.searchNotes.bind(this));
@@ -53,6 +54,23 @@ export class SpaceNotesComponent extends InteractiveComponent {
    * - @notes.add({ content: "...", tags: [...] }) → object format (legacy)
    */
   private async addNote(params: any): Promise<void> {
+    // Safety check - should never happen now that restoration is fixed
+    if (!(this.notes instanceof Map)) {
+      console.error('[SpaceNotes] CRITICAL: notes is not a Map! Attempting recovery...');
+      const oldNotes = this.notes as any;
+      this.notes = new Map();
+      
+      if (Array.isArray(oldNotes)) {
+        for (const [key, value] of oldNotes) {
+          this.notes.set(key, value);
+        }
+      } else if (oldNotes && typeof oldNotes === 'object') {
+        for (const [key, value] of Object.entries(oldNotes)) {
+          this.notes.set(key, value as Note);
+        }
+      }
+    }
+    
     let content: string;
     let tags: string[] | undefined;
     

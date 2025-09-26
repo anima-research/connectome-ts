@@ -194,7 +194,26 @@ async function restoreComponent(data: SerializedComponent): Promise<Component | 
   
   // Restore persistent properties
   if (data.properties) {
-    Object.assign(component, data.properties);
+    // Get persistence metadata for the component
+    const metadata = (component.constructor as any).getPersistenceMetadata?.();
+    
+    if (metadata?.properties) {
+      // Properly deserialize each property using its serializer
+      for (const [key, value] of Object.entries(data.properties)) {
+        const propertyMetadata = metadata.properties.get(key);
+        if (propertyMetadata?.serializer?.deserialize) {
+          // Use the deserializer for this property
+          (component as any)[key] = propertyMetadata.serializer.deserialize(value);
+        } else {
+          // No custom serializer, use direct assignment
+          (component as any)[key] = value;
+        }
+      }
+    } else {
+      // Fallback to direct assignment if no metadata
+      console.warn(`[Restoration] No persistence metadata for ${data.className}, using direct assignment`);
+      Object.assign(component, data.properties);
+    }
   }
   
   return component;
