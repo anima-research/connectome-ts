@@ -416,8 +416,9 @@ export class AxonLoaderComponent extends Component {
         
         // For now, directly request external resource resolution from the host
         // This is a temporary solution until we figure out why the event isn't being handled
-        const hostHandler = space?.children.find(c => c.id === '_host_handler');
+        const hostHandler = space?.children.find(c => c.name === '_host_handler');
         if (hostHandler && hostHandler.components.length > 0) {
+          console.log(`[AxonLoader] Found host handler with ${hostHandler.components.length} components`);
           console.log(`[AxonLoader] Requesting host to resolve external resources for ${this.manifest?.componentClass}`);
           // Emit directly to the host handler element
           hostHandler.emit({
@@ -429,6 +430,8 @@ export class AxonLoaderComponent extends Component {
             },
             timestamp: Date.now()
           });
+        } else {
+          console.log(`[AxonLoader] Warning: No host handler found (looked for name '_host_handler')`);
         }
         
         // Also emit to space for any other handlers
