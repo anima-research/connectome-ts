@@ -159,7 +159,7 @@ async function restoreElement(data: SerializedElement): Promise<Element | null> 
       const component = await restoreComponent(componentData);
       if (component) {
         // Use addComponentAsync to properly mount and wait for initialization
-        componentPromises.push(element.addComponentAsync(component));
+        componentPromises.push(element.addComponentAsync(component, true)); // isRestoring=true
       }
     }
     

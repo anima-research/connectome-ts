@@ -46,12 +46,14 @@ export { Component } from './spaces/component';
 export * from './agent/types';
 export { BasicAgent } from './agent/basic-agent';
 export { AgentComponent } from './agent/agent-component';
+export { createBasicAgent, type CreateAgentOptions } from './agent/agent-factory';
 
 // Element exports
 export { ConsoleChatComponent } from './elements/console-chat';
 
 // Component exports
 export { AxonLoaderComponent } from './components/axon-loader';
+export { SpaceNotesComponent } from './components/space-notes';
 
 // Tracing exports
 export * from './tracing';
@@ -70,3 +72,21 @@ export type { DebugServerConfig } from './debug';
 export { ConnectomeHost, type HostConfig } from './host';
 export type { ConnectomeApplication } from './host/types';
 export { reference, external, type RestorableComponent } from './host/decorators';
+
+// Helper/Factory exports
+export {
+  // ID generation
+  friendlyId,
+  // Event and reference factories
+  createSpaceEvent,
+  createElementRef,
+  createAgentActivation,
+  // VEIL operation factories
+  addFacet,
+  removeFacet,
+  changeState,
+  updateState, // @deprecated - alias for changeState
+  changeFacet,
+  addStream,
+  speak
+} from './helpers/factories';

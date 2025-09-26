@@ -59,16 +59,33 @@ export class AxonLoaderComponent extends Component {
   private loadedComponentState?: any;
   
   /**
-   * Called when component is mounted - handles restoration
+   * Called when component is first created
+   */
+  onInit(): void {
+    // Basic initialization if needed
+  }
+  
+  /**
+   * Called when component is being restored from persistence
+   */
+  onRestore(): void {
+    // Just log that we're being restored, don't connect yet
+    if (this.axonUrl) {
+      console.log(`[AxonLoader] Restored with URL ${this.axonUrl}, will connect when ready`);
+    }
+  }
+  
+  /**
+   * Called when component is mounted and external services are ready
    * Returns a promise that resolves when the dynamic component is fully loaded
    */
   async onMount(): Promise<void> {
-    // If we have a saved axonUrl (from restoration), reconnect
+    // If we have a saved axonUrl (from restoration or direct call), connect
     if (this.axonUrl && !this.loadedComponent) {
-      console.log(`[AxonLoader] Restoring connection to ${this.axonUrl}`);
+      console.log(`[AxonLoader] Connecting to ${this.axonUrl}`);
       try {
         await this.connect(this.axonUrl);
-        console.log(`[AxonLoader] Successfully restored connection and loaded component`);
+        console.log(`[AxonLoader] Successfully connected and loaded component`);
         
         // If we have saved state for the loaded component, restore it
         if (this.loadedComponentState && this.loadedComponent) {
@@ -76,8 +93,9 @@ export class AxonLoaderComponent extends Component {
           await this.restoreLoadedComponentState();
         }
       } catch (error) {
-        console.error(`[AxonLoader] Failed to restore connection:`, error);
-        throw error; // Make restoration failures fatal
+        console.error(`[AxonLoader] Failed to connect:`, error);
+        // Don't throw - allow the component to be mounted even if connection fails
+        // The connection can be retried later
       }
     }
   }

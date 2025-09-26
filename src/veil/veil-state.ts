@@ -189,6 +189,15 @@ export class VEILStateManager {
   }
 
   /**
+   * @deprecated Use getState() instead
+   * Alias for backward compatibility
+   */
+  getCurrentState(): Readonly<VEILState> {
+    console.warn('getCurrentState() is deprecated. Use getState() instead.');
+    return this.getState();
+  }
+
+  /**
    * Get active facets (filtered by scope)
    */
   getActiveFacets(): Map<string, Facet> {
