@@ -289,6 +289,102 @@ export class ConnectomeDebugMCP {
     
     return agents;
   }
+  
+  /**
+   * Get debug LLM status and requests
+   * @tool
+   */
+  async getDebugLLMStatus(): Promise<{ enabled: boolean; requests?: any[] }> {
+    const response = await this.fetchJSON('/api/debug-llm/requests');
+    return response;
+  }
+  
+  /**
+   * Get debug LLM requests (all or just pending)
+   * @tool
+   */
+  async getDebugLLMRequests(params: { pendingOnly?: boolean } = {}): Promise<any[]> {
+    const response = await this.fetchJSON('/api/debug-llm/requests');
+    
+    if (!response.enabled) {
+      throw new Error('Debug LLM provider is not enabled');
+    }
+    
+    let requests = response.requests || [];
+    
+    if (params.pendingOnly) {
+      requests = requests.filter((r: any) => r.status === 'pending');
+    }
+    
+    return requests;
+  }
+  
+  /**
+   * Get a specific debug LLM request by ID
+   * @tool
+   */
+  async getDebugLLMRequest(params: { requestId: string }): Promise<any | null> {
+    const response = await this.fetchJSON('/api/debug-llm/requests');
+    
+    if (!response.enabled) {
+      throw new Error('Debug LLM provider is not enabled');
+    }
+    
+    const request = (response.requests || []).find((r: any) => r.id === params.requestId);
+    return request || null;
+  }
+  
+  /**
+   * Complete a pending debug LLM request
+   * @tool
+   */
+  async completeDebugLLMRequest(params: { 
+    requestId: string; 
+    content: string; 
+    modelId?: string; 
+    tokensUsed?: number 
+  }): Promise<{ success: boolean; request?: any }> {
+    const response = await this.fetchJSON(`/api/debug-llm/requests/${params.requestId}/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: params.content,
+        modelId: params.modelId,
+        tokensUsed: params.tokensUsed
+      })
+    });
+    
+    if (response.status === 'ok') {
+      return { success: true, request: response.request };
+    } else {
+      throw new Error(response.error || 'Failed to complete request');
+    }
+  }
+  
+  /**
+   * Cancel a pending debug LLM request
+   * @tool
+   */
+  async cancelDebugLLMRequest(params: { 
+    requestId: string; 
+    reason?: string 
+  }): Promise<{ success: boolean }> {
+    // The debug server doesn't have a cancel endpoint yet, so we'll complete with an error message
+    const response = await this.fetchJSON(`/api/debug-llm/requests/${params.requestId}/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: `[CANCELLED: ${params.reason || 'Request cancelled by user'}]`,
+        modelId: 'debug-cancelled'
+      })
+    });
+    
+    if (response.status === 'ok') {
+      return { success: true };
+    } else {
+      throw new Error(response.error || 'Failed to cancel request');
+    }
+  }
 }
 
 

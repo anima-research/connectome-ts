@@ -140,6 +140,56 @@ const TOOLS = {
       type: 'object',
       properties: {}
     }
+  },
+  getDebugLLMStatus: {
+    description: 'Get debug LLM status and requests',
+    parameters: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  getDebugLLMRequests: {
+    description: 'Get debug LLM requests (all or just pending)',
+    parameters: {
+      type: 'object',
+      properties: {
+        pendingOnly: { type: 'boolean', description: 'Only return pending requests' }
+      }
+    }
+  },
+  getDebugLLMRequest: {
+    description: 'Get a specific debug LLM request by ID',
+    parameters: {
+      type: 'object',
+      properties: {
+        requestId: { type: 'string', description: 'Request ID' }
+      },
+      required: ['requestId']
+    }
+  },
+  completeDebugLLMRequest: {
+    description: 'Complete a pending debug LLM request',
+    parameters: {
+      type: 'object',
+      properties: {
+        requestId: { type: 'string', description: 'Request ID' },
+        content: { type: 'string', description: 'Response content' },
+        modelId: { type: 'string', description: 'Model ID (optional)' },
+        tokensUsed: { type: 'number', description: 'Tokens used (optional)' }
+      },
+      required: ['requestId', 'content']
+    }
+  },
+  cancelDebugLLMRequest: {
+    description: 'Cancel a pending debug LLM request',
+    parameters: {
+      type: 'object',
+      properties: {
+        requestId: { type: 'string', description: 'Request ID' },
+        reason: { type: 'string', description: 'Cancellation reason (optional)' }
+      },
+      required: ['requestId']
+    }
   }
 };
 
@@ -239,6 +289,21 @@ async function processMessage(message: any) {
               break;
             case 'getAgents':
               result = await mcpInstance.getAgents();
+              break;
+            case 'getDebugLLMStatus':
+              result = await mcpInstance.getDebugLLMStatus();
+              break;
+            case 'getDebugLLMRequests':
+              result = await mcpInstance.getDebugLLMRequests(args);
+              break;
+            case 'getDebugLLMRequest':
+              result = await mcpInstance.getDebugLLMRequest(args);
+              break;
+            case 'completeDebugLLMRequest':
+              result = await mcpInstance.completeDebugLLMRequest(args);
+              break;
+            case 'cancelDebugLLMRequest':
+              result = await mcpInstance.cancelDebugLLMRequest(args);
               break;
             default:
               throw new Error(`Unknown tool: ${name}`);
