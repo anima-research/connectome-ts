@@ -81,6 +81,13 @@ connect({ port: 3015 })
    - `updateElementProps({ elementId, props })` - Modify elements
    - `getMetrics()` - Performance metrics
 
+5. **Debug LLM Provider**
+   - `getDebugLLMStatus()` - Check if debug LLM is enabled and get all requests
+   - `getDebugLLMRequests({ pendingOnly? })` - Get LLM requests (all or pending)
+   - `getDebugLLMRequest({ requestId })` - Get specific request details
+   - `completeDebugLLMRequest({ requestId, content, modelId?, tokensUsed? })` - Complete a pending request
+   - `cancelDebugLLMRequest({ requestId, reason? })` - Cancel a pending request
+
 ### Example Workflow
 
 ```typescript
@@ -106,6 +113,21 @@ await injectEvent({
   topic: "user.action",
   payload: { test: true }
 })
+
+// 6. Check debug LLM requests
+const llmStatus = await getDebugLLMStatus()
+if (llmStatus.enabled) {
+  const pending = await getDebugLLMRequests({ pendingOnly: true })
+  
+  // Complete a pending request
+  if (pending.length > 0) {
+    await completeDebugLLMRequest({
+      requestId: pending[0].id,
+      content: "This is a debug response",
+      modelId: "debug-model"
+    })
+  }
+}
 ```
 
 ## Debugging Tips
@@ -114,6 +136,7 @@ await injectEvent({
 2. **Performance Analysis**: Monitor metrics to identify bottlenecks
 3. **State Inspection**: Drill down into VEIL facets to understand data flow
 4. **Interactive Testing**: Inject events to test edge cases
+5. **Debug LLM Provider**: When using DebugLLMProvider, you can manually control AI responses through the MCP tools, useful for testing agent behavior
 
 ## Troubleshooting
 
