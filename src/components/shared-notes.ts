@@ -1,5 +1,5 @@
 import { InteractiveComponent } from './base-components';
-import { persistable, persistent, Serializers } from '../persistence/decorators';
+import { persistable, persistent } from '../persistence/decorators';
 import { SpaceEvent } from '../spaces/types';
 
 /**
@@ -27,8 +27,8 @@ interface Note {
  */
 @persistable(1)
 export class SpaceNotesComponent extends InteractiveComponent {
-  @persistent({ serializer: Serializers.map<Note>() }) private notes: Map<string, Note> = new Map();
-  @persistent({ serializer: Serializers.set<string>() }) private openNotes: Set<string> = new Set(); // Currently open in context
+  @persistent() private notes: Map<string, Note> = new Map();
+  @persistent() private openNotes: Set<string> = new Set(); // Currently open in context
   
   onMount(): void {
     // Core operations
@@ -47,42 +47,18 @@ export class SpaceNotesComponent extends InteractiveComponent {
   
   /**
    * Add a note to shared knowledge
-   * Supports multiple syntaxes:
-   * - @notes.add("content")                    → single string
-   * - @notes.add("content", "tag1", "tag2")    → content + tags as positional
-   * - @notes.add({ content: "...", tags: [...] }) → object format (legacy)
    */
-  private async addNote(params: any): Promise<void> {
-    let content: string;
-    let tags: string[] | undefined;
-    
-    // Handle different parameter formats
-    if (typeof params === 'string') {
-      // Direct string: @notes.add("content")
-      content = params;
-    } else if (params.value) {
-      // Single positional: @notes.add("content")
-      content = params.value;
-    } else if (params.values && Array.isArray(params.values)) {
-      // Multiple positional: @notes.add("content", "tag1", "tag2")
-      content = params.values[0];
-      tags = params.values.slice(1);
-    } else if (params.content) {
-      // Object format: @notes.add({ content: "...", tags: [...] })
-      content = params.content;
-      tags = params.tags;
-    } else {
-      // Fallback - try to stringify whatever we got
-      content = typeof params === 'object' ? JSON.stringify(params) : String(params);
-    }
-    
+  private async addNote(params: {
+    content: string;
+    tags?: string[];
+  }): Promise<void> {
     const noteId = `note-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     
     const note: Note = {
       id: noteId,
-      content,
+      content: params.content,
       created: new Date().toISOString(),
-      tags
+      tags: params.tags
     };
     
     this.notes.set(noteId, note);
@@ -91,34 +67,23 @@ export class SpaceNotesComponent extends InteractiveComponent {
     this.element.emit({
       topic: 'notes:added',
       source: this.element.getRef(),
-      payload: { noteId, preview: content.substring(0, 50) },
+      payload: { noteId, preview: params.content.substring(0, 50) },
       timestamp: Date.now()
     });
     
     // Auto-open the note just created
-    await this.readNote(noteId);
+    await this.readNote({ noteId });
   }
   
   /**
    * Search notes by keyword
-   * Supports: @notes.search("query") or @notes.search({ query: "...", limit: 10 })
    */
-  private async searchNotes(params: any): Promise<void> {
-    let query: string;
-    let limit: number = 10;
-    
-    if (typeof params === 'string') {
-      query = params;
-    } else if (params.value) {
-      query = params.value;
-    } else if (params.query) {
-      query = params.query;
-      limit = params.limit || 10;
-    } else {
-      query = String(params);
-    }
-    
-    const queryLower = query.toLowerCase();
+  private async searchNotes(params: {
+    query: string;
+    limit?: number;
+  }): Promise<void> {
+    const queryLower = params.query.toLowerCase();
+    const limit = params.limit || 10;
     
     const matches: Note[] = [];
     for (const note of this.notes.values()) {
@@ -186,22 +151,9 @@ export class SpaceNotesComponent extends InteractiveComponent {
   
   /**
    * Load a note into context
-   * Supports: @notes.read("note-id") or @notes.read({ noteId: "..." })
    */
-  private async readNote(params: any): Promise<void> {
-    let noteId: string;
-    
-    if (typeof params === 'string') {
-      noteId = params;
-    } else if (params.value) {
-      noteId = params.value;
-    } else if (params.noteId) {
-      noteId = params.noteId;
-    } else {
-      noteId = String(params);
-    }
-    
-    const note = this.notes.get(noteId);
+  private async readNote(params: { noteId: string }): Promise<void> {
+    const note = this.notes.get(params.noteId);
     if (!note) {
       this.addFacet({
         id: `note-error-${Date.now()}`,
@@ -232,27 +184,14 @@ export class SpaceNotesComponent extends InteractiveComponent {
   
   /**
    * Remove a note from context
-   * Supports: @notes.close("note-id") or @notes.close({ noteId: "..." })
    */
-  private async closeNote(params: any): Promise<void> {
-    let noteId: string;
-    
-    if (typeof params === 'string') {
-      noteId = params;
-    } else if (params.value) {
-      noteId = params.value;
-    } else if (params.noteId) {
-      noteId = params.noteId;
-    } else {
-      noteId = String(params);
-    }
-    
-    this.openNotes.delete(noteId);
+  private async closeNote(params: { noteId: string }): Promise<void> {
+    this.openNotes.delete(params.noteId);
     
     // Remove the facet
     this.addOperation({
       type: 'removeFacet',
-      facetId: `note-${noteId}`,
+      facetId: `note-${params.noteId}`,
       mode: 'delete'
     });
   }
@@ -281,13 +220,11 @@ export class SpaceNotesComponent extends InteractiveComponent {
       displayName: 'Space Notes',
       content: `Space Notes - Your workspace for thoughts and observations:
 
-@notes.add("Your note here with -YourName") - Write a note
-@notes.add("Note content", "tag1", "tag2") - Write with tags
-@notes.search("concept") - Search by meaning
-@notes.browse() - Browse recent notes (defaults to 20)
-@notes.browse({ days: 7, limit: 10 }) - Browse with options  
-@notes.read("note-id") - Load into active context
-@notes.close("note-id") - Remove from context
+@notes.add({ content: "Your note here with -YourName" }) - Write a note
+@notes.search({ query: "concept" }) - Search by meaning
+@notes.browse({ days: 7, limit: 10 }) - Browse recent notes  
+@notes.read({ noteId: "note-id" }) - Load into active context
+@notes.close({ noteId: "note-id" }) - Remove from context
 @notes.clear() - Clear all from context
 
 Notes exist in this Space - visible to agents here, not beyond.
