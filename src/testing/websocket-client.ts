@@ -254,8 +254,12 @@ export class RobustSessionClient extends EventEmitter {
     return this.request('session.pwd', { sessionId });
   }
   
-  async killAll() {
-    return this.request('session.killAll');
+  async killSession(sessionId: string, graceful?: boolean) {
+    return this.request('session.kill', { sessionId, graceful });
+  }
+  
+  async killAll(graceful?: boolean) {
+    return this.request('session.killAll', { graceful });
   }
   
   close() {

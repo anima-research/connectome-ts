@@ -155,7 +155,7 @@ export class SessionAPI {
           break;
           
         case 'session.kill':
-          this.server.killSession(params.sessionId);
+          await this.server.killSession(params.sessionId, params.graceful);
           result = { success: true };
           break;
           
@@ -182,7 +182,7 @@ export class SessionAPI {
           break;
           
         case 'session.killAll':
-          this.server.killAll();
+          await this.server.killAll(params?.graceful);
           result = { success: true };
           break;
           
@@ -343,8 +343,8 @@ export class SessionAPI {
     ws.send(JSON.stringify(envelope));
   }
 
-  stop(): void {
-    this.server.killAll();
+  async stop(): Promise<void> {
+    await this.server.killAll(); // Graceful shutdown by default
     this.wss.close();
     this.httpServer.close();
     for (const { event, handler } of this.serverListeners) {
@@ -499,9 +499,9 @@ export class SessionClient extends EventEmitter {
 if (require.main === module) {
   const api = new SessionAPI();
   
-  process.on('SIGINT', () => {
+  process.on('SIGINT', async () => {
     console.log('\nShutting down...');
-    api.stop();
+    await api.stop();
     process.exit(0);
   });
 }

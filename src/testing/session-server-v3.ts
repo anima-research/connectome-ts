@@ -514,27 +514,49 @@ export class PersistentSessionServer extends EventEmitter {
   }
 
   /**
-   * Kill a session
+   * Kill a session with optional graceful shutdown
    */
-  killSession(sessionId: string): void {
+  async killSession(sessionId: string, graceful: boolean = true): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session) return;
 
     if (session.isAlive) {
-      session.shell.kill();
+      if (graceful) {
+        // Send SIGINT for graceful shutdown
+        session.shell.kill('SIGINT');
+        
+        // Wait up to 5 seconds for process to exit gracefully
+        const timeout = 3000;
+        const startTime = Date.now();
+        
+        while (session.isAlive && Date.now() - startTime < timeout) {
+          await this.sleep(100);
+        }
+        
+        // If still alive after timeout, force kill
+        if (session.isAlive) {
+          this.addLog(session, '[Process did not exit gracefully, forcing termination]');
+          session.shell.kill('SIGKILL');
+        }
+      } else {
+        // Force kill immediately
+        session.shell.kill('SIGKILL');
+      }
     }
+    
+    // Wait a bit to ensure the process has fully terminated
+    await this.sleep(100);
     this.sessions.delete(sessionId);
   }
 
   /**
-   * Kill all sessions
+   * Kill all sessions with optional graceful shutdown
    */
-  killAll(): void {
-    for (const [id, session] of Array.from(this.sessions.entries())) {
-      if (session.isAlive) {
-        session.shell.kill();
-      }
-    }
+  async killAll(graceful: boolean = true): Promise<void> {
+    const killPromises = Array.from(this.sessions.keys()).map(id => 
+      this.killSession(id, graceful)
+    );
+    await Promise.all(killPromises);
     this.sessions.clear();
   }
 

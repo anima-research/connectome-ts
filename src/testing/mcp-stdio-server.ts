@@ -98,7 +98,8 @@ const TOOLS = {
     parameters: {
       type: 'object',
       properties: {
-        session: { type: 'string' }
+        session: { type: 'string' },
+        graceful: { type: 'boolean', description: 'If false, force kills immediately. Default true for graceful shutdown with 3s timeout' }
       },
       required: ['session']
     }
@@ -107,7 +108,9 @@ const TOOLS = {
     description: 'Kill all active sessions',
     parameters: {
       type: 'object',
-      properties: {}
+      properties: {
+        graceful: { type: 'boolean', description: 'If false, force kills immediately. Default true for graceful shutdown with 3s timeout' }
+      }
     }
   },
   searchLogs: {
@@ -199,7 +202,7 @@ rl.on('line', async (line) => {
               result = await mcpInstance.killSession(args);
               break;
             case 'killAll':
-              result = await mcpInstance.killAll();
+              result = await mcpInstance.killAll(args);
               break;
             case 'searchLogs':
               result = await mcpInstance.searchLogs(args);
