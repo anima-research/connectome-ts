@@ -1,0 +1,39 @@
+{
+  "name": "connectome-session-viewer",
+  "displayName": "Connectome Session Viewer",
+  "description": "Live session monitor for Connectome agents.",
+  "version": "0.1.0",
+  "publisher": "connectome",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:connectome.sessionViewer.open"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "connectome.sessionViewer.open",
+        "title": "Connectome: Open Session Viewer"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "tsc -p ./tsconfig.json",
+    "watch": "tsc -watch -p ./tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "strip-ansi": "^7.1.0",
+    "ws": "^8.16.0"
+  }
+}
