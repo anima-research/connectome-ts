@@ -13,26 +13,26 @@ The Connectome Debug MCP server provides deep introspection capabilities for deb
 
 ## Setup
 
-### 1. Add to Cursor Settings
+### 1. Add to Cursor MCP Configuration
 
-Open Cursor settings (Cmd+, on Mac) and add the debug MCP server to your `mcpServers` configuration:
+Add the following to your `~/.cursor/mcp.json` file:
 
 ```json
 {
-  "mcpServers": {
-    "connectome-session": {
-      "command": "npm",
-      "args": ["run", "mcp-server"],
-      "cwd": "/Users/olena/connectome-local/connectome-ts"
-    },
-    "connectome-debug": {
-      "command": "npm",
-      "args": ["run", "debug-mcp"],
+  "servers": {
+    "connectome-inspector": {
+      "command": "/Users/olena/.nvm/versions/node/v20.10.0/bin/npx",
+      "args": ["ts-node", "/Users/olena/connectome-local/connectome-ts/src/testing/debug-mcp-stdio.ts"],
       "cwd": "/Users/olena/connectome-local/connectome-ts"
     }
   }
 }
 ```
+
+**Note**: 
+- Replace `/Users/olena` with your actual home directory path
+- The server name is `connectome-inspector` to avoid conflicts
+- Ensure you're using the correct path to your Node.js installation
 
 ### 2. Restart Cursor
 

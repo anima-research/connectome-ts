@@ -1,0 +1,17 @@
+{
+  "servers": {
+    "connectome-session": {
+      "command": "/Users/olena/.nvm/versions/node/v20.10.0/bin/npx",
+      "args": ["ts-node", "/Users/olena/connectome-local/connectome-ts/src/testing/mcp-stdio-server.ts"],
+      "cwd": "/Users/olena/connectome-local/connectome-ts",
+      "env": {
+        "SESSION_SERVER_PORT": "3101"
+      }
+    },
+    "connectome-inspector": {
+      "command": "/Users/olena/.nvm/versions/node/v20.10.0/bin/npx",
+      "args": ["ts-node", "/Users/olena/connectome-local/connectome-ts/src/testing/debug-mcp-stdio.ts"],
+      "cwd": "/Users/olena/connectome-local/connectome-ts"
+    }
+  }
+}
