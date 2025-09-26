@@ -21,16 +21,16 @@ Add the following to your `~/.cursor/mcp.json` file:
 {
   "servers": {
     "connectome-inspector": {
-      "command": "/Users/olena/.nvm/versions/node/v20.10.0/bin/npx",
-      "args": ["ts-node", "/Users/olena/connectome-local/connectome-ts/src/testing/debug-mcp-stdio.ts"],
-      "cwd": "/Users/olena/connectome-local/connectome-ts"
+      "command": "/Users/user/.nvm/versions/node/v20.10.0/bin/npx",
+      "args": ["ts-node", "/Users/user/connectome-local/connectome-ts/src/testing/debug-mcp-stdio.ts"],
+      "cwd": "/Users/user/connectome-local/connectome-ts"
     }
   }
 }
 ```
 
 **Note**: 
-- Replace `/Users/olena` with your actual home directory path
+- Replace `/Users/user` with your actual home directory path
 - The server name is `connectome-inspector` to avoid conflicts
 - Ensure you're using the correct path to your Node.js installation
 
