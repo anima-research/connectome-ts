@@ -5,8 +5,10 @@ import {
   OutgoingVEILFrame, 
   VEILOperation,
   StreamRef,
-  FrameTransition
+  FrameTransition,
+  Frame
 } from './types';
+import { FacetDelta } from '../spaces/receptor-effector-types';
 import { Space } from '../spaces/space';
 import { Element } from '../spaces/element';
 import { Component } from '../spaces/component';
@@ -45,6 +47,13 @@ export class VEILStateManager {
    * Apply an incoming frame to the current state
    */
   applyIncomingFrame(frame: IncomingVEILFrame): void {
+    this.applyFrame(frame as any);
+  }
+  
+  /**
+   * Apply a frame and return the changes
+   */
+  applyFrame(frame: Frame): FacetDelta[] {
     // Validate sequence - must be exactly the next number
     const expectedSequence = this.state.currentSequence + 1;
     if (frame.sequence !== expectedSequence) {
@@ -53,15 +62,20 @@ export class VEILStateManager {
         `(current: ${this.state.currentSequence})`
       );
     }
+    
+    const changes: FacetDelta[] = [];
 
     // Update active stream if provided
     if (frame.activeStream !== undefined) {
       this.state.currentStream = frame.activeStream;
     }
 
-    // Process each operation
+    // Process each operation and track changes
     for (const operation of frame.operations) {
-      this.applyOperation(operation, frame.sequence, frame.timestamp);
+      const change = this.applyOperationWithDelta(operation, frame.sequence, frame.timestamp);
+      if (change) {
+        changes.push(change);
+      }
     }
 
     // Update state
@@ -70,6 +84,49 @@ export class VEILStateManager {
 
     // Notify listeners
     this.notifyListeners();
+    
+    return changes;
+  }
+  
+  private applyOperationWithDelta(operation: VEILOperation, frameSequence?: number, timestamp?: string): FacetDelta | null {
+    if (operation.type === 'addFacet') {
+      const facet = operation.facet;
+      this.state.facets.set(facet.id, facet);
+      return { type: 'added', facet };
+    }
+    
+    if (operation.type === 'changeFacet') {
+      const existing = this.state.facets.get(operation.facetId);
+      if (existing && operation.updates) {
+        const updated = { 
+          ...existing, 
+          ...operation.updates,
+          attributes: { ...existing.attributes, ...operation.updates.attributes }
+        };
+        this.state.facets.set(operation.facetId, updated);
+        return { type: 'changed', facet: updated, oldFacet: existing };
+      }
+      return null;
+    }
+    
+    if (operation.type === 'removeFacet') {
+      const existing = this.state.facets.get(operation.facetId);
+      if (existing) {
+        if (operation.mode === 'delete') {
+          this.state.facets.delete(operation.facetId);
+        } else {
+          // Hide mode - mark as hidden
+          const hidden = { ...existing, hidden: true };
+          this.state.facets.set(operation.facetId, hidden);
+        }
+        return { type: 'removed', facet: existing };
+      }
+      return null;
+    }
+    
+    // Call original for other operations (no facet changes)
+    this.applyOperation(operation, frameSequence, timestamp);
+    return null;
   }
 
   /**
@@ -92,78 +149,12 @@ export class VEILStateManager {
       this.state.currentAgent = agentInfo.agentId;
     }
     
-    // Validate operations
-    const validOutgoingOps = ['speak', 'think', 'act'];
-    const veilManagementOps = ['addFacet', 'removeFacet', 'changeFacet', 'addStream', 'removeStream', 'addScope', 'removeScope', 'addAgent', 'removeAgent', 'updateAgent'];
+    // LEGACY: All operations are now standard VEIL operations
     
+    // LEGACY: Agent operations are now regular addFacet operations
+    // Process normal VEIL operations
     for (const operation of frame.operations) {
-      // Skip VEIL management operations - these are valid but not "outgoing"
-      if (veilManagementOps.includes(operation.type)) {
-        continue;
-      }
-      
-      // Validate outgoing operations
-      if (!validOutgoingOps.includes(operation.type)) {
-        console.warn(`[VEIL] Warning: Unsupported outgoing operation type "${operation.type}". Valid outgoing operations are: ${validOutgoingOps.join(', ')}`);
-        // Legacy operation types that should be updated
-        if (['toolCall', 'innerThoughts', 'cycleRequest'].includes(operation.type as any)) {
-          console.warn(`[VEIL] "${operation.type}" has been renamed:`);
-          console.warn(`  - toolCall: Use 'act' operation`);
-          console.warn(`  - innerThoughts: Use 'think' operation`);
-          console.warn(`  - cycleRequest: Has been removed - use components/actions instead`);
-        }
-        continue; // Skip unsupported operations
-      }
-    }
-    
-    // Process agent operations to create facets
-    for (const operation of frame.operations) {
-      if (operation.type === 'speak') {
-        // Create a speech facet
-        const speechFacet: Facet = {
-          id: `agent-speak-${frame.sequence}-${Math.random().toString(36).substr(2, 9)}`,
-          type: 'speech',
-          content: operation.content,
-          attributes: {
-            agentGenerated: true,
-            agentId: this.state.currentAgent,
-            agentName: this.state.currentAgent ? this.state.agents.get(this.state.currentAgent)?.name : undefined,
-            target: operation.target || this.state.currentStream?.streamId || 'default'
-          }
-        };
-        this.state.facets.set(speechFacet.id, speechFacet);
-      } else if (operation.type === 'act') {
-        // Create an action facet
-        const actionFacet: Facet = {
-          id: `agent-action-${frame.sequence}-${Math.random().toString(36).substr(2, 9)}`,
-          type: 'action',
-          displayName: operation.toolName,
-          content: JSON.stringify(operation.parameters),
-          attributes: {
-            agentGenerated: true,
-            agentId: this.state.currentAgent,
-            agentName: this.state.currentAgent ? this.state.agents.get(this.state.currentAgent)?.name : undefined,
-            toolName: operation.toolName,
-            parameters: operation.parameters
-          }
-        };
-        this.state.facets.set(actionFacet.id, actionFacet);
-      } else if (operation.type === 'think') {
-        // Create a thought facet
-        const thoughtFacet: Facet = {
-          id: `agent-thought-${frame.sequence}-${Math.random().toString(36).substr(2, 9)}`,
-          type: 'thought',
-          content: operation.content,
-          scope: ['agent-internal'],
-          attributes: {
-            agentGenerated: true,
-            agentId: this.state.currentAgent,
-            agentName: this.state.currentAgent ? this.state.agents.get(this.state.currentAgent)?.name : undefined,
-            private: true
-          }
-        };
-        this.state.facets.set(thoughtFacet.id, thoughtFacet);
-      }
+      this.applyOperation(operation, frame.sequence, frame.timestamp);
     }
 
     this.state.frameHistory.push(frame);

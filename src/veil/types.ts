@@ -1,6 +1,7 @@
 // VEIL (Virtual Environment Interface Language) Type Definitions
 
-export type FacetType = 'event' | 'state' | 'ambient' | 'tool' | 'speech' | 'thought' | 'action' | 'defineAction' | 'agentActivation';
+// FacetType is now just a string - no restrictions!
+export type FacetType = string;
 
 export interface SaliencyHints {
   // Temporal hints
@@ -19,112 +20,60 @@ export interface SaliencyHints {
   linkedFrom?: string[];  // These facets link to this one (system-managed)
 }
 
-export interface BaseFacet {
+// NEW FACET SYSTEM WITH ASPECTS!
+export interface Facet {
   id: string;
-  type: FacetType;
+  type: string; // Free-form type for organization
+  
+  // Core Aspects (pick what you need)
+  content?: string;                    // Text content
+  state?: Record<string, any>;         // State data
+  temporal?: 'ephemeral' | 'persistent' | 'session'; // Lifetime
+  visibility?: 'agent' | 'system' | 'debug';   // Who can see it
+  renderable?: boolean;                // Should it be shown to agents?
+  
+  // Legacy fields (for compatibility during migration)
   displayName?: string;
-  content?: string;
   attributes?: Record<string, any>;
   scope?: string[];
   children?: Facet[];
   saliency?: SaliencyHints;
 }
 
-export interface EventFacet extends BaseFacet {
-  type: 'event';
-}
+// Legacy - to be removed
+export interface BaseFacet extends Facet {}
 
-export interface StateFacet extends BaseFacet {
-  type: 'state';
-  // Optional functions to render individual attribute changes
-  attributeRenderers?: Record<string, (value: any, oldValue?: any) => string | null>;
-  // Optional functions to render state transitions as narrative events
-  transitionRenderers?: Record<string, (value: any, oldValue?: any) => string | null>;
-}
+// LEGACY INTERFACES - Commented out during migration
+// export interface EventFacet extends BaseFacet {
+//   type: 'event';
+// }
 
-export interface AmbientFacet extends BaseFacet {
-  type: 'ambient';
-  scope: string[]; // Required for ambient
-}
+// export interface StateFacet extends BaseFacet {
+//   type: 'state';
+//   attributeRenderers?: Record<string, (value: any, oldValue?: any) => string | null>;
+//   transitionRenderers?: Record<string, (value: any, oldValue?: any) => string | null>;
+// }
 
-export interface ToolFacet extends BaseFacet {
-  type: 'tool';
-  definition: {
-    name: string;
-    parameters: string[];
-    callback: string;
-  };
-}
+// Type aliases for migration
+export type EventFacet = Facet & { type: 'event' };
+export type StateFacet = Facet & { type: 'state' };
 
-export interface SpeechFacet extends BaseFacet {
-  type: 'speech';
-  content: string;  // Required for speech
-  attributes?: {
-    target?: string;  // Which stream/channel this was said to
-    agentGenerated: boolean;
-    agentId?: string;  // Which agent created this
-    agentName?: string;  // For display purposes
-    conversationId?: string;  // For threading
-    inReplyTo?: string;  // For conversation flow
-  };
-}
+export type AmbientFacet = Facet & { type: 'ambient' };
 
-export interface ThoughtFacet extends BaseFacet {
-  type: 'thought';
-  content: string;  // Required for thoughts
-  scope?: string[];  // Usually includes 'agent-internal'
-  attributes?: {
-    agentGenerated: boolean;
-    agentId?: string;  // Which agent created this
-    agentName?: string;  // For display purposes
-    private?: boolean;
-  };
-}
+export type ToolFacet = Facet & { type: 'tool' };
 
-export interface ActionFacet extends BaseFacet {
-  type: 'action';
-  displayName: string;  // The tool name
-  content?: string;  // JSON stringified parameters
-  attributes: {
-    agentGenerated: boolean;
-    agentId?: string;  // Which agent created this
-    agentName?: string;  // For display purposes
-    toolName: string;
-    parameters: Record<string, any>;
-  };
-}
+export type SpeechFacet = Facet & { type: 'speech' };
 
-export interface DefineActionFacet extends BaseFacet {
-  type: 'defineAction';
-  displayName: string;  // The tool name
-  content?: string;  // Description of the action
-  attributes: {
-    agentGenerated: boolean;
-    toolName: string;
-    parameters: Record<string, any>;
-  };
-}
+export type ThoughtFacet = Facet & { type: 'thought' };
 
-export interface AgentActivationFacet extends BaseFacet {
-  type: 'agentActivation';
-  content?: string;  // Reason for activation
-  attributes: {
-    source: string;      // Who requested activation
-    sourceAgentId?: string;  // ID of agent that triggered activation
-    sourceAgentName?: string; // Name of agent that triggered activation
-    priority: 'low' | 'normal' | 'high';
-    reason: string;      // Why activation was requested
-    targetAgent?: string; // Optional specific agent name (legacy)
-    targetAgentId?: string; // Optional specific agent ID (preferred)
-    config?: {
-      temperature?: number;
-      maxTokens?: number;
-      [key: string]: any;
-    };
-  };
-}
+export type ActionFacet = Facet & { type: 'action' };
 
-export type Facet = EventFacet | StateFacet | AmbientFacet | ToolFacet | SpeechFacet | ThoughtFacet | ActionFacet | DefineActionFacet | AgentActivationFacet;
+export type DefineActionFacet = Facet & { type: 'defineAction' };
+
+export type AgentActivationFacet = Facet & { type: 'agentActivation' };
+
+// Facet is now the base interface defined above
+// All specific facet types are just type aliases with type constraints
 
 // VEIL Operations
 export interface AddFacetOperation {
@@ -241,17 +190,16 @@ export interface AgentInfo {
   lastActiveAt?: string;  // Last activity timestamp
 }
 
-// VEIL Frames
-export interface IncomingVEILFrame {
+// VEIL Frames - NOW UNIFIED!
+export interface Frame {
   sequence: number;
   timestamp: string;
   uuid?: string;
-  activeStream?: StreamRef; // Active stream reference with metadata
+  activeStream?: StreamRef;
   operations: VEILOperation[];
-  transition?: FrameTransition; // Mutable transition object for persistence
+  transition: FrameTransition; // Always present!
 }
 
-// Import at usage site to avoid circular dependencies
 export interface FrameTransition {
   sequence: number;
   timestamp: string;
@@ -262,38 +210,10 @@ export interface FrameTransition {
   extensions?: Record<string, any>;
 }
 
-// Agent-specific operations (these create facets internally)
-export interface SpeakOperation {
-  type: 'speak';
-  content: string;
-  target?: string; // Optional explicit target, overrides focus
-  targets?: string[]; // Optional multiple targets for broadcasting
-}
-
-export interface ThinkOperation {
-  type: 'think';
-  content: string;
-}
-
-export interface ActOperation {
-  type: 'act';
-  toolName: string;
-  parameters: Record<string, any>;
-  target?: string; // Optional target element
-}
-
-export type OutgoingVEILOperation = 
-  | SpeakOperation
-  | ThinkOperation
-  | ActOperation;
-
-export interface OutgoingVEILFrame {
-  sequence: number;
-  timestamp: string;
-  uuid?: string;
-  activeStream?: StreamRef;
-  operations: OutgoingVEILOperation[];
-}
+// Legacy aliases - DELETE THESE ONCE MIGRATION COMPLETE
+export type IncomingVEILFrame = Frame;
+export type OutgoingVEILFrame = Frame;
+export type OutgoingVEILOperation = VEILOperation;
 
 // VEIL State
 export interface VEILState {

@@ -1,7 +1,7 @@
 import { Element } from './element';
 import { SpaceEvent, FrameStartEvent, FrameEndEvent, StreamRef, EventPhase, ElementRef } from './types';
 import { VEILStateManager } from '../veil/veil-state';
-import { IncomingVEILFrame, OutgoingVEILFrame } from '../veil/types';
+import { IncomingVEILFrame, OutgoingVEILFrame, Frame, Facet, VEILOperation } from '../veil/types';
 import { matchesTopic } from './utils';
 import { 
   TraceStorage, 
@@ -23,6 +23,17 @@ import { deterministicUUID } from '../utils/uuid';
 import { performance } from 'perf_hooks';
 import type { RenderedContext } from '../hud/types-v2';
 import type { RenderedContextSnapshot } from '../persistence/types';
+import { 
+  Receptor, 
+  Transform, 
+  Effector, 
+  FacetDelta, 
+  ReadonlyVEILState,
+  EphemeralCleanupTransform,
+  EffectorResult,
+  FacetFilter
+} from './receptor-effector-types';
+import { VEILOperationReceptor } from './migration-adapters';
 
 interface RenderedContextRecord {
   context: RenderedContext;
@@ -82,6 +93,11 @@ export class Space extends Element {
 
   private renderedContextLog: Map<number, RenderedContextRecord> = new Map();
   
+  // NEW: Receptor/Effector architecture
+  private receptors: Map<string, Receptor[]> = new Map();
+  private transforms: Transform[] = [new EphemeralCleanupTransform()];
+  private effectors: Effector[] = [];
+  
   constructor(veilState: VEILStateManager, hostRegistry?: Map<string, any>) {
     super('root');
     this.veilState = veilState;
@@ -95,6 +111,27 @@ export class Space extends Element {
     // Subscribe to element lifecycle events for transition tracking
     this.subscribe('element:mount');
     this.subscribe('element:unmount');
+    
+    // Add built-in VEIL operation receptor for compatibility
+    this.addReceptor(new VEILOperationReceptor());
+  }
+  
+  // NEW: Receptor/Effector registration methods
+  
+  addReceptor(receptor: Receptor): void {
+    for (const topic of receptor.topics) {
+      const topicReceptors = this.receptors.get(topic) || [];
+      topicReceptors.push(receptor);
+      this.receptors.set(topic, topicReceptors);
+    }
+  }
+  
+  addTransform(transform: Transform): void {
+    this.transforms.push(transform);
+  }
+  
+  addEffector(effector: Effector): void {
+    this.effectors.push(effector);
   }
   
   /**
@@ -240,7 +277,7 @@ export class Space extends Element {
   }
   
   /**
-   * Process one frame
+   * Process one frame - NEW THREE-PHASE IMPLEMENTATION
    */
   private async processFrame(): Promise<void> {
     if (this.processingFrame) return;
@@ -249,58 +286,53 @@ export class Space extends Element {
     const frameId = this.veilState.getNextSequence();
     const frameStartClock = performance.now();
     const frameSpan = this.tracer?.startSpan('processFrame', 'Space');
+    const timestamp = new Date().toISOString();
 
     try {
-      // Start frame
-      this.currentFrame = {
+      // Create frame structure
+      const frame: Frame = {
         sequence: frameId,
-        timestamp: new Date().toISOString(),
+        timestamp,
+        uuid: deterministicUUID(`frame-${frameId}`),
         operations: [],
         transition: {
           sequence: frameId,
-          timestamp: new Date().toISOString(),
+          timestamp,
           elementOps: [],
           componentOps: [],
           componentChanges: [],
-          veilOps: [],  // Will be populated from operations at frame end
+          veilOps: [],
           extensions: {}
         }
       };
-      this.currentFrame.uuid = deterministicUUID(`incoming-${frameId}`);
+      
+      // Keep currentFrame for compatibility
+      this.currentFrame = frame as IncomingVEILFrame;
       this.notifyDebugFrameStart(this.currentFrame, {
         queuedEvents: this.eventQueue.length
       });
       
-      this.tracer?.record({
-        id: `frame-start-${frameId}`,
-        timestamp: Date.now(),
-        level: 'info',
-        category: TraceCategory.FRAME_START,
-        component: 'Space',
-        operation: 'processFrame',
-        data: {
-          frameId,
-          sequence: frameId,
-          queuedEvents: this.eventQueue.length
-        },
-        parentId: frameSpan?.id
-      });
-      
-      // Emit frame:start
-      await this.distributeEvent({
-        topic: 'frame:start',
-        source: this.getRef(),
-        payload: { frameId },
-        timestamp: Date.now()
-      } as FrameStartEvent);
-      
-      // Process all queued events in priority order
+      // Drain event queue
       const events: SpaceEvent[] = [];
       while (!this.eventQueue.isEmpty()) {
         const event = this.eventQueue.shift();
         if (event) events.push(event);
       }
       
+      // PHASE 1: Events → VEIL (via Receptors)
+      const phase1Facets = this.runPhase1(events);
+      
+      // PHASE 2: VEIL → VEIL (via Transforms)  
+      const phase2Facets = this.runPhase2();
+      
+      // PHASE 3 PREP: Apply operations first
+      const allFacets = [...phase1Facets, ...phase2Facets];
+      frame.operations = allFacets.map(facet => ({
+        type: 'addFacet' as const,
+        facet
+      }));
+      
+      // Also support legacy distributeEvent for components not yet migrated
       for (const event of events) {
         await this.distributeEvent(event);
         if (this.currentFrame) {
@@ -311,73 +343,36 @@ export class Space extends Element {
         }
       }
       
+      // Update currentFrame operations with all operations (including legacy)
+      this.currentFrame.operations = [...this.currentFrame.operations, ...frame.operations];
+      
       // Check if frame has content
       const hasOperations = this.currentFrame.operations.length > 0;
       const hasActivation = this.currentFrame.operations.some(
         op => op.type === 'addFacet' && (op as any).facet?.type === 'agentActivation'
       );
       
-      // Apply frame BEFORE emitting frame:end
-      // This ensures sequence is updated before agents respond
-      if (hasOperations || hasActivation) {
-        this.tracer?.record({
-          id: `frame-end-${frameId}`,
-          timestamp: Date.now(),
-          level: 'info',
-          category: TraceCategory.FRAME_END,
-          component: 'Space',
-          operation: 'processFrame',
-          data: {
-            frameId,
-            operations: this.currentFrame.operations.length,
-            hasActivation,
-            activeStream: this.currentFrame.activeStream?.streamId
-          },
-          parentId: frameSpan?.id
-        });
-        
-        // Update active stream if provided
-        if (this.currentFrame.activeStream) {
-          this.activeStream = this.currentFrame.activeStream;
-        }
-        
-        // Copy VEIL operations to transition before applying
-        if (this.currentFrame.transition) {
-          this.currentFrame.transition.veilOps = [...this.currentFrame.operations];
-        }
-        
-        // Record the frame
-        this.veilState.applyIncomingFrame(this.currentFrame);
-        this.notifyDebugFrameComplete(this.currentFrame, {
-          durationMs: performance.now() - frameStartClock,
-          processedEvents: events.length
-        });
-        
-        // Agent processing is handled by AgentComponent(s) listening to frame:end
-      } else {
-        // Still record empty frames to maintain sequence continuity
-        this.veilState.applyIncomingFrame(this.currentFrame);
-        this.notifyDebugFrameComplete(this.currentFrame, {
-          durationMs: performance.now() - frameStartClock,
-          processedEvents: events.length
-        });
-        
-        this.tracer?.record({
-          id: `frame-empty-${frameId}`,
-          timestamp: Date.now(),
-          level: 'debug',
-          category: TraceCategory.FRAME_END,
-          component: 'Space',
-          operation: 'processFrame',
-          data: {
-            frameId,
-            message: 'Frame empty (no operations) but recorded for sequence continuity'
-          },
-          parentId: frameSpan?.id
-        });
+      // Update transition with all operations
+      if (frame.transition) {
+        frame.transition.veilOps = [...this.currentFrame.operations];
       }
       
-      // Emit frame:end AFTER applying the frame
+      // Apply frame and get changes
+      const changes = this.veilState.applyFrame(frame);
+      
+      // PHASE 3: VEIL → Events (via Effectors)
+      const newEvents = await this.runPhase3(changes);
+      
+      // Queue new events for next frame
+      newEvents.forEach(event => this.queueEvent(event));
+      
+      // Notify debug observers
+      this.notifyDebugFrameComplete(this.currentFrame, {
+        durationMs: performance.now() - frameStartClock,
+        processedEvents: events.length
+      });
+      
+      // Emit frame:end for compatibility
       await this.distributeEvent({
         topic: 'frame:end',
         source: this.getRef(),
@@ -385,7 +380,7 @@ export class Space extends Element {
           frameId, 
           hasOperations, 
           hasActivation,
-          transition: this.currentFrame?.transition 
+          transition: frame.transition 
         },
         timestamp: Date.now()
       } as FrameEndEvent);
@@ -407,6 +402,178 @@ export class Space extends Element {
         setImmediate(() => this.processFrame());
       }
     }
+  }
+  
+  // NEW: Three-phase processing methods
+  
+  /**
+   * PHASE 1: Events → Facets
+   */
+  private runPhase1(events: SpaceEvent[]): Facet[] {
+    const facets: Facet[] = [];
+    const readonlyState = this.getReadonlyState();
+    
+    for (const event of events) {
+      const receptors = this.receptors.get(event.topic) || [];
+      
+      for (const receptor of receptors) {
+        try {
+          const newFacets = receptor.transform(event, readonlyState);
+          facets.push(...newFacets);
+        } catch (error) {
+          console.error(`Receptor error for ${event.topic}:`, error);
+          // Create error facet
+          facets.push({
+            id: `error-${Date.now()}-${Math.random()}`,
+            type: 'system-error',
+            temporal: 'ephemeral',
+            visibility: 'debug',
+            content: `Receptor error: ${error}`,
+            attributes: {
+              event: event.topic,
+              error: String(error)
+            }
+          });
+        }
+      }
+    }
+    
+    return facets;
+  }
+  
+  /**
+   * PHASE 2: VEIL → VEIL
+   */
+  private runPhase2(): Facet[] {
+    const facets: Facet[] = [];
+    const readonlyState = this.getReadonlyState();
+    
+    for (const transform of this.transforms) {
+      try {
+        const newFacets = transform.process(readonlyState);
+        facets.push(...newFacets);
+      } catch (error) {
+        console.error('Transform error:', error);
+        // Create error facet
+        facets.push({
+          id: `error-${Date.now()}-${Math.random()}`,
+          type: 'system-error',
+          temporal: 'ephemeral',
+          visibility: 'debug',
+          content: `Transform error: ${error}`,
+          attributes: {
+            transform: transform.constructor.name,
+            error: String(error)
+          }
+        });
+      }
+    }
+    
+    return facets;
+  }
+  
+  /**
+   * PHASE 3: VEIL changes → Events
+   */
+  private async runPhase3(changes: FacetDelta[]): Promise<SpaceEvent[]> {
+    const events: SpaceEvent[] = [];
+    const readonlyState = this.getReadonlyState();
+    
+    for (const effector of this.effectors) {
+      // Filter changes this effector cares about
+      const relevantChanges = changes.filter(change => 
+        this.matchesEffectorFilters(change.facet, effector.facetFilters)
+      );
+      
+      if (relevantChanges.length === 0) continue;
+      
+      try {
+        const result = await effector.process(relevantChanges, readonlyState);
+        
+        if (result.events) {
+          events.push(...result.events);
+        }
+        
+        if (result.externalActions) {
+          // Log external actions for now
+          for (const action of result.externalActions) {
+            console.log(`External action: ${action.type} - ${action.description}`);
+          }
+        }
+      } catch (error) {
+        console.error('Effector error:', error);
+        // Create error event
+        events.push({
+          topic: 'system:error',
+          source: this.getRef(),
+          timestamp: Date.now(),
+          payload: {
+            type: 'effector-error',
+            effector: effector.constructor.name,
+            error: String(error)
+          }
+        });
+      }
+    }
+    
+    return events;
+  }
+  
+  /**
+   * Helper to check if facet matches effector filters
+   */
+  private matchesEffectorFilters(facet: Facet, filters: FacetFilter[]): boolean {
+    if (filters.length === 0) return true;
+    
+    return filters.some(filter => {
+      // Check type
+      if (filter.type) {
+        const types = Array.isArray(filter.type) ? filter.type : [filter.type];
+        if (!types.includes(facet.type)) return false;
+      }
+      
+      // Check aspects
+      if (filter.aspectMatch) {
+        for (const [aspect, value] of Object.entries(filter.aspectMatch)) {
+          if ((facet as any)[aspect] !== value) return false;
+        }
+      }
+      
+      // Check attributes
+      if (filter.attributeMatch) {
+        if (!facet.attributes) return false;
+        for (const [key, value] of Object.entries(filter.attributeMatch)) {
+          if (facet.attributes[key] !== value) return false;
+        }
+      }
+      
+      return true;
+    });
+  }
+  
+  /**
+   * Get read-only view of state
+   */
+  private getReadonlyState(): ReadonlyVEILState {
+    const state = this.veilState.getState();
+    
+    return {
+      facets: state.facets as ReadonlyMap<string, Facet>,
+      scopes: state.scopes as ReadonlySet<string>,
+      streams: state.streams as ReadonlyMap<string, any>,
+      
+      getFacetsByType: (type: string) => {
+        return Array.from(state.facets.values()).filter(f => f.type === type);
+      },
+      
+      getFacetsByAspect: (aspect: keyof Facet, value: any) => {
+        return Array.from(state.facets.values()).filter(f => (f as any)[aspect] === value);
+      },
+      
+      hasFacet: (id: string) => {
+        return state.facets.has(id);
+      }
+    };
   }
   
   /**
@@ -715,44 +882,13 @@ export class Space extends Element {
         });
       }
       
-      // Process tool calls synchronously to avoid starting new frames
+      // LEGACY: Process operations - will be handled by effectors
+      // For now, just process regular VEIL operations
       for (const op of frame.operations) {
-        if (op.type === 'act') {
-          // Process action directly instead of emitting events
-          // Extract element ID from toolName (e.g., 'dispenser.dispense' -> 'dispenser')
-          const targetId = op.target || op.toolName.split('.')[0];
-          const targetElement = targetId ? this.findElementByIdInTree(this, targetId) : null;
-          if (targetElement) {
-            // Extract action name from toolName
-            const actionParts = op.toolName.split('.');
-            const actionName = actionParts.slice(1).join('.');
-            await targetElement.handleEvent({
-              topic: 'element:action',
-              source: this.getRef(),
-              payload: {
-                path: [targetId, actionName],  // Element expects path array
-                parameters: op.parameters
-              },
-              timestamp: Date.now()
-            });
-          }
-        }
-      }
-      
-      // Emit agent responses (these are broadcast and don't trigger new frames)
-      for (const op of frame.operations) {
-        if (op.type === 'speak') {
-          await this.distributeEvent({
-            topic: 'agent:response',
-            source: this.getRef(),
-            payload: {
-              content: op.content,
-              stream: frame.activeStream || this.activeStream,
-              agentId,
-              agentName
-            },
-            timestamp: Date.now()
-          });
+        // Skip legacy operations that no longer exist
+        if (['act', 'speak', 'think'].includes(op.type)) {
+          console.warn(`Legacy operation type "${op.type}" - should be using addFacet instead`);
+          continue;
         }
       }
     }
