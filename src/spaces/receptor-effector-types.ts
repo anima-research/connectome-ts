@@ -1,6 +1,13 @@
 // Receptor/Effector Types for the new architecture
 
-import { Facet, VEILOperation } from '../veil/types';
+import { 
+  Facet, 
+  VEILOperation,
+  IncomingVEILFrame,
+  OutgoingVEILFrame,
+  StreamRef,
+  AgentInfo
+} from '../veil/types';
 import { SpaceEvent } from './types';
 
 /**
@@ -83,6 +90,12 @@ export interface ReadonlyVEILState {
   facets: ReadonlyMap<string, Facet>;
   scopes: ReadonlySet<string>;
   streams: ReadonlyMap<string, any>;
+  agents: ReadonlyMap<string, AgentInfo>;
+  currentStream?: StreamRef;
+  currentAgent?: string;
+  frameHistory: ReadonlyArray<IncomingVEILFrame | OutgoingVEILFrame>;
+  currentSequence: number;
+  removals: ReadonlyMap<string, 'hide' | 'delete'>;
   
   // Helper methods
   getFacetsByType(type: string): Facet[];
@@ -93,18 +106,26 @@ export interface ReadonlyVEILState {
 // Built-in Transform that runs first in Phase 2
 export class EphemeralCleanupTransform implements Transform {
   process(state: ReadonlyVEILState): Facet[] {
-    // Create system operation facets to remove ephemeral facets
-    return Array.from(state.facets.values())
+    const ephemeralIds = Array.from(state.facets.values())
       .filter(f => f.temporal === 'ephemeral')
-      .map(f => ({
-        id: `cleanup-${f.id}-${Date.now()}`,
-        type: 'system-operation',
-        temporal: 'ephemeral' as const,
-        content: `Remove ephemeral facet ${f.id}`,
-        attributes: {
-          operation: 'removeFacet',
-          targetId: f.id
-        }
-      }));
+      .map(f => f.id);
+
+    if (ephemeralIds.length === 0) {
+      return [];
+    }
+
+    return [{
+      id: `cleanup-ephemeral-${state.currentSequence}-${Date.now()}`,
+      type: 'system-operation',
+      temporal: 'ephemeral' as const,
+      visibility: 'system' as const,
+      renderable: false,
+      content: `Cleanup ${ephemeralIds.length} ephemeral facet(s)`,
+      attributes: {
+        operation: 'removeFacets',
+        targetIds: ephemeralIds
+      }
+    }];
   }
 }
+

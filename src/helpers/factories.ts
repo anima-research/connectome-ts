@@ -17,8 +17,7 @@ import type {
   RemoveFacetOperation,
   ChangeStateOperation,
   ChangeFacetOperation,
-  AddStreamOperation,
-  SpeakOperation
+  AddStreamOperation
 } from '../veil/types';
 import { Element } from '../spaces/element';
 
@@ -296,18 +295,3 @@ export function addStream(
   };
 }
 
-/**
- * Creates an agent speak operation
- * @example
- * this.addOperation(speak('Hello, world!', 'discord-channel-123'));
- */
-export function speak(
-  content: string,
-  target?: string
-): SpeakOperation {
-  return {
-    type: 'speak',
-    content,
-    target
-  };
-}

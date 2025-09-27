@@ -197,7 +197,7 @@ export interface Frame {
   uuid?: string;
   activeStream?: StreamRef;
   operations: VEILOperation[];
-  transition: FrameTransition; // Always present!
+  transition: FrameTransition;
 }
 
 export interface FrameTransition {
@@ -208,6 +208,18 @@ export interface FrameTransition {
   componentChanges: any[];
   veilOps: VEILOperation[];
   extensions?: Record<string, any>;
+}
+
+export function createDefaultTransition(sequence: number, timestamp: string): FrameTransition {
+  return {
+    sequence,
+    timestamp,
+    elementOps: [],
+    componentOps: [],
+    componentChanges: [],
+    veilOps: [],
+    extensions: {}
+  };
 }
 
 // Legacy aliases - DELETE THESE ONCE MIGRATION COMPLETE

@@ -1,7 +1,7 @@
 import { Element } from './element';
 import { SpaceEvent, FrameStartEvent, FrameEndEvent, StreamRef, EventPhase, ElementRef } from './types';
 import { VEILStateManager } from '../veil/veil-state';
-import { IncomingVEILFrame, OutgoingVEILFrame, Frame, Facet, VEILOperation } from '../veil/types';
+import { IncomingVEILFrame, OutgoingVEILFrame, Frame, Facet, VEILOperation, AgentInfo, createDefaultTransition } from '../veil/types';
 import { matchesTopic } from './utils';
 import { 
   TraceStorage, 
@@ -295,15 +295,7 @@ export class Space extends Element {
         timestamp,
         uuid: deterministicUUID(`frame-${frameId}`),
         operations: [],
-        transition: {
-          sequence: frameId,
-          timestamp,
-          elementOps: [],
-          componentOps: [],
-          componentChanges: [],
-          veilOps: [],
-          extensions: {}
-        }
+        transition: createDefaultTransition(frameId, timestamp)
       };
       
       // Keep currentFrame for compatibility
@@ -322,10 +314,37 @@ export class Space extends Element {
       // PHASE 1: Events → VEIL (via Receptors)
       const phase1Facets = this.runPhase1(events);
       
-      // PHASE 2: VEIL → VEIL (via Transforms)  
+      // Apply Phase 1 facets to state first
+      const phase1Frame: Frame = {
+        sequence: frameId,
+        timestamp,
+        operations: phase1Facets.map(facet => ({
+          type: 'addFacet' as const,
+          facet
+        })),
+        transition: createDefaultTransition(frameId, timestamp)
+      };
+      const phase1Changes = this.veilState.applyFrame(phase1Frame);
+      
+      // PHASE 2: VEIL → VEIL (via Transforms) - now can see Phase 1 facets
       const phase2Facets = this.runPhase2();
       
-      // PHASE 3 PREP: Apply operations first
+      // Apply Phase 2 facets to state
+      if (phase2Facets.length > 0) {
+        const phase2Sequence = this.veilState.getNextSequence();
+        const phase2Frame: Frame = {
+          sequence: phase2Sequence,
+          timestamp,
+          operations: phase2Facets.map(facet => ({
+            type: 'addFacet' as const,
+            facet
+          })),
+          transition: createDefaultTransition(phase2Sequence, timestamp)
+        };
+        this.veilState.applyFrame(phase2Frame);
+      }
+      
+      // Collect all operations for the complete frame
       const allFacets = [...phase1Facets, ...phase2Facets];
       frame.operations = allFacets.map(facet => ({
         type: 'addFacet' as const,
@@ -357,21 +376,30 @@ export class Space extends Element {
         frame.transition.veilOps = [...this.currentFrame.operations];
       }
       
-      // Apply frame and get changes
-      const changes = this.veilState.applyFrame(frame);
+      // Collect all changes from both phases
+      const allChanges = [...phase1Changes];
+      if (phase2Facets.length > 0) {
+        // Phase 2 changes would need to be tracked separately
+        // For now, just include them as added facets
+        const phase2Changes: FacetDelta[] = phase2Facets.map(facet => ({
+          type: 'added' as const,
+          facet
+        }));
+        allChanges.push(...phase2Changes);
+      }
       
       // PHASE 3: VEIL → Events (via Effectors)
-      const newEvents = await this.runPhase3(changes);
+      const newEvents = await this.runPhase3(allChanges);
       
       // Queue new events for next frame
       newEvents.forEach(event => this.queueEvent(event));
       
       // Notify debug observers
-      this.notifyDebugFrameComplete(this.currentFrame, {
-        durationMs: performance.now() - frameStartClock,
-        processedEvents: events.length
-      });
-      
+        this.notifyDebugFrameComplete(this.currentFrame, {
+          durationMs: performance.now() - frameStartClock,
+          processedEvents: events.length
+        });
+        
       // Emit frame:end for compatibility
       await this.distributeEvent({
         topic: 'frame:end',
@@ -484,7 +512,6 @@ export class Space extends Element {
       const relevantChanges = changes.filter(change => 
         this.matchesEffectorFilters(change.facet, effector.facetFilters)
       );
-      
       if (relevantChanges.length === 0) continue;
       
       try {
@@ -494,12 +521,7 @@ export class Space extends Element {
           events.push(...result.events);
         }
         
-        if (result.externalActions) {
-          // Log external actions for now
-          for (const action of result.externalActions) {
-            console.log(`External action: ${action.type} - ${action.description}`);
-          }
-        }
+        // External actions can be surfaced through tracing or debug observers
       } catch (error) {
         console.error('Effector error:', error);
         // Create error event
@@ -561,6 +583,12 @@ export class Space extends Element {
       facets: state.facets as ReadonlyMap<string, Facet>,
       scopes: state.scopes as ReadonlySet<string>,
       streams: state.streams as ReadonlyMap<string, any>,
+      agents: state.agents as ReadonlyMap<string, AgentInfo>,
+      currentStream: state.currentStream,
+      currentAgent: state.currentAgent,
+      frameHistory: [...state.frameHistory],
+      currentSequence: state.currentSequence,
+      removals: new Map(state.removals),
       
       getFacetsByType: (type: string) => {
         return Array.from(state.facets.values()).filter(f => f.type === type);
@@ -822,13 +850,13 @@ export class Space extends Element {
         type: 'addFacet',
         facet: {
           id: `agent-activation-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          type: 'agentActivation',
+        type: 'agentActivation',
           content: payload.reason || 'Agent activation requested',
           attributes: {
-            source: payload.source || 'system',
+        source: payload.source || 'system',
             sourceAgentId: payload.sourceAgentId,
             sourceAgentName: payload.sourceAgentName,
-            reason: payload.reason || 'requested',
+        reason: payload.reason || 'requested',
             priority: payload.priority || 'normal',
             targetAgent: payload.targetAgent,
             targetAgentId: payload.targetAgentId,

@@ -5,8 +5,9 @@
 
 import { Element } from './element';
 import { VEILStateManager } from '../veil/veil-state';
-import { SpaceEvent, EventPriorityQueue } from './types';
-import { Frame, Facet, VEILOperation } from '../veil/types';
+import { SpaceEvent } from './types';
+import { EventPriorityQueue } from './priority-queue';
+import { Frame, Facet, VEILOperation, AgentInfo, createDefaultTransition } from '../veil/types';
 import { 
   Receptor, 
   Transform, 
@@ -57,7 +58,7 @@ export class Space extends Element {
   // Event management
   
   queueEvent(event: SpaceEvent): void {
-    this.eventQueue.enqueue(event);
+    this.eventQueue.push(event);
     if (!this.processingFrame) {
       setImmediate(() => this.processFrame());
     }
@@ -98,19 +99,14 @@ export class Space extends Element {
       }));
       
       // Apply operations to VEIL
+      const transition = createDefaultTransition(frameId, timestamp);
+      transition.veilOps = operations;
+
       const frame: Frame = {
         sequence: frameId,
         timestamp,
         operations,
-        transition: {
-          sequence: frameId,
-          timestamp,
-          elementOps: [],
-          componentOps: [],
-          componentChanges: [],
-          veilOps: operations,
-          extensions: {}
-        }
+        transition
       };
       
       const changes = this.veilState.applyFrame(frame);
@@ -277,6 +273,12 @@ export class Space extends Element {
       facets: state.facets as ReadonlyMap<string, Facet>,
       scopes: state.scopes as ReadonlySet<string>,
       streams: state.streams as ReadonlyMap<string, any>,
+      agents: state.agents as ReadonlyMap<string, AgentInfo>,
+      currentStream: state.currentStream,
+      currentAgent: state.currentAgent,
+      frameHistory: [...state.frameHistory],
+      currentSequence: state.currentSequence,
+      removals: new Map(state.removals),
       
       getFacetsByType: (type: string) => {
         return Array.from(state.facets.values()).filter(f => f.type === type);
@@ -290,41 +292,5 @@ export class Space extends Element {
         return state.facets.has(id);
       }
     };
-  }
-  
-  // Minimal compatibility methods
-  
-  getCurrentFrame(): Frame | undefined {
-    // For components that need to add operations
-    // We'll create a temporary frame that gets applied immediately
-    return {
-      sequence: this.frameSequence,
-      timestamp: new Date().toISOString(),
-      operations: [],
-      transition: {
-        sequence: this.frameSequence,
-        timestamp: new Date().toISOString(),
-        elementOps: [],
-        componentOps: [],
-        componentChanges: [],
-        veilOps: [],
-        extensions: {}
-      }
-    };
-  }
-  
-  get isProcessingFrame(): boolean {
-    return this.processingFrame;
-  }
-  
-  addOperation(op: VEILOperation): void {
-    // Convert operation to event for next frame
-    // This maintains compatibility during migration
-    this.queueEvent({
-      topic: 'veil:operation',
-      source: this.getRef(),
-      timestamp: Date.now(),
-      payload: { operation: op }
-    });
   }
 }

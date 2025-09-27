@@ -5,7 +5,7 @@
 
 import { Component } from './component';
 import { SpaceEvent } from './types';
-import { Facet } from '../veil/types';
+import { Facet, VEILOperation } from '../veil/types';
 import { 
   Receptor, 
   Effector, 
@@ -84,7 +84,7 @@ export class ComponentToEffectorAdapter implements Effector {
     for (const change of changes) {
       const syntheticEvent: SpaceEvent = {
         topic: `facet:${change.type}:${change.facet.type}`,
-        source: { elementId: 'system', componentId: 'adapter' },
+        source: { elementId: 'system', elementPath: [] },
         timestamp: Date.now(),
         payload: {
           facet: change.facet,
@@ -142,7 +142,8 @@ export class VEILOperationReceptor implements Receptor {
   topics = ['veil:operation'];
   
   transform(event: SpaceEvent, state: ReadonlyVEILState): Facet[] {
-    const { operation } = event.payload;
+    const payload = event.payload as { operation: VEILOperation };
+    const { operation } = payload;
     
     if (operation.type === 'addFacet') {
       return [operation.facet];

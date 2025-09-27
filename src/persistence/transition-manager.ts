@@ -394,7 +394,8 @@ export class TransitionManager {
       const frame = {
         sequence: transition.sequence,
         timestamp: transition.timestamp,
-        operations: transition.veilOps
+        operations: transition.veilOps,
+        transition: transition  // Include the transition itself
       };
       this.veilState.applyIncomingFrame(frame);
     }

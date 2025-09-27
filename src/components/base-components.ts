@@ -155,8 +155,6 @@ export abstract class VEILComponent extends Component {
           content: facetDef.content,
           displayName: facetDef.displayName,
           attributes: facetDef.attributes || {},
-          attributeRenderers: facetDef.attributeRenderers,
-          transitionRenderers: facetDef.transitionRenderers,
           children: facetDef.children
         };
         break;

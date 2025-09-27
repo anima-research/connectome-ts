@@ -1,7 +1,7 @@
 // Complete VEIL frames for the starship scenario
 // This file shows all VEIL frames that produce the rendered context
 
-import { IncomingVEILFrame, OutgoingVEILFrame } from '../veil/types';
+import { IncomingVEILFrame, OutgoingVEILFrame, createDefaultTransition } from '../veil/types';
 
 export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] = [
   // Frame 1: Initial state setup
@@ -71,7 +71,8 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
           ]
         }
       }
-    ]
+    ],
+    transition: createDefaultTransition(1, "2024-01-15T10:30:00Z")
   },
 
   // Frame 2: Sensor event detection
@@ -96,7 +97,8 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
           }
         }
       }
-    ]
+    ],
+    transition: createDefaultTransition(2, "2024-01-15T10:31:15Z")
   },
 
   // Frame 3: Alert level change and tool registration
@@ -110,10 +112,12 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
           id: "scan-tool",
           type: "tool",
           displayName: "Deep Scan",
-          definition: {
-            name: "perform_deep_scan",
-            parameters: ["target_sector", "scan_type"],
-            callback: "SensorElement.handleDeepScan"
+          attributes: {
+            definition: {
+              name: "perform_deep_scan",
+              parameters: ["target_sector", "scan_type"],
+              callback: "SensorElement.handleDeepScan"
+            }
           }
         }
       },
@@ -143,7 +147,8 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
           }
         }
       }
-    ]
+    ],
+    transition: createDefaultTransition(3, "2024-01-15T10:31:20Z")
   },
 
   // Frame 4: Agent's first response (outgoing)
@@ -171,7 +176,8 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         type: "speak",
         content: "Commander Chen, maintain our current orbit but be ready to break away if needed."
       }
-    ]
+    ] as unknown as OutgoingVEILFrame['operations'],
+    transition: createDefaultTransition(4, "2024-01-15T10:31:25Z")
   } as OutgoingVEILFrame,
 
   // Frame 5: Scan results
@@ -191,7 +197,8 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
           }
         }
       }
-    ]
+    ],
+    transition: createDefaultTransition(5, "2024-01-15T10:31:45Z")
   },
 
   // Frame 6: Transmission detection
@@ -238,7 +245,8 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
           }
         }
       }
-    ]
+    ],
+    transition: createDefaultTransition(6, "2024-01-15T10:31:50Z")
   },
 
   // Frame 7: Agent's second response with inner thoughts
@@ -274,7 +282,8 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
           message: "All hands, this is the Captain. We may have just made first contact. All departments prepare for extended station keeping. Science teams to the bridge."
         }
       }
-    ]
+    ] as unknown as OutgoingVEILFrame['operations'],
+    transition: createDefaultTransition(7, "2024-01-15T10:31:55Z")
   } as OutgoingVEILFrame,
 
   // Frame 8: Tool responses and crew activity
@@ -346,7 +355,8 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
           }
         }
       }
-    ]
+    ],
+    transition: createDefaultTransition(8, "2024-01-15T10:32:10Z")
   },
 
   // Frame 9: Agent's reflection and cycle request
@@ -361,10 +371,11 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
       {
         type: "speak",
         content: "Dr. Tanaka, good timing. Look at this pattern - prime numbers broadcast at regular intervals. What's your assessment?"
-      },
-      // Note: cycleRequest has been removed. The environment should
-      // decide when to activate agents based on the conversation flow.
-    ]
+      }
+    ] as unknown as OutgoingVEILFrame['operations'],
+    transition: createDefaultTransition(9, "2024-01-15T10:32:15Z")
+    // Note: cycleRequest has been removed. The environment should
+    // decide when to activate agents based on the conversation flow.
   } as OutgoingVEILFrame,
 
   // Frame 9.5: Agent decides to open personal log (outgoing)
@@ -383,7 +394,8 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
           classification: "Captain's Eyes Only"
         }
       }
-    ]
+    ] as unknown as OutgoingVEILFrame['operations'],
+    transition: createDefaultTransition(9.5, "2024-01-15T10:32:20Z")
   } as OutgoingVEILFrame,
 
   // Frame 9.6: System creates log stream in response
@@ -409,7 +421,8 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
           content: "Active channels: Bridge, Captain's Log"
         }
       }
-    ]
+    ],
+    transition: createDefaultTransition(9.6, "2024-01-15T10:32:21Z")
   },
 
   // Frame 9.7: Agent makes log entry (outgoing)
@@ -422,7 +435,8 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         content: "Captain's Log, Stardate 51234.5. We've detected what appears to be an artificial signal - prime numbers. This could be the discovery we've been searching for.",
         target: "starship:captain-log"  // Explicitly targeting the log
       }
-    ]
+    ] as unknown as OutgoingVEILFrame['operations'],
+    transition: createDefaultTransition(9.7, "2024-01-15T10:32:25Z")
   } as OutgoingVEILFrame,
 
   // Frame 10: Tool definitions for the additional tools used
@@ -436,10 +450,12 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
           id: "analyze-transmission-tool",
           type: "tool",
           displayName: "Analyze Transmission",
-          definition: {
-            name: "analyze_transmission",
-            parameters: ["frequency", "pattern"],
-            callback: "CommsElement.analyzeTransmission"
+          attributes: {
+            definition: {
+              name: "analyze_transmission",
+              parameters: ["frequency", "pattern"],
+              callback: "CommsElement.analyzeTransmission"
+            }
           }
         }
       },
@@ -449,10 +465,12 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
           id: "ship-comms-tool",
           type: "tool",
           displayName: "Ship Communications",
-          definition: {
-            name: "ship_comms",
-            parameters: ["channel", "message"],
-            callback: "CommsElement.sendMessage"
+          attributes: {
+            definition: {
+              name: "ship_comms",
+              parameters: ["channel", "message"],
+              callback: "CommsElement.sendMessage"
+            }
           }
         }
       },
@@ -462,10 +480,12 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
           id: "request-cycle-tool",
           type: "tool",
           displayName: "Request Cycle",
-          definition: {
-            name: "request_cycle",
-            parameters: ["reason", "delay_ms"],
-            callback: "AgentLoop.requestCycle"
+          attributes: {
+            definition: {
+              name: "request_cycle",
+              parameters: ["reason", "delay_ms"],
+              callback: "AgentLoop.requestCycle"
+            }
           }
         }
       },
@@ -475,13 +495,16 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
           id: "open-personal-log-tool",
           type: "tool",
           displayName: "Open Personal Log",
-          definition: {
-            name: "open_personal_log",
-            parameters: ["classification"],
-            callback: "LogElement.openPersonalLog"
+          attributes: {
+            definition: {
+              name: "open_personal_log",
+              parameters: ["classification"],
+              callback: "LogElement.openPersonalLog"
+            }
           }
         }
       }
-    ]
+    ],
+    transition: createDefaultTransition(10, "2024-01-15T10:32:00Z")
   }
 ];

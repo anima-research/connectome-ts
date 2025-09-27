@@ -15,6 +15,7 @@ export { SimpleTestCompressionEngine } from './compression/simple-test-engine';
 // HUD exports
 export * from './hud/types-v2';
 export { FrameTrackingHUD } from './hud/frame-tracking-hud';
+export { ContextTransform } from './hud/context-transform';
 
 // LLM exports
 export * from './llm/llm-interface';
@@ -42,10 +43,14 @@ export { Space } from './spaces/space';
 export { Element } from './spaces/element';
 export { Component } from './spaces/component';
 
+// Receptor/Effector exports
+export * from './spaces/receptor-effector-types';
+
 // Agent exports
 export * from './agent/types';
 export { BasicAgent } from './agent/basic-agent';
 export { AgentComponent } from './agent/agent-component';
+export { AgentEffector } from './agent/agent-effector';
 export { createBasicAgent, type CreateAgentOptions } from './agent/agent-factory';
 
 // Element exports
@@ -87,6 +92,5 @@ export {
   changeState,
   updateState, // @deprecated - alias for changeState
   changeFacet,
-  addStream,
-  speak
+  addStream
 } from './helpers/factories';

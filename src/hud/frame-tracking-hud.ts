@@ -69,10 +69,6 @@ export class FrameTrackingHUD implements CompressibleHUD {
     // If frame dropping becomes necessary, it should be done intelligently (e.g., using
     // compression, importance scoring, or keeping a sliding window of recent + important frames).
     
-    // Debug: Log frame sequences being rendered
-    if ((config as any).name === 'interactive-explorer') {
-      console.log('[HUD] Rendering frames:', frames.map(f => f.sequence).join(', '));
-    }
     
     // Track state as we replay operations - start with empty state
     const replayedState = new Map<string, Facet>();
@@ -146,11 +142,6 @@ export class FrameTrackingHUD implements CompressibleHUD {
         parentId: traceId
       });
       
-      // Debug: Log frames with no content
-      if ((config as any).name === 'interactive-explorer' && !content.trim()) {
-        console.log(`[HUD] Frame ${frame.sequence} has no content. Operations:`, frame.operations.map(op => op.type));
-      }
-      
       frameRenderings.push({
         frameSequence: frame.sequence,
         content,
@@ -160,10 +151,6 @@ export class FrameTrackingHUD implements CompressibleHUD {
       
       // Only add non-empty content
       if (content.trim()) {
-        // Debug log frame content
-        if ((config as any).name === 'interactive-explorer') {
-          console.log(`[HUD] Frame ${frame.sequence} (${this.isIncomingFrame(frame) ? 'incoming' : 'outgoing'}):`, content.slice(0, 100) + '...');
-        }
         frameContents.push({
           type: this.isIncomingFrame(frame) ? 'incoming' : 'outgoing',
           content,
@@ -279,10 +266,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
                 }
               } as StateFacet;
               
-              // Ensure transitionRenderers are preserved
-              if ('transitionRenderers' in currentFacet) {
-                updatedFacet.transitionRenderers = (currentFacet as StateFacet).transitionRenderers;
-              }
+              // transitionRenderers removed from new Facet type
               
               
               // Check for transition renderers if attributes changed
@@ -302,9 +286,9 @@ export class FrameTrackingHUD implements CompressibleHUD {
               
               // Try transition rendering first if we have changed attributes
               let rendered: string | null = null;
-              // Skip transition rendering for hidden facets
-              if (removal !== 'hide' && Object.keys(changedAttributes).length > 0 && updatedFacet.transitionRenderers) {
-                rendered = this.renderTransitions(updatedFacet, changedAttributes);
+              // Skip transition rendering for hidden facets - transitionRenderers removed
+              if (removal !== 'hide' && Object.keys(changedAttributes).length > 0) {
+                rendered = null; // Transition rendering not supported in new Facet type
               }
               
               // If no transition rendering, fall back to normal rendering
@@ -388,35 +372,30 @@ export class FrameTrackingHUD implements CompressibleHUD {
     const parts: string[] = [];
     
     for (const operation of frame.operations) {
-      switch (operation.type) {
-        case 'speak':
-          if ('content' in operation) {
-            parts.push(operation.content);
-          }
-          break;
-          
-        case 'act':
-          if ('toolName' in operation) {
-            parts.push(this.renderToolCall(
-              operation.toolName,
-              operation.parameters
-            ));
-          }
-          break;
-          
-        // Note: 'action' operations have been replaced by 'act' operations
-        // Handle them as 'act' operations with converted format
-        case 'action' as any:
-          if ('path' in operation && Array.isArray((operation as any).path)) {
-            parts.push(this.renderAction(operation as any));
-          }
-          break;
-          
-        case 'think':
-          if ('content' in operation) {
-            parts.push(`<thought>${operation.content}</thought>`);
-          }
-          break;
+      if (operation.type === 'addFacet' && 'facet' in operation) {
+        const facet = operation.facet;
+        switch (facet.type) {
+          case 'speech':
+            if (facet.content) {
+              parts.push(facet.content);
+            }
+            break;
+            
+          case 'action':
+            if (facet.attributes && 'toolName' in facet.attributes && 'parameters' in facet.attributes) {
+              parts.push(this.renderToolCall(
+                facet.attributes.toolName,
+                facet.attributes.parameters
+              ));
+            }
+            break;
+            
+          case 'thought':
+            if (facet.content) {
+              parts.push(`<thought>${facet.content}</thought>`);
+            }
+            break;
+        }
       }
     }
     
@@ -515,28 +494,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
     facet: StateFacet,
     changedAttributes: Record<string, { oldValue: any, newValue: any }>
   ): string | null {
-    if (!facet.transitionRenderers) return null;
-    
-    const parts: string[] = [];
-    
-    // Check each changed attribute for a transition renderer
-    for (const [key, { oldValue, newValue }] of Object.entries(changedAttributes)) {
-      const renderer = facet.transitionRenderers[key];
-      if (renderer) {
-        const rendered = renderer(newValue, oldValue);
-        if (rendered) {
-          // For transitions, we typically want to replace the entire content
-          // rather than append, so we'll use the first non-null transition
-          if (facet.displayName) {
-            const tag = this.sanitizeTagName(facet.displayName);
-            return `<${tag}>${rendered}</${tag}>`;
-          } else {
-            return rendered;
-          }
-        }
-      }
-    }
-    
+    // transitionRenderers removed from new Facet type
     return null;
   }
   
@@ -547,17 +505,12 @@ export class FrameTrackingHUD implements CompressibleHUD {
     const parts: string[] = [];
     
     
-    // If there are attribute renderers, use them
-    if (currentFacet.attributeRenderers) {
-      for (const [key, newValue] of Object.entries(newAttributes)) {
-        const renderer = currentFacet.attributeRenderers[key];
-        if (renderer) {
-          const oldValue = currentFacet.attributes?.[key];
-          const rendered = renderer(newValue, oldValue);
-          if (rendered) {
-            parts.push(rendered);
-          }
-        }
+    // attributeRenderers removed from new Facet type
+    // Show raw attribute changes instead
+    for (const [key, newValue] of Object.entries(newAttributes)) {
+      const oldValue = currentFacet.attributes?.[key];
+      if (oldValue !== newValue) {
+        parts.push(`${key}: ${JSON.stringify(oldValue)} → ${JSON.stringify(newValue)}`);
       }
     }
     
