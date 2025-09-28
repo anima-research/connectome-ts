@@ -16,7 +16,7 @@ export const minimalExample = {
         streamType: "chat",
         metadata: { channel: "main" }
       },
-      operations: [
+      deltas: [
         {
           type: "addFacet",
           facet: {
@@ -30,7 +30,7 @@ export const minimalExample = {
           type: "addFacet",
           facet: {
             id: "search-tool",
-            type: "tool",
+            type: 'action-definition',
             definition: {
               name: "search_codebase",
               parameters: ["query", "file_type"],
@@ -45,7 +45,7 @@ export const minimalExample = {
     {
       sequence: 2,
       timestamp: "2024-01-15T10:00:05Z", 
-      operations: [
+      deltas: [
         {
           type: "addFacet",
           facet: {
@@ -56,7 +56,7 @@ export const minimalExample = {
           }
         },
         {
-          type: "agentActivation"
+          type: 'agent-activation'
         }
       ]
     } as IncomingVEILFrame,
@@ -65,7 +65,7 @@ export const minimalExample = {
     {
       sequence: 3,
       timestamp: "2024-01-15T10:00:10Z",
-      operations: [
+      deltas: [
         {
           type: "think",
           content: "User is asking about authentication. I should search for auth-related files."
@@ -89,7 +89,7 @@ export const minimalExample = {
     {
       sequence: 4,
       timestamp: "2024-01-15T10:00:12Z",
-      operations: [
+      deltas: [
         {
           type: "addFacet",
           facet: {
@@ -99,7 +99,7 @@ export const minimalExample = {
           }
         },
         {
-          type: "agentActivation"
+          type: 'agent-activation'
         }
       ]
     } as IncomingVEILFrame,
@@ -108,7 +108,7 @@ export const minimalExample = {
     {
       sequence: 5,
       timestamp: "2024-01-15T10:00:15Z",
-      operations: [
+      deltas: [
         {
           type: "think", 
           content: "Found the auth files. The main logic seems to be split between login handling and middleware."

@@ -136,7 +136,7 @@ async function main() {
     
     if (parsed.operations.length > 0) {
       // Process the action
-      await (agent as any).processOutgoingFrame({ operations: parsed.operations });
+      await (agent as any).processOutgoingFrame({ deltas: parsed.operations });
     }
   }
   

@@ -20,60 +20,30 @@ export interface SaliencyHints {
   linkedFrom?: string[];  // These facets link to this one (system-managed)
 }
 
-// NEW FACET SYSTEM WITH ASPECTS!
-export interface Facet {
-  id: string;
-  type: string; // Free-form type for organization
-  
-  // Core Aspects (pick what you need)
-  content?: string;                    // Text content
-  state?: Record<string, any>;         // State data
-  temporal?: 'ephemeral' | 'persistent' | 'session'; // Lifetime
-  visibility?: 'agent' | 'system' | 'debug';   // Who can see it
-  renderable?: boolean;                // Should it be shown to agents?
-  
-  // Legacy fields (for compatibility during migration)
+// Import all facet types and aspects from the new file
+export * from './facet-types';
+
+// Legacy fields that aren't part of the clean aspect model
+interface LegacyFacetFields {
   displayName?: string;
   attributes?: Record<string, any>;
   scope?: string[];
-  children?: Facet[];
+  children?: any[];
   saliency?: SaliencyHints;
 }
 
-// Legacy - to be removed
-export interface BaseFacet extends Facet {}
+// Temporarily augment facets with legacy fields during migration
+import { BaseFacet as CleanBaseFacet } from './facet-types';
+declare module './facet-types' {
+  interface BaseFacet extends LegacyFacetFields {}
+}
 
-// LEGACY INTERFACES - Commented out during migration
-// export interface EventFacet extends BaseFacet {
-//   type: 'event';
-// }
+// Legacy type aliases - to be removed
+export type ToolFacet = CleanBaseFacet & { type: 'action-definition' };
+export type DefineActionFacet = CleanBaseFacet & { type: 'action-definition' };
 
-// export interface StateFacet extends BaseFacet {
-//   type: 'state';
-//   attributeRenderers?: Record<string, (value: any, oldValue?: any) => string | null>;
-//   transitionRenderers?: Record<string, (value: any, oldValue?: any) => string | null>;
-// }
-
-// Type aliases for migration
-export type EventFacet = Facet & { type: 'event' };
-export type StateFacet = Facet & { type: 'state' };
-
-export type AmbientFacet = Facet & { type: 'ambient' };
-
-export type ToolFacet = Facet & { type: 'tool' };
-
-export type SpeechFacet = Facet & { type: 'speech' };
-
-export type ThoughtFacet = Facet & { type: 'thought' };
-
-export type ActionFacet = Facet & { type: 'action' };
-
-export type DefineActionFacet = Facet & { type: 'defineAction' };
-
-export type AgentActivationFacet = Facet & { type: 'agentActivation' };
-
-// Facet is now the base interface defined above
-// All specific facet types are just type aliases with type constraints
+// Import Facet type separately to avoid circular dependency
+import type { Facet } from './facet-types';
 
 // VEIL Operations
 export interface AddFacetOperation {
@@ -82,9 +52,9 @@ export interface AddFacetOperation {
 }
 
 export interface ChangeStateOperation {
-  type: 'changeState';
-  facetId: string;
-  updates: {
+  type: 'changeFacet';
+  id: string;
+  changes: {
     content?: string;
     attributes?: Record<string, any>;
   };
@@ -108,62 +78,11 @@ export interface AddStreamOperation {
   stream: StreamInfo;
 }
 
-export interface UpdateStreamOperation {
-  type: 'updateStream';
-  streamId: string;
-  updates: Partial<Omit<StreamInfo, 'id'>>;
-}
+// Import VEILDelta from facet-types
+import { VEILDelta } from './facet-types';
 
-export interface DeleteStreamOperation {
-  type: 'deleteStream';
-  streamId: string;
-}
-
-export interface RemoveFacetOperation {
-  type: 'removeFacet';
-  facetId: string;
-  mode: 'hide' | 'delete';
-}
-
-export interface ChangeFacetOperation {
-  type: 'changeFacet';
-  facetId: string;
-  updates: {
-    content?: string;
-    attributes?: Record<string, any>;
-  };
-}
-
-export interface AddAgentOperation {
-  type: 'addAgent';
-  agent: AgentInfo;
-}
-
-export interface RemoveAgentOperation {
-  type: 'removeAgent';
-  agentId: string;
-  reason?: string;  // Why the agent was removed
-}
-
-export interface UpdateAgentOperation {
-  type: 'updateAgent';
-  agentId: string;
-  updates: Partial<Omit<AgentInfo, 'id'>>;
-}
-
-export type VEILOperation = 
-  | AddFacetOperation 
-  | ChangeStateOperation 
-  | AddScopeOperation 
-  | DeleteScopeOperation 
-  | AddStreamOperation
-  | UpdateStreamOperation
-  | DeleteStreamOperation
-  | RemoveFacetOperation
-  | ChangeFacetOperation
-  | AddAgentOperation
-  | RemoveAgentOperation
-  | UpdateAgentOperation;
+// VEILOperation is now an alias for VEILDelta
+export type VEILOperation = VEILDelta;
 
 // Stream information
 export interface StreamInfo {
@@ -183,12 +102,15 @@ export interface StreamRef {
 export interface AgentInfo {
   id: string;  // Unique agent identifier
   name: string;  // Human-readable name
-  type?: string;  // e.g., "assistant", "tool", "system"
+  type?: string;  // e.g., "assistant", "action-definition", "system"
   capabilities?: string[];  // What the agent can do
   metadata?: Record<string, any>;  // Additional agent-specific data
   createdAt: string;  // When the agent joined
   lastActiveAt?: string;  // Last activity timestamp
 }
+
+// Import SpaceEvent for frame events
+import type { SpaceEvent } from '../spaces/types';
 
 // VEIL Frames - NOW UNIFIED!
 export interface Frame {
@@ -196,7 +118,19 @@ export interface Frame {
   timestamp: string;
   uuid?: string;
   activeStream?: StreamRef;
-  operations: VEILOperation[];
+  events: SpaceEvent[];    // Events processed in this frame
+  deltas: VEILDelta[];     // Exotemporal changes
+  transition: FrameTransition;
+}
+
+
+// Legacy frame interface for migration
+export interface LegacyFrame {
+  sequence: number;
+  timestamp: string;
+  uuid?: string;
+  activeStream?: StreamRef;
+  deltas: VEILOperation[];
   transition: FrameTransition;
 }
 
@@ -206,7 +140,7 @@ export interface FrameTransition {
   elementOps: any[];
   componentOps: any[];
   componentChanges: any[];
-  veilOps: VEILOperation[];
+  veilOps: VEILOperation[];  // Updated to use deltas
   extensions?: Record<string, any>;
 }
 

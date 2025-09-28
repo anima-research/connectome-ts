@@ -150,7 +150,7 @@ function initializeBoxState(space: Space, veilState: VEILStateManager) {
       streamId: 'interactive:main',
       streamType: 'interactive'
     },
-    operations: [
+    deltas: [
       {
         type: 'addFacet',
         facet: {
@@ -214,8 +214,8 @@ function handleOpenBox(space: Space, veilState: VEILStateManager): string {
   space.queueEvent({
     topic: 'veil:change_state',
     payload: {
-      facetId: 'box-state',
-      updates: {
+      id: 'box-state',
+      changes: {
         content: `The box is open, containing ${boxAttrs.contents}!`,
         attributes: {
           isOpen: true,
@@ -358,17 +358,17 @@ async function main() {
       switch (event.topic) {
         case 'veil:change_state': {
           const payload = event.payload as any;
-          frame.operations.push({
-            type: 'changeState',
-            facetId: payload.facetId,
-            updates: payload.updates
+          frame.deltas.push({
+            type: 'changeFacet',
+            id: payload.id,
+            changes: payload.changes
           });
           break;
         }
           
         case 'veil:add_facet': {
           const payload = event.payload as any;
-          frame.operations.push({
+          frame.deltas.push({
             type: 'addFacet',
             facet: payload.facet
           });
@@ -377,8 +377,8 @@ async function main() {
         
         case 'veil:agent_activation': {
           const payload = event.payload as any;
-          frame.operations.push({
-            type: 'agentActivation',
+          frame.deltas.push({
+            type: 'agent-activation',
             source: payload.source,
             reason: payload.reason,
             priority: payload.priority

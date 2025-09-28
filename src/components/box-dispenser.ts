@@ -122,7 +122,7 @@ export class BoxDispenserComponent extends InteractiveComponent {
     // Request agent activation by adding a facet
     this.addFacet({
       id: `agent-activation-dispenser-${Date.now()}`,
-      type: 'agentActivation',
+      type: 'agent-activation',
       content: 'New box dispensed',
       attributes: {
         source: 'dispenser',

@@ -5,7 +5,8 @@
 
 import { Component } from './component';
 import { SpaceEvent } from './types';
-import { Facet, VEILOperation } from '../veil/types';
+import { Facet, VEILDelta } from '../veil/types';
+import { createEventFacet } from '../helpers/factories';
 import { 
   Receptor, 
   Effector, 
@@ -37,7 +38,7 @@ export class ComponentToReceptorAdapter implements Receptor {
     const mockElement = {
       ...originalElement,
       findSpace: () => ({
-        getCurrentFrame: () => ({ operations: capturedOps }),
+        getCurrentFrame: () => ({ deltas: capturedOps }),
         isProcessingFrame: true,
         addOperation: (op: any) => capturedOps.push(op)
       })
@@ -142,23 +143,23 @@ export class VEILOperationReceptor implements Receptor {
   topics = ['veil:operation'];
   
   transform(event: SpaceEvent, state: ReadonlyVEILState): Facet[] {
-    const payload = event.payload as { operation: VEILOperation };
+    const payload = event.payload as { operation: VEILDelta };
     const { operation } = payload;
     
     if (operation.type === 'addFacet') {
       return [operation.facet];
     }
     
-    // For change/remove, create system operation facets
-    return [{
-      id: `sys-op-${Date.now()}-${Math.random()}`,
-      type: 'system-operation',
-      temporal: 'ephemeral',
-      content: JSON.stringify(operation),
-      attributes: {
-        operationType: operation.type,
-        ...operation
-      }
-    }];
+    // For change/remove, create diagnostic event facets
+    const facet = createEventFacet({
+      id: `sys-op-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+      content: `Legacy operation ${operation.type}`,
+      source: 'migration-adapter',
+      eventType: 'system-operation',
+      metadata: operation,
+      streamId: 'system',
+      streamType: 'system'
+    });
+    return [facet];
   }
 }

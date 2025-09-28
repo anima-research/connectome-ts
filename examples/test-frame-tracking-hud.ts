@@ -19,10 +19,10 @@ async function testFrameTrackingHUD() {
   // Apply all frames
   console.log('Applying frames...');
   for (const frame of starshipScenarioFrames) {
-    if ('operations' in frame) {
+    if ('deltas' in frame) {
       // Check if it's incoming or outgoing by looking at operations
-      const incomingOps = ['addFacet', 'changeState', 'addStream', 'updateStream', 'deleteStream', 'addScope', 'deleteScope', 'agentActivation'];
-      const hasIncomingOps = frame.operations.some((op: any) => 
+      const incomingOps = ['addFacet', 'changeState', 'addStream', 'updateStream', 'deleteStream', 'addScope', 'deleteScope', 'agent-activation'];
+      const hasIncomingOps = frame.deltas.some((op: any) => 
         incomingOps.includes(op.type) || 'facet' in op
       );
       
@@ -112,7 +112,7 @@ async function testFrameTrackingHUD() {
   
   console.log(`\nFrame renderings: ${frameRenderings.length}`);
   frameRenderings.slice(0, 5).forEach(fr => {
-    console.log(`Frame ${fr.frameSequence}: ${fr.tokens} tokens, ${fr.facetIds.length} facets`);
+    console.log(`Frame ${fr.frameSequence}: ${fr.tokens} tokens, ${fr.ids.length} facets`);
     console.log(`  Preview: ${fr.content.substring(0, 60)}...`);
   });
   
@@ -121,7 +121,7 @@ async function testFrameTrackingHUD() {
   
   // Check that agent frames are wrapped in my_turn
   const agentFrames = frameHistory.filter(f => 
-    f.operations.some(op => op.type === 'speak' || op.type === 'toolCall')
+    f.deltas.some(op => op.type === 'speak' || op.type === 'toolCall')
   );
   console.log(`\nAgent frames: ${agentFrames.length}`);
   

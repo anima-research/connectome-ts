@@ -76,7 +76,7 @@ class MyComponent extends Component {
   }
   
   // Complex operations are composable
-  performUpdate(facetId: string, newContent: string) {
+  performUpdate(id: string, newContent: string) {
     // The operation factories make intent clear
     this.addOperation(
       changeState(facetId, { content: newContent })

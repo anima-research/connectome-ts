@@ -52,11 +52,11 @@ async function main() {
       if (event.topic === 'agent:activate') {
         const frame = (this.element as Space).getCurrentFrame();
         if (frame) {
-          frame.operations.push({
+          frame.deltas.push({
             type: 'addFacet',
             facet: {
               id: `agent-activation-${Date.now()}`,
-              type: 'agentActivation',
+              type: 'agent-activation',
               content: 'Demo activation',
               attributes: {
                 source: 'demo:console',

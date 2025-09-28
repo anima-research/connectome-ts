@@ -18,7 +18,7 @@ async function testCompressionMultipleStates() {
   frames.push({
     sequence: 1,
     timestamp: new Date().toISOString(),
-    operations: [
+    deltas: [
       {
         type: 'addFacet',
         facet: {
@@ -56,7 +56,7 @@ async function testCompressionMultipleStates() {
   frames.push({
     sequence: 2,
     timestamp: new Date().toISOString(),
-    operations: [
+    deltas: [
       {
         type: 'addFacet',
         facet: {
@@ -73,11 +73,11 @@ async function testCompressionMultipleStates() {
   frames.push({
     sequence: 3,
     timestamp: new Date().toISOString(),
-    operations: [
+    deltas: [
       {
-        type: 'changeState',
-        facetId: 'shields',
-        updates: { content: 'Shields at 75% - taking damage' }
+        type: 'changeFacet',
+        id: 'shields',
+        changes: { content: 'Shields at 75% - taking damage' }
       }
     ]
   });
@@ -86,11 +86,11 @@ async function testCompressionMultipleStates() {
   frames.push({
     sequence: 4,
     timestamp: new Date().toISOString(),
-    operations: [
+    deltas: [
       {
-        type: 'changeState',
-        facetId: 'weapons',
-        updates: { content: 'Weapons armed and targeting' }
+        type: 'changeFacet',
+        id: 'weapons',
+        changes: { content: 'Weapons armed and targeting' }
       }
     ]
   });
@@ -99,16 +99,16 @@ async function testCompressionMultipleStates() {
   frames.push({
     sequence: 5,
     timestamp: new Date().toISOString(),
-    operations: [
+    deltas: [
       {
-        type: 'changeState',
-        facetId: 'engines',
-        updates: { content: 'Engines damaged - 50% power' }
+        type: 'changeFacet',
+        id: 'engines',
+        changes: { content: 'Engines damaged - 50% power' }
       },
       {
-        type: 'changeState',
-        facetId: 'shields',
-        updates: { content: 'Shields critical - 25%' }
+        type: 'changeFacet',
+        id: 'shields',
+        changes: { content: 'Shields critical - 25%' }
       }
     ]
   });
@@ -117,7 +117,7 @@ async function testCompressionMultipleStates() {
   frames.push({
     sequence: 6,
     timestamp: new Date().toISOString(),
-    operations: [
+    deltas: [
       {
         type: 'addFacet',
         facet: {

@@ -71,8 +71,8 @@ export class VEILStateManager {
     }
 
     // Process each operation and track changes
-    for (const operation of frame.operations) {
-      const change = this.applyOperationWithDelta(operation, frame.sequence, frame.timestamp);
+    for (const delta of frame.deltas) {
+      const change = this.applyDelta(delta, frame.sequence, frame.timestamp);
       if (change) {
         changes.push(change);
       }
@@ -88,45 +88,54 @@ export class VEILStateManager {
     return changes;
   }
   
-  private applyOperationWithDelta(operation: VEILOperation, frameSequence?: number, timestamp?: string): FacetDelta | null {
-    if (operation.type === 'addFacet') {
-      const facet = operation.facet;
-      this.state.facets.set(facet.id, facet);
-      return { type: 'added', facet };
-    }
-    
-    if (operation.type === 'changeFacet') {
-      const existing = this.state.facets.get(operation.facetId);
-      if (existing && operation.updates) {
-        const updated = { 
-          ...existing, 
-          ...operation.updates,
-          attributes: { ...existing.attributes, ...operation.updates.attributes }
-        };
-        this.state.facets.set(operation.facetId, updated);
+  private applyDelta(operation: VEILOperation, frameSequence?: number, timestamp?: string): FacetDelta | null {
+    switch (operation.type) {
+      case 'addFacet': {
+        const cloned = this.cloneFacet(operation.facet);
+        this.state.facets.set(cloned.id, cloned);
+        return { type: 'added', facet: cloned };
+      }
+      case 'changeFacet': {
+        const existing = this.state.facets.get(operation.id);
+        if (!existing || !operation.changes) {
+          return null;
+        }
+
+        const updated = this.cloneFacet(existing);
+
+        // Handle content if present
+        if ('content' in operation.changes && operation.changes.content !== undefined) {
+          (updated as any).content = operation.changes.content;
+        }
+
+        // Handle state if present
+        if ('state' in operation.changes && operation.changes.state) {
+          const previous = (updated as any).state ?? {};
+          (updated as any).state = { ...previous, ...operation.changes.state };
+        }
+
+        // Handle aspect fields
+        const aspectKeys = ['agentId', 'agentName', 'streamId', 'streamType', 'scopes'];
+        for (const key of aspectKeys) {
+          if (key in operation.changes && (operation.changes as any)[key] !== undefined) {
+            (updated as any)[key] = (operation.changes as any)[key];
+          }
+        }
+
+        this.state.facets.set(operation.id, this.cloneFacet(updated));
         return { type: 'changed', facet: updated, oldFacet: existing };
       }
-      return null;
-    }
-    
-    if (operation.type === 'removeFacet') {
-      const existing = this.state.facets.get(operation.facetId);
-      if (existing) {
-        if (operation.mode === 'delete') {
-          this.state.facets.delete(operation.facetId);
-        } else {
-          // Hide mode - mark as hidden
-          const hidden = { ...existing, hidden: true };
-          this.state.facets.set(operation.facetId, hidden);
+      case 'removeFacet': {
+        const existing = this.state.facets.get(operation.id);
+        if (!existing) {
+          return null;
         }
+        this.state.facets.delete(operation.id);
         return { type: 'removed', facet: existing };
       }
-      return null;
+      default:
+        return null;
     }
-    
-    // Call original for other operations (no facet changes)
-    this.applyOperation(operation, frameSequence, timestamp);
-    return null;
   }
 
   /**
@@ -151,10 +160,12 @@ export class VEILStateManager {
     
     // LEGACY: All operations are now standard VEIL operations
     
-    // LEGACY: Agent operations are now regular addFacet operations
-    // Process normal VEIL operations
-    for (const operation of frame.operations) {
-      this.applyOperation(operation, frame.sequence, frame.timestamp);
+    // Process deltas (legacy outgoing frames may still contain operations array)
+    const deltas: any[] = (frame as any).deltas || (frame as any).operations || [];
+    for (const operation of deltas) {
+      if (operation.type === 'addFacet' || operation.type === 'changeFacet' || operation.type === 'removeFacet') {
+        this.applyDelta(operation as VEILOperation, frame.sequence, frame.timestamp);
+      }
     }
 
     this.state.frameHistory.push(frame);
@@ -277,221 +288,8 @@ export class VEILStateManager {
     return new Map(this.state.streams);
   }
 
-  private applyOperation(operation: VEILOperation, frameSequence?: number, timestamp?: string): void {
-    // Validate operation type
-    const validOperations = ['addFacet', 'changeState', 'addScope', 'deleteScope', 'addStream', 'updateStream', 'deleteStream', 'removeFacet', 'changeFacet', 'addAgent', 'removeAgent', 'updateAgent'];
-    if (!validOperations.includes(operation.type)) {
-      console.warn(`[VEIL] Warning: Unsupported operation type "${operation.type}". Valid operations are: ${validOperations.join(', ')}`);
-      // Legacy operation types that should be updated
-      if (['agentActivation', 'toolCall', 'innerThoughts', 'cycleRequest'].includes(operation.type as any)) {
-        console.warn(`[VEIL] "${operation.type}" is no longer an operation. Use the new VEIL model:`);
-        console.warn(`  - agentActivation: Use addFacet with type='agentActivation'`);
-        console.warn(`  - toolCall: Use 'act' operation`);
-        console.warn(`  - innerThoughts: Use 'think' operation`);
-        console.warn(`  - cycleRequest: Has been removed - use components/actions instead`);
-      }
-      return;
-    }
-    
-    switch (operation.type) {
-      case 'addFacet':
-        // Validate facet type
-        const validFacetTypes = ['event', 'state', 'ambient', 'tool', 'speech', 'thought', 'action', 'defineAction', 'agentActivation'];
-        if (!validFacetTypes.includes(operation.facet.type)) {
-          console.warn(`[VEIL] Warning: Unsupported facet type "${operation.facet.type}". Valid facet types are: ${validFacetTypes.join(', ')}`);
-          return;
-        }
-        this.addFacet(operation.facet, frameSequence, timestamp);
-        break;
-      
-      case 'changeState':
-        this.changeState(operation.facetId, operation.updates);
-        break;
-      
-      case 'addScope':
-        this.state.scopes.add(operation.scope);
-        break;
-      
-      case 'deleteScope':
-        this.state.scopes.delete(operation.scope);
-        break;
-      
-      // Note: agentActivation is now a facet, not an operation
-      
-      case 'addStream':
-        this.state.streams.set(operation.stream.id, operation.stream);
-        break;
-      
-      case 'updateStream':
-        this.updateStream(operation.streamId, operation.updates);
-        break;
-      
-      case 'deleteStream':
-        this.state.streams.delete(operation.streamId);
-        // If deleted stream had focus, clear focus
-        if (this.state.currentStream?.streamId === operation.streamId) {
-          this.state.currentStream = undefined;
-        }
-        break;
-      
-      case 'removeFacet':
-        this.removeFacet(operation.facetId, operation.mode);
-        break;
-        
-      case 'changeFacet':
-        this.changeFacet(operation.facetId, operation.updates);
-        break;
-        
-      case 'addAgent':
-        this.state.agents.set(operation.agent.id, operation.agent);
-        break;
-        
-      case 'removeAgent':
-        this.state.agents.delete(operation.agentId);
-        // If removed agent was current, clear current
-        if (this.state.currentAgent === operation.agentId) {
-          this.state.currentAgent = undefined;
-        }
-        break;
-        
-      case 'updateAgent':
-        const agent = this.state.agents.get(operation.agentId);
-        if (agent) {
-          this.state.agents.set(operation.agentId, {
-            ...agent,
-            ...operation.updates,
-            lastActiveAt: new Date().toISOString()
-          });
-        } else {
-          console.warn(`[VEIL] Cannot update non-existent agent: ${operation.agentId}`);
-        }
-        break;
-    }
-  }
-
-  private addFacet(facet: Facet, frameSequence?: number, timestamp?: string): void {
-    // Clone the facet to avoid shared references
-    const clonedFacet = { ...facet };
-    if (facet.attributes && typeof facet.attributes === 'object') {
-      clonedFacet.attributes = { ...facet.attributes };
-    }
-    
-    // Deep clone children to avoid shared references
-    if (facet.children) {
-      clonedFacet.children = facet.children.map(child => this.cloneFacet(child));
-    }
-    
-    this.state.facets.set(facet.id, clonedFacet);
-  }
-  
-  private cloneFacet(facet: Facet): Facet {
-    const cloned = { ...facet };
-    if (facet.attributes && typeof facet.attributes === 'object') {
-      cloned.attributes = { ...facet.attributes };
-    }
-    if (facet.children) {
-      cloned.children = facet.children.map(child => this.cloneFacet(child));
-    }
-    return cloned;
-  }
-
-  private changeState(facetId: string, updates: { content?: string; attributes?: Record<string, any> }): void {
-    const facet = this.state.facets.get(facetId);
-    if (!facet) {
-      // This can happen if an action is executed before the facet is initialized
-      // Silently ignore for now as components will add their facets soon
-      return;
-    }
-
-    // Check if facet is removed
-    const removal = this.state.removals.get(facetId);
-    if (removal === 'delete') {
-      // Silently ignore changes to deleted facets
-      return;
-    }
-    // Note: 'hide' mode still allows state changes, just affects rendering
-
-    if (facet.type !== 'state') {
-      console.warn(`Cannot change state of non-state facet: ${facetId} (type: ${facet.type})`);
-      return;
-    }
-
-    // Apply updates
-    if (updates.content !== undefined) {
-      facet.content = updates.content;
-    }
-    
-    if (updates.attributes) {
-      facet.attributes = {
-        ...facet.attributes,
-        ...updates.attributes
-      };
-    }
-  }
-
-  private removeFacet(facetId: string, mode: 'hide' | 'delete'): void {
-    const facet = this.state.facets.get(facetId);
-    if (!facet) {
-      // Already removed or doesn't exist
-      return;
-    }
-    
-    // Track the removal
-    this.state.removals.set(facetId, mode);
-    
-    // Cascade to children
-    if (facet.children) {
-      for (const child of facet.children) {
-        this.removeFacet(child.id, mode);
-      }
-    }
-  }
-
-  private changeFacet(facetId: string, updates: { content?: string; attributes?: Record<string, any> }): void {
-    const facet = this.state.facets.get(facetId);
-    if (!facet) {
-      console.warn(`Cannot change non-existent facet: ${facetId}`);
-      return;
-    }
-
-    // Check if facet is removed
-    const removal = this.state.removals.get(facetId);
-    if (removal === 'delete') {
-      // Silently ignore changes to deleted facets
-      return;
-    }
-    // Note: 'hide' mode still allows changes, just affects rendering
-
-    // Apply updates
-    if (updates.content !== undefined) {
-      facet.content = updates.content;
-    }
-    
-    if (updates.attributes) {
-      facet.attributes = {
-        ...facet.attributes,
-        ...updates.attributes
-      };
-    }
-  }
-
-  private updateStream(streamId: string, updates: Partial<Omit<import('./types').StreamInfo, 'id'>>): void {
-    const stream = this.state.streams.get(streamId);
-    if (!stream) {
-      console.warn(`Cannot update non-existent stream: ${streamId}`);
-      return;
-    }
-
-    // Apply updates
-    if (updates.name !== undefined) {
-      stream.name = updates.name;
-    }
-    if (updates.metadata !== undefined) {
-      stream.metadata = {
-        ...stream.metadata,
-        ...updates.metadata
-      };
-    }
+  private cloneFacet<T extends Facet>(facet: T): T {
+    return JSON.parse(JSON.stringify(facet)) as T;
   }
 
   private notifyListeners(): void {
@@ -598,7 +396,7 @@ export class VEILStateManager {
     const warnings: string[] = [];
     
     for (const frame of frames) {
-      for (const op of frame.operations) {
+      for (const op of frame.deltas) {
         switch (op.type) {
           case 'addFacet':
             affected.add(op.facet.id);
@@ -609,16 +407,16 @@ export class VEILStateManager {
             }
             break;
             
-          case 'changeState':
-            if (!this.state.facets.has(op.facetId)) {
+          case 'changeFacet':
+            if (!this.state.facets.has(op.id)) {
               warnings.push(
-                `Change operation on non-existent facet ${op.facetId} (might have been added in deleted frames)`
+                `Change operation on non-existent facet ${op.id} (might have been added in deleted frames)`
               );
             }
             break;
             
           case 'removeFacet':
-            warnings.push(`Remove operation for ${op.facetId} will be undone`);
+            warnings.push(`Remove operation for ${op.id} will be undone`);
             break;
         }
       }
@@ -718,11 +516,11 @@ export class VEILStateManager {
     // Capture deleted frames info
     const deletedFrames = framesToDelete.map(f => ({
       sequence: f.sequence,
-      type: 'operations' in f ? 
-        (f.operations.some((op: any) => op.type === 'speak' || op.type === 'act') ? 'outgoing' : 'incoming') 
+      type: 'deltas' in f ? 
+        (f.deltas.some((op: any) => op.type === 'speak' || op.type === 'act') ? 'outgoing' : 'incoming') 
         : 'unknown',
       timestamp: f.timestamp,
-      operationCount: f.operations.length
+      operationCount: f.deltas.length
     }));
     
     // Remove frames from history by filtering out deleted sequences
@@ -753,8 +551,8 @@ export class VEILStateManager {
         const originalSeq = frame.sequence;
         frame.sequence = this.state.currentSequence + 1;
         
-        if ('operations' in frame) {
-          const isIncoming = !frame.operations.some((op: any) => 
+        if ('deltas' in frame) {
+          const isIncoming = !frame.deltas.some((op: any) => 
             op.type === 'speak' || op.type === 'act'
           );
           

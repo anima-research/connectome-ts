@@ -36,7 +36,7 @@ class NotificationComponent extends Component {
         type: 'addFacet',
         facet: {
           id: `activation-${Date.now()}`,
-          type: 'agentActivation',
+          type: 'agent-activation',
           content: `High priority notification: ${message}`,
           attributes: {
             source: 'notification-system',
@@ -71,7 +71,7 @@ async function testNotificationComponent() {
   const frame = testSpace.endFrame();
   
   // Step 6: Verify operations
-  const eventOps = frame.operations.filter(op => 
+  const eventOps = frame.deltas.filter(op => 
     op.type === 'addFacet' && op.facet.type === 'event'
   );
   console.assert(eventOps.length === 1, 'Should add one event');
@@ -82,8 +82,8 @@ async function testNotificationComponent() {
   notifications.addNotification('Urgent!', 'high');
   const frame2 = testSpace.endFrame();
   
-  const activations = frame2.operations.filter(op =>
-    op.type === 'addFacet' && op.facet.type === 'agentActivation'
+  const activations = frame2.deltas.filter(op =>
+    op.type === 'addFacet' && op.facet.type === 'agent-activation'
   );
   console.assert(activations.length === 1, 'High priority should activate agent');
 }

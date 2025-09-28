@@ -34,7 +34,7 @@ async function testCompressionWithState() {
     {
       sequence: 1,
       timestamp: new Date().toISOString(),
-      operations: [
+      deltas: [
         {
           type: 'addFacet',
           facet: {
@@ -52,11 +52,11 @@ async function testCompressionWithState() {
     {
       sequence: 2,
       timestamp: new Date().toISOString(),
-      operations: [
+      deltas: [
         {
-          type: 'changeState',
-          facetId: 'counter',
-          updates: {
+          type: 'changeFacet',
+          id: 'counter',
+          changes: {
             content: 'Count: 5',
             attributes: { value: 5 }
           }
@@ -68,11 +68,11 @@ async function testCompressionWithState() {
     {
       sequence: 3,
       timestamp: new Date().toISOString(),
-      operations: [
+      deltas: [
         {
-          type: 'changeState',
-          facetId: 'counter',
-          updates: {
+          type: 'changeFacet',
+          id: 'counter',
+          changes: {
             content: 'Count: 10',
             attributes: { value: 10 }
           }
@@ -84,11 +84,11 @@ async function testCompressionWithState() {
     {
       sequence: 4,
       timestamp: new Date().toISOString(),
-      operations: [
+      deltas: [
         {
-          type: 'changeState',
-          facetId: 'counter',
-          updates: {
+          type: 'changeFacet',
+          id: 'counter',
+          changes: {
             content: 'Count: 15',
             attributes: { value: 15, special: true }
           }
@@ -100,7 +100,7 @@ async function testCompressionWithState() {
     {
       sequence: 5,
       timestamp: new Date().toISOString(),
-      operations: [
+      deltas: [
         {
           type: 'addFacet',
           facet: {

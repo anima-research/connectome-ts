@@ -21,7 +21,7 @@ async function testCompressionWithState() {
     {
       sequence: 1,
       timestamp: new Date().toISOString(),
-      operations: [
+      deltas: [
         {
           type: 'addFacet',
           facet: {
@@ -53,7 +53,7 @@ async function testCompressionWithState() {
     {
       sequence: 2,
       timestamp: new Date().toISOString(),
-      operations: [
+      deltas: [
         {
           type: 'speak',
           content: 'Welcome to the game! Starting level 1...'
@@ -65,11 +65,11 @@ async function testCompressionWithState() {
     {
       sequence: 3,
       timestamp: new Date().toISOString(),
-      operations: [
+      deltas: [
         {
-          type: 'changeState',
-          facetId: 'game-state',
-          updates: {
+          type: 'changeFacet',
+          id: 'game-state',
+          changes: {
             content: 'Player collected a coin',
             attributes: { score: 10 }
           }
@@ -79,11 +79,11 @@ async function testCompressionWithState() {
     {
       sequence: 4,
       timestamp: new Date().toISOString(),
-      operations: [
+      deltas: [
         {
-          type: 'changeState',
-          facetId: 'game-state',
-          updates: {
+          type: 'changeFacet',
+          id: 'game-state',
+          changes: {
             content: 'Player defeated enemy',
             attributes: { score: 30 }
           }
@@ -93,11 +93,11 @@ async function testCompressionWithState() {
     {
       sequence: 5,
       timestamp: new Date().toISOString(),
-      operations: [
+      deltas: [
         {
-          type: 'changeState',
-          facetId: 'game-state',
-          updates: {
+          type: 'changeFacet',
+          id: 'game-state',
+          changes: {
             content: 'Player completed level',
             attributes: { score: 100, level: 2 }
           }
@@ -107,7 +107,7 @@ async function testCompressionWithState() {
     {
       sequence: 6,
       timestamp: new Date().toISOString(),
-      operations: [
+      deltas: [
         {
           type: 'speak',
           content: 'Great job! Moving to level 2...'
@@ -117,11 +117,11 @@ async function testCompressionWithState() {
     {
       sequence: 7,
       timestamp: new Date().toISOString(),
-      operations: [
+      deltas: [
         {
-          type: 'changeState',
-          facetId: 'game-state',
-          updates: {
+          type: 'changeFacet',
+          id: 'game-state',
+          changes: {
             content: 'Player took damage',
             attributes: { lives: 2 }
           }
@@ -133,7 +133,7 @@ async function testCompressionWithState() {
     {
       sequence: 8,
       timestamp: new Date().toISOString(),
-      operations: [
+      deltas: [
         {
           type: 'addFacet',
           facet: {
@@ -150,7 +150,7 @@ async function testCompressionWithState() {
   
   // Process frames through VEIL state
   for (const frame of frames) {
-    if ('activeStream' in frame || frame.operations.some((op: any) => op.type === 'addFacet' || op.type === 'changeState')) {
+    if ('activeStream' in frame || frame.deltas.some((op: any) => op.type === 'addFacet' || op.type === 'changeFacet')) {
       veilState.applyIncomingFrame(frame as IncomingVEILFrame);
     } else {
       veilState.recordOutgoingFrame(frame as OutgoingVEILFrame);

@@ -189,30 +189,30 @@ The following ${pending.toFrame - pending.fromFrame + 1} frames (${pending.total
       deleted: []
     };
     
-    // Process all operations to compute net state effect
+    // Process all deltas to compute net state effect
     for (const frame of frames) {
-      if ('operations' in frame) {
-        for (const op of frame.operations) {
+      if ('deltas' in frame) {
+        for (const op of frame.deltas) {
           if (op.type === 'addFacet' && op.facet?.type === 'state') {
             stateDelta.added.push(op.facet.id);
             stateDelta.changes.set(op.facet.id, op.facet);
-          } else if (op.type === 'changeState' && 'facetId' in op && 'updates' in op) {
+          } else if (op.type === 'changeFacet' && 'facetId' in op && 'updates' in op) {
             // Apply updates to tracked state
-            const existing = stateDelta.changes.get(op.facetId);
+            const existing = stateDelta.changes.get(op.id);
             if (existing) {
               // Merge updates into existing tracked state
-              stateDelta.changes.set(op.facetId, {
+              stateDelta.changes.set(op.id, {
                 ...existing,
-                ...op.updates,
+                ...op.changes,
                 attributes: {
                   ...existing.attributes,
-                  ...(op.updates.attributes || {})
+                  ...(op.changes.attributes || {})
                 }
               } as Partial<Facet>);
-            } else if (!stateDelta.added.includes(op.facetId)) {
+            } else if (!stateDelta.added.includes(op.id)) {
               // Track updates for facets that existed before this range
-              stateDelta.changes.set(op.facetId, {
-                ...op.updates,
+              stateDelta.changes.set(op.id, {
+                ...op.changes,
                 type: 'state' // Ensure we keep the type
               } as Partial<Facet>);
             }

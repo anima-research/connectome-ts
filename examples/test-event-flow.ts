@@ -199,8 +199,8 @@ async function demonstrateEventFlow() {
   const incomingFrame = {
     sequence: veilState.getNextSequence(),
     timestamp: Date.now(),
-    operations: [{
-      type: 'agentActivation' as const,
+    deltas: [{
+      type: 'agent-activation' as const,
       source: 'user',
       reason: 'Demo activation'
     }]

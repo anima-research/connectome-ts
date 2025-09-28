@@ -56,7 +56,7 @@ async function main() {
         console.log('\n[Event] agent:frame-ready received:');
         console.log(`  - Agent: ${event.payload.agentName}`);
         console.log(`  - Frame sequence: ${event.payload.frame.sequence} (should be -1)`);
-        console.log(`  - Operations: ${event.payload.frame.operations.length}`);
+        console.log(`  - Operations: ${event.payload.frame.deltas.length}`);
       } else if (event.topic === 'agent:response') {
         console.log('\n[Event] agent:response distributed:');
         console.log(`  - Agent: ${event.payload.agentName}`);

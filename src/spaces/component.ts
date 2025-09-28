@@ -1,7 +1,12 @@
 import { ComponentLifecycle, EventHandler, SpaceEvent, ElementRef } from './types';
 import type { Element } from './element';
 import type { Space } from './space';
-import type { VEILOperation } from '../veil/types';
+import type { VEILDelta } from '../veil/types';
+import {
+  createAmbientFacet,
+  createStateFacet,
+  createEventFacet
+} from '../helpers/factories';
 
 /**
  * Base component class that can be attached to Elements
@@ -231,7 +236,7 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
    * Add a VEIL operation to the current frame
    * This is the primary way components interact with VEIL state
    */
-  protected addOperation(operation: VEILOperation): void {
+  protected addOperation(operation: VEILDelta): void {
     const space = this.element?.findSpace() as Space | undefined;
     if (!space) {
       throw new Error(
@@ -247,7 +252,7 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
       );
     }
     
-    frame.operations.push(operation);
+    frame.deltas.push(operation);
   }
 
   // ============================================
@@ -284,16 +289,31 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
       attrs = idOrAttributes || {};
     }
     
+    const { streamId = `${this.element.id}:ambient`, streamType, ...metadata } = attrs;
+
     this.addOperation({
       type: 'addFacet',
-      facet: {
+      facet: createAmbientFacet({
         id,
-        type: 'ambient',
         content,
-        attributes: attrs,
-        scope: [] // Ambient facets need a scope
-      }
+        streamId,
+        streamType
+      })
     });
+    if (Object.keys(metadata).length > 0) {
+      this.addOperation({
+        type: 'addFacet',
+        facet: createEventFacet({
+          id: `${id}-meta`,
+          content: `metadata:${JSON.stringify(metadata)}`,
+          source: this.element.id,
+          eventType: 'ambient-metadata',
+          metadata,
+          streamId,
+          streamType
+        })
+      });
+    }
   }
 
   /**
@@ -309,12 +329,14 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
     const facetId = `${this.element.id}-${id}`;
     this.addOperation({
       type: 'addFacet',
-      facet: {
+      facet: createStateFacet({
         id: facetId,
-        type: 'state',
         content,
-        attributes
-      }
+        entityType: 'component',
+        entityId: this.element.id,
+        state: attributes,
+        scopes: []
+      })
     });
   }
 
@@ -328,13 +350,20 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
    */
   protected changeState(
     id: string, 
-    updates: { content?: string; attributes?: Record<string, any> }
+    changes: { content?: string; attributes?: Record<string, any> }
   ): void {
     const facetId = `${this.element.id}-${id}`;
+    const delta: any = {};
+    if (changes.content !== undefined) {
+      delta.content = changes.content;
+    }
+    if (changes.attributes) {
+      delta.state = changes.attributes;
+    }
     this.addOperation({
-      type: 'changeState',
-      facetId,
-      updates
+      type: 'changeFacet',
+      id: facetId,
+      changes: delta
     });
   }
 
@@ -343,10 +372,10 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
    */
   protected updateState(
     id: string, 
-    updates: { content?: string; attributes?: Record<string, any> }
+    changes: { content?: string; attributes?: Record<string, any> }
   ): void {
     console.warn('updateState() is deprecated. Use changeState() for consistency with VEIL operations.');
-    this.changeState(id, updates);
+    this.changeState(id, changes);
   }
 
   /**
@@ -381,13 +410,19 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
       attrs = idOrAttributes || {};
     }
     
-    const facet = {
+    const { source = this.element.id, streamId: streamIdAttr, streamType: streamTypeAttr, ...metadata } = attrs;
+    const streamId = typeof streamIdAttr === 'string' ? streamIdAttr : 'default';
+    const streamType = typeof streamTypeAttr === 'string' ? streamTypeAttr : undefined;
+
+    const facet = createEventFacet({
       id,
-      type: 'event' as const,
-      displayName: eventType || 'event',
       content,
-      attributes: attrs
-    };
+      source,
+      eventType: eventType || 'event',
+      metadata: Object.keys(metadata).length ? metadata : undefined,
+      streamId,
+      streamType
+    });
     this.addOperation({ type: 'addFacet', facet });
   }
 

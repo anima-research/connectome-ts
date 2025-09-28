@@ -10,6 +10,7 @@ import { debugLLMBridge, DebugLLMRequest } from '../llm/debug-llm-bridge';
 import type { Space } from '../spaces/space';
 import { VEILStateManager } from '../veil/veil-state';
 import type { IncomingVEILFrame, OutgoingVEILFrame, Facet, StreamRef, StreamInfo } from '../veil/types';
+import { hasContentAspect } from '../veil/types';
 import type { SpaceEvent, ElementRef } from '../spaces/types';
 import type { DebugObserver, DebugFrameStartContext, DebugFrameCompleteContext, DebugEventContext, DebugOutgoingFrameContext, DebugRenderedContextInfo } from './types';
 import { deterministicUUID } from '../utils/uuid';
@@ -55,7 +56,7 @@ interface DebugFrameRecord {
   sequence: number;
   timestamp: string;
   kind: 'incoming' | 'outgoing';
-  operations: any[];
+  deltas: any[];
   events: DebugEventRecord[];
   queueLength?: number;
   durationMs?: number;
@@ -181,7 +182,7 @@ class DebugStateTracker extends EventEmitter implements DebugObserver {
       timestamp: frame.timestamp,
       kind: 'incoming',
       events: [],
-      operations: [],
+      deltas: [],
       queueLength: context.queuedEvents,
       activeStream: frame.activeStream
     };
@@ -214,7 +215,7 @@ class DebugStateTracker extends EventEmitter implements DebugObserver {
     const record = this.lookup(frame);
     if (!record) return;
 
-    record.operations = frame.operations.map(op => sanitizePayload(op));
+    record.deltas = frame.deltas.map(op => sanitizePayload(op));
     record.durationMs = context.durationMs;
     record.processedEvents = context.processedEvents;
     record.activeStream = frame.activeStream;
@@ -235,7 +236,7 @@ class DebugStateTracker extends EventEmitter implements DebugObserver {
       timestamp: frame.timestamp,
       kind: 'outgoing',
       events: [],
-      operations: frame.operations.map(op => sanitizePayload(op)),
+      deltas: frame.deltas.map(op => sanitizePayload(op)),
       agent: {
         id: context.agentId,
         name: context.agentName
@@ -448,7 +449,7 @@ function serializeElement(element: Element): SerializedElement {
 }
 
 interface SerializedVEILState {
-  facets: Array<Facet & { facetId: string }>;
+  facets: Array<Facet & { id: string }>;
   streams: Array<{ id: string; info: StreamInfo }>;
   currentStream?: StreamRef;
   sequence: number;
@@ -461,7 +462,7 @@ function serializeVEILStateSimple(stateManager: VEILStateManager): SerializedVEI
   return {
     facets: Array.from(state.facets.values()).map(facet => ({
       ...sanitizePayload(facet),
-      facetId: facet.id
+      id: facet.id
     })),
     streams: Array.from(state.streams.entries()).map(([id, stream]) => ({
       id,
@@ -473,11 +474,12 @@ function serializeVEILStateSimple(stateManager: VEILStateManager): SerializedVEI
 }
 
 function sanitizeFacetTreeNode(facet: Facet, depth: number = 0): any {
+  const content = hasContentAspect(facet) ? facet.content : '';
   const baseNode = {
     id: facet.id,
     type: facet.type,
     displayName: facet.displayName || '',
-    content: facet.content || ''
+    content
   };
 
   if (depth >= FACET_TREE_MAX_DEPTH) {
@@ -498,7 +500,8 @@ function sanitizeFacetTreeNode(facet: Facet, depth: number = 0): any {
 }
 
 function describeFacet(facet: Facet): string {
-  return `${facet.id}:${facet.type || 'unknown'}:${facet.displayName || facet.content || ''}`;
+  const content = hasContentAspect(facet) ? facet.content : '';
+  return `${facet.id}:${facet.type || 'unknown'}:${facet.displayName || content}`;
 }
 
 interface FrameListResponse {
@@ -544,7 +547,7 @@ export class DebugServer {
     
     // Convert VEIL frames to debug frame records
     frameHistory.forEach(frame => {
-      const isOutgoing = 'operations' in frame && frame.operations.some(
+      const isOutgoing = 'deltas' in frame && frame.deltas.some(
         (op: any) => op.type === 'speak' || op.type === 'act' || op.type === 'think'
       );
       
@@ -554,7 +557,7 @@ export class DebugServer {
         timestamp: frame.timestamp,
         kind: isOutgoing ? 'outgoing' : 'incoming',
         events: [],
-        operations: frame.operations.map((op: any) => sanitizePayload(op)),
+        deltas: frame.deltas.map((op: any) => sanitizePayload(op)),
         queueLength: 0,
         activeStream: frame.activeStream
       };
@@ -964,7 +967,7 @@ export class DebugServer {
 
     for (const frame of framesToApply) {
       // Determine frame type by checking for outgoing operations
-      const isIncoming = !frame.operations.some((op: any) => 
+      const isIncoming = !frame.deltas.some((op: any) => 
         op.type === 'speak' || op.type === 'act' || op.type === 'think'
       );
       
@@ -974,8 +977,8 @@ export class DebugServer {
         incomingCount += 1;
         
         // Count facet operations in incoming frames
-        if (inFrame.operations) {
-          for (const op of inFrame.operations) {
+        if (inFrame.deltas) {
+          for (const op of inFrame.deltas) {
             if (op.type === 'addFacet') facetOpsCount.add++;
             else if (op.type === 'removeFacet') facetOpsCount.remove++;
           }

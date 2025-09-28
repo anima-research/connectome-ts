@@ -26,7 +26,7 @@ async function testNumberedCompression() {
     const frame: IncomingVEILFrame = {
       sequence: i,
       timestamp: new Date().toISOString(),
-      operations: [
+      deltas: [
         {
           type: 'addFacet',
           facet: {
@@ -49,7 +49,7 @@ async function testNumberedCompression() {
     const frame: OutgoingVEILFrame = {
       sequence: i,
       timestamp: new Date().toISOString(),
-      operations: [
+      deltas: [
         {
           type: 'speak',
           content: `Acknowledging events ${(i-51)*10 + 1} through ${(i-51)*10 + 10}`

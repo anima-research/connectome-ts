@@ -2,12 +2,13 @@
 
 import { 
   Facet, 
-  VEILOperation,
   IncomingVEILFrame,
   OutgoingVEILFrame,
   StreamRef,
-  AgentInfo
+  AgentInfo,
+  hasEphemeralAspect
 } from '../veil/types';
+import { createEventFacet } from '../helpers/factories';
 import { SpaceEvent } from './types';
 
 /**
@@ -107,25 +108,23 @@ export interface ReadonlyVEILState {
 export class EphemeralCleanupTransform implements Transform {
   process(state: ReadonlyVEILState): Facet[] {
     const ephemeralIds = Array.from(state.facets.values())
-      .filter(f => f.temporal === 'ephemeral')
+      .filter(f => hasEphemeralAspect(f))
       .map(f => f.id);
 
     if (ephemeralIds.length === 0) {
       return [];
     }
 
-    return [{
-      id: `cleanup-ephemeral-${state.currentSequence}-${Date.now()}`,
-      type: 'system-operation',
-      temporal: 'ephemeral' as const,
-      visibility: 'system' as const,
-      renderable: false,
-      content: `Cleanup ${ephemeralIds.length} ephemeral facet(s)`,
-      attributes: {
-        operation: 'removeFacets',
-        targetIds: ephemeralIds
-      }
-    }];
+    return [
+      createEventFacet({
+        id: `cleanup-ephemeral-${state.currentSequence}-${Date.now()}`,
+        content: `Cleanup ${ephemeralIds.length} ephemeral facet(s)`,
+        source: 'ephemeral-cleanup',
+        eventType: 'ephemeral-summary',
+        metadata: { targetIds: ephemeralIds },
+        streamId: 'system',
+        streamType: 'system'
+      })
+    ];
   }
 }
-

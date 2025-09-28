@@ -18,9 +18,9 @@ async function testStarshipCompression() {
   
   // Apply all frames
   for (const frame of starshipScenarioFrames) {
-    if ('operations' in frame) {
-      const incomingOps = ['addFacet', 'changeState', 'addStream', 'updateStream', 'deleteStream', 'addScope', 'deleteScope', 'agentActivation'];
-      const hasIncomingOps = frame.operations.some((op: any) => 
+    if ('deltas' in frame) {
+      const incomingOps = ['addFacet', 'changeState', 'addStream', 'updateStream', 'deleteStream', 'addScope', 'deleteScope', 'agent-activation'];
+      const hasIncomingOps = frame.deltas.some((op: any) => 
         incomingOps.includes(op.type) || 'facet' in op
       );
       

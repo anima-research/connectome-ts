@@ -30,7 +30,7 @@ class TestMessageComponent extends VEILComponent {
     // Activate the agent
     this.addFacet({
       id: 'agent-activation-test-1',
-      type: 'agentActivation',
+      type: 'agent-activation',
       content: 'User sent a message',
       attributes: {
         source: 'test',

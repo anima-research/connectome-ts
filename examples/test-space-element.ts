@@ -16,7 +16,7 @@ class LoggerComponent extends Component {
     if (event.topic === 'frame:end') {
       const frameEnd = event as FrameEndEvent;
       console.log(`  Frame ${frameEnd.payload.frameId} completed`);
-      console.log(`  Has operations: ${frameEnd.payload.hasOperations}`);
+      console.log(`  Has deltas: ${frameEnd.payload.hasOperations}`);
       console.log(`  Has activation: ${frameEnd.payload.hasActivation}`);
     }
   }
@@ -49,7 +49,7 @@ class TestAdapterComponent extends Component {
       
       if (currentFrame) {
         console.log(`[${this.element.name}] Adding facet to frame`);
-        currentFrame.operations.push({
+        currentFrame.deltas.push({
           type: 'addFacet',
           facet: {
             id: `test-facet-${Date.now()}`,

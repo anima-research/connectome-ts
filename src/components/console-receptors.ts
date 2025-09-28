@@ -10,7 +10,8 @@ import {
   EffectorResult
 } from '../spaces/receptor-effector-types';
 import { SpaceEvent } from '../spaces/types';
-import { Facet } from '../veil/types';
+import { Facet, hasContentAspect } from '../veil/types';
+import { createAgentActivation, createEventFacet } from '../helpers/factories';
 
 /**
  * Converts console input events into message AND activation facets
@@ -23,40 +24,28 @@ export class ConsoleInputReceptor implements Receptor {
     const timestamp = payload.timestamp || Date.now();
     const messageId = `console-msg-${timestamp}-${Math.random().toString(36).substr(2, 9)}`;
     
-    const facets = [
-      // The message facet
-      {
-        id: messageId,
-        type: 'console-message',
-        content: payload.input,
-        temporal: 'persistent' as const,
-        renderable: true,
-        attributes: {
-          source: 'console',
-          timestamp
-        }
-      },
-      // The activation facet to trigger agents
-      {
-        id: `activation-${messageId}`,
-        type: 'agentActivation',
-        content: 'Console input received',
-        temporal: 'ephemeral' as const, // Activations are one-time triggers
-        attributes: {
-          source: 'console',
-          sourceAgentId: 'user',
-          sourceAgentName: 'User',
-          priority: 'normal',
-          reason: 'user_message',
-          streamRef: {
-            streamId: 'console',
-            streamType: 'console'
-          }
-        }
+    const messageFacet = createEventFacet({
+      id: messageId,
+      content: payload.input,
+      source: 'console',
+      eventType: 'console-message',
+      metadata: { timestamp },
+      streamId: 'console',
+      streamType: 'console'
+    });
+
+    const activationFacet = createAgentActivation('Console input received', {
+      id: `activation-${messageId}`,
+      priority: 'normal',
+      sourceAgentId: 'user',
+      sourceAgentName: 'User',
+      streamRef: {
+        streamId: 'console',
+        streamType: 'console'
       }
-    ];
+    });
     
-    return facets;
+    return [messageFacet, activationFacet];
   }
 }
 
@@ -65,8 +54,7 @@ export class ConsoleInputReceptor implements Receptor {
  */
 export class ConsoleOutputEffector implements Effector {
   facetFilters = [{
-    type: 'speech',
-    attributeMatch: { agentGenerated: true }
+    type: 'speech'
   }];
   
   constructor(
@@ -77,7 +65,7 @@ export class ConsoleOutputEffector implements Effector {
     const externalActions = [];
     
     for (const change of changes) {
-      if (change.type === 'added' && change.facet.content) {
+      if (change.type === 'added' && hasContentAspect(change.facet)) {
         // Output to console
         this.write(`\n${change.facet.content}\n`);
         

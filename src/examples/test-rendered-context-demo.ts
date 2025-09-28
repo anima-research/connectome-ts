@@ -39,7 +39,7 @@ class TestChatComponent extends VEILComponent {
     // Activate agent
     this.addFacet({
       id: 'agent-activation-demo-1',
-      type: 'agentActivation',
+      type: 'agent-activation',
       content: 'User sent a message',
       attributes: {
         source: 'user',

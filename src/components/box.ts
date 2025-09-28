@@ -150,7 +150,7 @@ class BoxInteractionComponent extends InteractiveComponent {
     // Request agent activation for high-priority reaction
     this.addFacet({
       id: `agent-activation-box-${Date.now()}`,
-      type: 'agentActivation',
+      type: 'agent-activation',
       content: `Box opened ${method}`,
       attributes: {
         source: this.element.name,

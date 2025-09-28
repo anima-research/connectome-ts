@@ -12,12 +12,14 @@ import {
   ActionConfig
 } from './types';
 import { 
+  Facet,
   IncomingVEILFrame, 
   OutgoingVEILFrame, 
-  VEILOperation,
+  OutgoingVEILOperation,
   VEILState,
   StreamRef,
-  createDefaultTransition
+  createDefaultTransition,
+  hasStateAspect
 } from '../veil/types';
 import { RenderedContext } from '../hud/types-v2';
 import { FrameTrackingHUD } from '../hud/frame-tracking-hud';
@@ -48,6 +50,7 @@ export class BasicAgent implements AgentInterface {
   private compressionEngine?: CompressionEngine;
   private tools: Map<string, ToolDefinition> = new Map();
   private tracer: TraceStorage | undefined;
+  private agentId: string;
   
   constructor(
     configOrOptions: AgentConfig | BasicAgentConstructorOptions,
@@ -72,6 +75,7 @@ export class BasicAgent implements AgentInterface {
     
     this.hud = new FrameTrackingHUD();
     this.tracer = getGlobalTracer();
+    this.agentId = this.createAgentId(this.config.name);
     
     // Register tools
     if (this.config.tools) {
@@ -91,26 +95,30 @@ export class BasicAgent implements AgentInterface {
       operation: 'onFrameComplete',
       data: {
         frameSequence: frame.sequence,
-        operations: frame.operations.length,
+        deltas: frame.deltas.length,
         activeStream: frame.activeStream?.streamId
       }
     });
     
     // Look for activation facets in the state
     const activationFacets = Array.from(state.facets.values())
-      .filter(facet => facet.type === 'agentActivation');
+      .filter(facet => facet.type === 'agent-activation');
     
     if (activationFacets.length === 0) return undefined;
     
     // Check each activation facet
     for (const facet of activationFacets) {
-      const activation = facet.attributes as any;
-      
+      if (!hasStateAspect(facet)) {
+        continue;
+      }
+
+      const activation = facet.state as Record<string, any>;
+
       // Skip if this targets a different agent
       if (activation.targetAgent && activation.targetAgent !== this.config.name) {
         continue;
       }
-      
+
       if (this.shouldActivate(activation, state)) {
         try {
           // Build context
@@ -124,11 +132,10 @@ export class BasicAgent implements AgentInterface {
             (response as any).renderedContext = context;
             
             // Prepend operation to remove the activation facet
-            response.operations.unshift({
+            response.deltas.unshift({
               type: 'removeFacet',
-              facetId: facet.id,
-              mode: 'delete'
-            } as any);
+              id: facet.id
+            });
           }
           
           // Return the response frame without recording or processing
@@ -262,7 +269,8 @@ export class BasicAgent implements AgentInterface {
       const frame: OutgoingVEILFrame = {
         sequence: -1, // Placeholder - Space will assign proper sequence
         timestamp,
-        operations,
+        events: [],
+        deltas: operations,
         transition
       };
       
@@ -283,7 +291,7 @@ export class BasicAgent implements AgentInterface {
   }
   
   parseCompletion(completion: string): ParsedCompletion {
-    const operations: VEILOperation[] = [];
+    const operations: OutgoingVEILOperation[] = [];
     let hasMoreToSay = false;
     
     // The model outputs plain text without <my_turn> tags
@@ -363,17 +371,10 @@ export class BasicAgent implements AgentInterface {
       // Path like ['dispenser', 'dispense'] becomes toolName 'dispenser.dispense'
       operations.push({
         type: 'addFacet',
-        facet: {
-          id: `agent-action-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          type: 'action',
-          displayName: pathParts.join('.'),
-          content: JSON.stringify(parameters),
-          attributes: {
-            agentGenerated: true,
-            toolName: pathParts.join('.'),
-            parameters: Object.keys(parameters).length > 0 ? parameters : {}
-          }
-        }
+        facet: this.createActionFacet(
+          pathParts.join('.'),
+          Object.keys(parameters).length > 0 ? parameters : {}
+        )
       });
     }
     
@@ -383,16 +384,7 @@ export class BasicAgent implements AgentInterface {
     while ((thoughtMatch = thoughtRegex.exec(turnContent)) !== null) {
       operations.push({
         type: 'addFacet',
-        facet: {
-          id: `agent-thought-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          type: 'thought',
-          content: thoughtMatch[1].trim(),
-          scope: ['agent-internal'],
-          attributes: {
-            agentGenerated: true,
-            private: true
-          }
-        }
+        facet: this.createThoughtFacet(thoughtMatch[1].trim())
       });
     }
     
@@ -413,17 +405,7 @@ export class BasicAgent implements AgentInterface {
       
       operations.push({
         type: 'addFacet',
-        facet: {
-          id: `agent-action-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          type: 'action',
-          displayName: toolName,
-          content: JSON.stringify(params),
-          attributes: {
-            agentGenerated: true,
-            toolName,
-            parameters: params
-          }
-        }
+        facet: this.createActionFacet(toolName, params)
       });
     }
     
@@ -459,15 +441,7 @@ export class BasicAgent implements AgentInterface {
     if (speechContent) {
       operations.push({
         type: 'addFacet',
-        facet: {
-          id: `agent-speech-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          type: 'speech',
-          content: speechContent,
-          attributes: {
-            agentGenerated: true,
-            target: undefined    // Will be set by applyStreamRouting
-          }
-        }
+        facet: this.createSpeechFacet(speechContent)
       });
     }
     
@@ -657,27 +631,86 @@ export class BasicAgent implements AgentInterface {
   }
   
   private applyStreamRouting(
-    operations: VEILOperation[], 
+    deltas: OutgoingVEILOperation[], 
     streamRef?: StreamRef
-  ): VEILOperation[] {
-    return operations.map(op => {
-      if (op.type === 'addFacet' && 'facet' in op && op.facet.type === 'speech' && streamRef) {
-        const speechFacet = op.facet as any; // Type assertion for speech facet
-        return {
-          ...op,
-          facet: {
-            ...speechFacet,
-            attributes: {
-              ...speechFacet.attributes,
-              target: streamRef.streamId
+  ): OutgoingVEILOperation[] {
+    return deltas.map(op => {
+      if (op.type === 'addFacet' && streamRef) {
+        const facet = op.facet;
+        if ((facet.type === 'speech' || facet.type === 'thought' || facet.type === 'action')) {
+          return {
+            ...op,
+            facet: {
+              ...facet,
+              streamId: streamRef.streamId
             }
-          }
-        };
+          };
+        }
       }
       return op;
     });
   }
-  
+
+  private createActionFacet(toolName: string, parameters: Record<string, any>): Facet {
+    return {
+      id: this.generateFacetId('agent-action'),
+      type: 'action',
+      content: JSON.stringify(parameters),
+      state: {
+        toolName,
+        parameters
+      },
+      agentId: this.resolveAgentId(),
+      agentName: this.resolveAgentName(),
+      streamId: this.getDefaultStreamId()
+    };
+  }
+
+  private createSpeechFacet(content: string): Facet {
+    return {
+      id: this.generateFacetId('agent-speech'),
+      type: 'speech',
+      content,
+      agentId: this.resolveAgentId(),
+      agentName: this.resolveAgentName(),
+      streamId: this.getDefaultStreamId()
+    };
+  }
+
+  private createThoughtFacet(content: string): Facet {
+    return {
+      id: this.generateFacetId('agent-thought'),
+      type: 'thought',
+      content,
+      agentId: this.resolveAgentId(),
+      agentName: this.resolveAgentName(),
+      streamId: this.getDefaultStreamId()
+    };
+  }
+
+  private createAgentId(name?: string): string {
+    if (name) {
+      return name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    }
+    return `agent-${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  private generateFacetId(prefix: string): string {
+    return `${prefix}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  private resolveAgentId(): string {
+    return this.agentId;
+  }
+
+  private resolveAgentName(): string | undefined {
+    return this.config.name;
+  }
+
+  private getDefaultStreamId(): string {
+    return 'default';
+  }
+
   private parseParameterValue(value: string): any {
     // Try to parse as JSON first
     try {

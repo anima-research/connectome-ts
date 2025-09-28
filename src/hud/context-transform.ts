@@ -7,7 +7,7 @@
  */
 
 import { Transform, ReadonlyVEILState } from '../spaces/receptor-effector-types';
-import { Facet } from '../veil/types';
+import { Facet, hasStateAspect } from '../veil/types';
 import { FrameTrackingHUD } from './frame-tracking-hud';
 import { CompressionEngine } from '../compression/types-v2';
 import { HUDConfig } from './types-v2';
@@ -29,17 +29,19 @@ export class ContextTransform implements Transform {
     
     // Find activation facets that need context
     for (const [id, facet] of state.facets) {
-      if (facet.type === 'agentActivation') {
+      if (facet.type === 'agent-activation' && hasStateAspect(facet)) {
+        const activationState = facet.state as Record<string, any>;
         // Skip if context already rendered for this activation
         const contextExists = Array.from(state.facets.values()).some(f => 
-          f.type === 'rendered-context' && 
-          f.attributes?.activationId === id
+          f.type === 'rendered-context' &&
+          hasStateAspect(f) &&
+          (f.state as Record<string, any>).activationId === id
         );
         
         if (contextExists) continue;
         
         // Get agent-specific options from activation
-        const agentOptions = this.buildAgentOptions(facet);
+        const agentOptions = this.buildAgentOptions(activationState);
         
         // Render context using the existing HUD logic
         const fullState = this.veilStateManager.getState();
@@ -60,16 +62,11 @@ export class ContextTransform implements Transform {
           id: `context-${id}-${Date.now()}`,
           type: 'rendered-context',
           content: contentString,
-          temporal: 'ephemeral', // Context is only valid for this frame
-          attributes: {
+          state: {
             activationId: id,
-            targetAgentId: facet.attributes?.targetAgentId,
-            targetAgentName: facet.attributes?.targetAgentName,
-            streamRef: facet.attributes?.streamRef,
-            totalTokens: context.metadata.totalTokens,
-            systemPrompt: agentOptions.systemPrompt,
-            timestamp: new Date().toISOString()
-          }
+            tokenCount: context.metadata.totalTokens
+          },
+          ephemeral: true
         });
       }
     }
@@ -77,17 +74,17 @@ export class ContextTransform implements Transform {
     return contextFacets;
   }
   
-  private buildAgentOptions(activationFacet: Facet): HUDConfig {
+  private buildAgentOptions(activationState: Record<string, any>): HUDConfig {
     const options: HUDConfig = {
       ...this.defaultOptions,
       // Agent-specific overrides from activation
-      systemPrompt: activationFacet.attributes?.systemPrompt || this.defaultOptions?.systemPrompt,
-      maxTokens: activationFacet.attributes?.maxTokens || this.defaultOptions?.maxTokens || 4000,
+      systemPrompt: activationState.systemPrompt || this.defaultOptions?.systemPrompt,
+      maxTokens: activationState.maxTokens || this.defaultOptions?.maxTokens || 4000,
       metadata: this.defaultOptions?.metadata
     };
     
     // Format configuration for agent output
-    if (activationFacet.attributes?.targetAgentId) {
+    if (activationState.targetAgentId) {
       options.formatConfig = {
         assistant: {
           prefix: '<my_turn>\n',
@@ -95,7 +92,7 @@ export class ContextTransform implements Transform {
         }
       };
     }
-    
+
     return options as HUDConfig;
   }
 }

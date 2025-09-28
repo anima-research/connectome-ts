@@ -12,11 +12,13 @@ import { Space } from '../spaces/space';
 import { SpaceEvent, StreamRef } from '../spaces/types';
 import { 
   IncomingVEILFrame, 
-  VEILOperation,
-  AddStreamOperation,
-  AddFacetOperation,
+  VEILDelta,
   SpeechFacet,
+  hasStreamAspect,
+  hasAgentGeneratedAspect,
+  hasStateAspect
 } from '../veil/types';
+import { createAgentActivation, createEventFacet, createStreamChangeFacet } from '../helpers/factories';
 import { 
   TraceStorage, 
   TraceCategory, 
@@ -221,10 +223,13 @@ export class ConsoleChatComponent extends Component {
     });
   }
 
-  private hasStreamOperation(frame: IncomingVEILFrame): boolean {
-    return frame.operations.some(op => 
-      op.type === 'addStream' && 
-      (op as AddStreamOperation).stream.id === this.consoleStream.streamId
+  private hasStreamFacet(frame: IncomingVEILFrame): boolean {
+    return frame.deltas.some(op => 
+      op.type === 'addFacet' &&
+      op.facet?.type === 'stream-change' &&
+      hasStateAspect(op.facet) &&
+      op.facet.state.streamId === this.consoleStream.streamId &&
+      op.facet.state.operation === 'add'
     );
   }
 
@@ -240,60 +245,60 @@ export class ConsoleChatComponent extends Component {
       }
       
       // Add operations to the frame
-      const operations: VEILOperation[] = [];
+      const deltas: VEILDelta[] = [];
       
       // Add stream if not already added
-      if (!this.hasStreamOperation(frame)) {
-        operations.push({
-          type: 'addStream',
-          stream: {
-            id: this.consoleStream.streamId,
-            name: 'Console Chat',
-            metadata: this.consoleStream.metadata
-          }
-        } as AddStreamOperation);
+      if (!this.hasStreamFacet(frame)) {
+        deltas.push({
+          type: 'addFacet',
+          facet: createStreamChangeFacet({
+            operation: 'add',
+            streamId: this.consoleStream.streamId,
+            streamType: this.consoleStream.streamType
+          })
+        });
       }
       
       if (this.pendingMessage) {
         // Add message as event facet
-        operations.push({
+        deltas.push({
           type: 'addFacet',
-          facet: {
+          facet: createEventFacet({
             id: this.pendingMessage.id,
-            type: 'event',
             content: this.pendingMessage.content,
-            attributes: {
-              author: 'user',
+            source: 'user',
+            eventType: 'console-message',
+            metadata: {
               channel: 'console',
               timestamp: new Date().toISOString()
-            }
-          }
-        } as AddFacetOperation);
+            },
+            streamId: this.consoleStream.streamId,
+            streamType: this.consoleStream.streamType
+          })
+        });
         
         // Request agent activation
         const activationId = `agent-activation-${Date.now()}`;
-        operations.push({
+        deltas.push({
           type: 'addFacet',
-          facet: {
+          facet: createAgentActivation('User message received', {
             id: activationId,
-            type: 'agentActivation',
-            content: 'User message received',
-            attributes: {
-              source: 'console-chat',
-              sourceAgentId: 'user',  // Special ID for user input
-              sourceAgentName: 'User',
-              reason: 'user_message',
-              priority: 'normal'
-              // No targetAgentId - let all agents see user messages
+            priority: 'normal',
+            source: 'console-chat',
+            sourceAgentId: 'user',
+            sourceAgentName: 'User',
+            streamRef: {
+              streamId: this.consoleStream.streamId,
+              streamType: this.consoleStream.streamType
             }
-          }
-        } as AddFacetOperation);
+          })
+        });
       } else if (this.pendingActivationFacetId) {
         // Activation facet persists in state, no need to re-add
       }
       
       // Add operations to frame
-      frame.operations.push(...operations);
+      frame.deltas.push(...deltas);
       
       // Set active stream
       frame.activeStream = this.consoleStream;
@@ -313,16 +318,17 @@ export class ConsoleChatComponent extends Component {
         // Find speech facets targeted to our console stream that we haven't displayed yet
         const consoleSpeech = Array.from(state.facets.values())
           .filter((f): f is SpeechFacet => 
-            f.type === 'speech' && 
-            f.attributes?.target === this.consoleStream.streamId &&
-            f.attributes?.agentGenerated === true &&
+            f.type === 'speech' &&
+            hasStreamAspect(f) &&
+            f.streamId === this.consoleStream.streamId &&
+            hasAgentGeneratedAspect(f) &&
             !this.displayedSpeechIds.has(f.id)
           );
         
         // Display new speech facets
         for (const speech of consoleSpeech) {
           this.displayedSpeechIds.add(speech.id);
-          const agentName = speech.attributes?.agentName || 'Agent';
+          const agentName = speech.agentName || 'Agent';
           console.log(`\n[${agentName}]: ${speech.content}`);
           
           this.tracer?.record({
@@ -335,7 +341,7 @@ export class ConsoleChatComponent extends Component {
             data: {
               content: speech.content,
               agentName,
-              agentId: speech.attributes?.agentId
+              agentId: speech.agentId
             }
           });
         }
@@ -348,10 +354,10 @@ export class ConsoleChatComponent extends Component {
     
     // Handle pending activations after wake
     if (event.topic === 'agent:pending-activation') {
-      const { facetId } = event.payload as { facetId: string };
+      const { id } = event.payload as { id: string };
       
       // Store the activation facet ID for tracking
-      this.pendingActivationFacetId = facetId;
+      this.pendingActivationFacetId = id;
       
       // Emit event to trigger frame processing
       this.element.emit({

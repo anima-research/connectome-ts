@@ -35,9 +35,9 @@ class OldConfusingWay {
     // Which one do I use?
     this.updateState('status', { content: 'Active' });    // Component method
     this.addOperation({
-      type: 'changeState',  // But VEIL calls it changeState!
-      facetId: 'status',
-      updates: { content: 'Active' }
+      type: 'changeFacet',  // But VEIL calls it changeState!
+      id: 'status',
+      changes: { content: 'Active' }
     });
     
     // And is it getState or getCurrentState?

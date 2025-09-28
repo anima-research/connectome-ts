@@ -53,7 +53,7 @@ class DiscordAdapterComponent extends Component {
     
     if (frame) {
       // Add message as event facet
-      frame.operations.push({
+      frame.deltas.push({
         type: 'addFacet',
         facet: {
           id: `msg-${Date.now()}`,
@@ -75,11 +75,11 @@ class DiscordAdapterComponent extends Component {
       };
       
       // Request agent activation
-      frame.operations.push({
+      frame.deltas.push({
         type: 'addFacet',
         facet: {
           id: `agent-activation-${Date.now()}-1`,
-          type: 'agentActivation',
+          type: 'agent-activation',
           content: 'User sent initial message',
           attributes: {
             source: this.element.getRef().elementId,
@@ -89,7 +89,7 @@ class DiscordAdapterComponent extends Component {
         }
       });
       
-      console.log(`[Discord] Added ${frame.operations.length} operations to frame`);
+      console.log(`[Discord] Added ${frame.deltas.length} operations to frame`);
     } else {
       console.log('[Discord] No active frame - triggering frame creation');
       // Emit a dummy event to trigger frame creation
@@ -118,7 +118,7 @@ class DiscordAdapterComponent extends Component {
           console.log(`\n[Discord] Processing message from ${msg.author}: "${msg.content}"`);
           
           // Add message as event facet
-          frame.operations.push({
+          frame.deltas.push({
             type: 'addFacet',
             facet: {
               id: `msg-${Date.now()}-${Math.random()}`,
@@ -141,11 +141,11 @@ class DiscordAdapterComponent extends Component {
         };
         
         // Request agent activation
-        frame.operations.push({
+        frame.deltas.push({
           type: 'addFacet',
           facet: {
             id: `agent-activation-${Date.now()}-2`,
-            type: 'agentActivation',
+            type: 'agent-activation',
             content: 'Waiting user input received',
             attributes: {
               source: this.element.getRef().elementId,
@@ -155,7 +155,7 @@ class DiscordAdapterComponent extends Component {
           }
         });
         
-        console.log(`[Discord] Added ${frame.operations.length} operations to frame`);
+        console.log(`[Discord] Added ${frame.deltas.length} operations to frame`);
         
         // Clear pending messages
         this.pendingMessages = [];
@@ -242,12 +242,12 @@ async function testAgentIntegration() {
   const midState = veilState.getState();
   console.log('\n--- Checking for agent responses ---');
   for (const frame of midState.frameHistory) {
-    if ('operations' in frame && frame.operations.length > 0) {
+    if ('deltas' in frame && frame.deltas.length > 0) {
       // Check if it's an outgoing frame
-      const hasSpeak = frame.operations.some((op: any) => op.type === 'speak');
+      const hasSpeak = frame.deltas.some((op: any) => op.type === 'speak');
       if (hasSpeak) {
         console.log(`[Test] Found outgoing frame ${frame.sequence}:`);
-        for (const op of frame.operations) {
+        for (const op of frame.deltas) {
           if ((op as any).type === 'speak') {
             console.log(`  Agent said: "${(op as any).content}"`);
           }

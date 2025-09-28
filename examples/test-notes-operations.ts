@@ -222,7 +222,7 @@ async function testNotes() {
   veilState.applyFrame({
     type: 'incoming',
     sourceFrame: 0,
-    operations: [],
+    deltas: [],
     streamId: 'test',
     timestamp: Date.now()
   });

@@ -91,6 +91,5 @@ export {
   removeFacet,
   changeState,
   updateState, // @deprecated - alias for changeState
-  changeFacet,
-  addStream
+  changeFacet
 } from './helpers/factories';

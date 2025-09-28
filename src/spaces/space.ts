@@ -1,7 +1,7 @@
 import { Element } from './element';
 import { SpaceEvent, FrameStartEvent, FrameEndEvent, StreamRef, EventPhase, ElementRef } from './types';
 import { VEILStateManager } from '../veil/veil-state';
-import { IncomingVEILFrame, OutgoingVEILFrame, Frame, Facet, VEILOperation, AgentInfo, createDefaultTransition } from '../veil/types';
+import { IncomingVEILFrame, OutgoingVEILFrame, Frame, Facet, VEILDelta, AgentInfo, createDefaultTransition } from '../veil/types';
 import { matchesTopic } from './utils';
 import { 
   TraceStorage, 
@@ -23,6 +23,7 @@ import { deterministicUUID } from '../utils/uuid';
 import { performance } from 'perf_hooks';
 import type { RenderedContext } from '../hud/types-v2';
 import type { RenderedContextSnapshot } from '../persistence/types';
+import { createEventFacet } from '../helpers/factories';
 import { 
   Receptor, 
   Transform, 
@@ -294,7 +295,8 @@ export class Space extends Element {
         sequence: frameId,
         timestamp,
         uuid: deterministicUUID(`frame-${frameId}`),
-        operations: [],
+        events: [],  // Will be populated with processed events
+        deltas: [],
         transition: createDefaultTransition(frameId, timestamp)
       };
       
@@ -308,8 +310,13 @@ export class Space extends Element {
       const events: SpaceEvent[] = [];
       while (!this.eventQueue.isEmpty()) {
         const event = this.eventQueue.shift();
-        if (event) events.push(event);
+        if (event) {
+          events.push(event);
+        }
       }
+      
+      // Record events in frame
+      frame.events = events;
       
       // PHASE 1: Events → VEIL (via Receptors)
       const phase1Facets = this.runPhase1(events);
@@ -318,7 +325,8 @@ export class Space extends Element {
       const phase1Frame: Frame = {
         sequence: frameId,
         timestamp,
-        operations: phase1Facets.map(facet => ({
+        events: [],
+        deltas: phase1Facets.map(facet => ({
           type: 'addFacet' as const,
           facet
         })),
@@ -326,27 +334,44 @@ export class Space extends Element {
       };
       const phase1Changes = this.veilState.applyFrame(phase1Frame);
       
-      // PHASE 2: VEIL → VEIL (via Transforms) - now can see Phase 1 facets
-      const phase2Facets = this.runPhase2();
+      // PHASE 2: VEIL → VEIL (via Transforms) - loop until no more facets
+      const allPhase2Facets: Facet[] = [];
+      let iteration = 0;
+      const maxIterations = 10; // Prevent infinite loops
       
-      // Apply Phase 2 facets to state
-      if (phase2Facets.length > 0) {
+      while (iteration < maxIterations) {
+        const phase2Facets = this.runPhase2();
+        
+        if (phase2Facets.length === 0) {
+          // No more facets generated, we're done
+          break;
+        }
+        
+        // Apply these facets to state so next iteration can see them
         const phase2Sequence = this.veilState.getNextSequence();
         const phase2Frame: Frame = {
           sequence: phase2Sequence,
           timestamp,
-          operations: phase2Facets.map(facet => ({
+          events: [],
+          deltas: phase2Facets.map(facet => ({
             type: 'addFacet' as const,
             facet
           })),
           transition: createDefaultTransition(phase2Sequence, timestamp)
         };
         this.veilState.applyFrame(phase2Frame);
+        
+        allPhase2Facets.push(...phase2Facets);
+        iteration++;
+      }
+      
+      if (iteration === maxIterations) {
+        console.warn(`Phase 2 hit max iterations (${maxIterations}), possible infinite loop in transforms`);
       }
       
       // Collect all operations for the complete frame
-      const allFacets = [...phase1Facets, ...phase2Facets];
-      frame.operations = allFacets.map(facet => ({
+      const allFacets = [...phase1Facets, ...allPhase2Facets];
+      frame.deltas = allFacets.map(facet => ({
         type: 'addFacet' as const,
         facet
       }));
@@ -363,25 +388,23 @@ export class Space extends Element {
       }
       
       // Update currentFrame operations with all operations (including legacy)
-      this.currentFrame.operations = [...this.currentFrame.operations, ...frame.operations];
+      this.currentFrame.deltas = [...this.currentFrame.deltas, ...frame.deltas];
       
       // Check if frame has content
-      const hasOperations = this.currentFrame.operations.length > 0;
-      const hasActivation = this.currentFrame.operations.some(
-        op => op.type === 'addFacet' && (op as any).facet?.type === 'agentActivation'
+      const hasOperations = this.currentFrame.deltas.length > 0;
+      const hasActivation = this.currentFrame.deltas.some(
+        op => op.type === 'addFacet' && (op as any).facet?.type === 'agent-activation'
       );
       
       // Update transition with all operations
       if (frame.transition) {
-        frame.transition.veilOps = [...this.currentFrame.operations];
+        frame.transition.veilOps = [...this.currentFrame.deltas];
       }
       
       // Collect all changes from both phases
       const allChanges = [...phase1Changes];
-      if (phase2Facets.length > 0) {
-        // Phase 2 changes would need to be tracked separately
-        // For now, just include them as added facets
-        const phase2Changes: FacetDelta[] = phase2Facets.map(facet => ({
+      if (allPhase2Facets.length > 0) {
+        const phase2Changes: FacetDelta[] = allPhase2Facets.map(facet => ({
           type: 'added' as const,
           facet
         }));
@@ -450,18 +473,20 @@ export class Space extends Element {
           facets.push(...newFacets);
         } catch (error) {
           console.error(`Receptor error for ${event.topic}:`, error);
-          // Create error facet
-          facets.push({
-            id: `error-${Date.now()}-${Math.random()}`,
-            type: 'system-error',
-            temporal: 'ephemeral',
-            visibility: 'debug',
-            content: `Receptor error: ${error}`,
-            attributes: {
-              event: event.topic,
-              error: String(error)
-            }
-          });
+          facets.push(
+            createEventFacet({
+              id: `error-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+              content: `Receptor error: ${String(error)}`,
+              source: 'space',
+              eventType: 'receptor-error',
+              metadata: {
+                event: event.topic,
+                error: String(error)
+              },
+              streamId: 'system',
+              streamType: 'system'
+            })
+          );
         }
       }
     }
@@ -482,18 +507,20 @@ export class Space extends Element {
         facets.push(...newFacets);
       } catch (error) {
         console.error('Transform error:', error);
-        // Create error facet
-        facets.push({
-          id: `error-${Date.now()}-${Math.random()}`,
-          type: 'system-error',
-          temporal: 'ephemeral',
-          visibility: 'debug',
-          content: `Transform error: ${error}`,
-          attributes: {
-            transform: transform.constructor.name,
-            error: String(error)
-          }
-        });
+        facets.push(
+          createEventFacet({
+            id: `error-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+            content: `Transform error: ${String(error)}`,
+            source: 'space',
+            eventType: 'transform-error',
+            metadata: {
+              transform: transform.constructor.name,
+              error: String(error)
+            },
+            streamId: 'system',
+            streamType: 'system'
+          })
+        );
       }
     }
     
@@ -846,11 +873,11 @@ export class Space extends Element {
       const payload = event.payload as any;
       
       // Add activation facet
-      this.currentFrame.operations.push({
+      this.currentFrame.deltas.push({
         type: 'addFacet',
         facet: {
           id: `agent-activation-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        type: 'agentActivation',
+        type: 'agent-activation',
           content: payload.reason || 'Agent activation requested',
           attributes: {
         source: payload.source || 'system',
@@ -885,7 +912,7 @@ export class Space extends Element {
       const nextSequence = this.veilState.getNextSequence();
       const frame: OutgoingVEILFrame = {
         ...agentFrame,
-        operations: [...agentFrame.operations],
+        deltas: [...agentFrame.deltas],
         sequence: nextSequence,
         timestamp: agentFrame.timestamp || new Date().toISOString(),
         activeStream: agentFrame.activeStream || this.activeStream,
@@ -912,7 +939,7 @@ export class Space extends Element {
       
       // LEGACY: Process operations - will be handled by effectors
       // For now, just process regular VEIL operations
-      for (const op of frame.operations) {
+      for (const op of frame.deltas) {
         // Skip legacy operations that no longer exist
         if (['act', 'speak', 'think'].includes(op.type)) {
           console.warn(`Legacy operation type "${op.type}" - should be using addFacet instead`);
