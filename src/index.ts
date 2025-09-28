@@ -45,6 +45,10 @@ export { Component } from './spaces/component';
 
 // Receptor/Effector exports
 export * from './spaces/receptor-effector-types';
+// Note: EphemeralCleanupTransform removed - ephemeral facets naturally fade away
+
+// Validation exports
+export * from './validation/facet-validation';
 
 // Agent exports
 export * from './agent/types';
@@ -86,6 +90,14 @@ export {
   createSpaceEvent,
   createElementRef,
   createAgentActivation,
+  // Facet creation factories (with validation)
+  createSpeechFacet,
+  createThoughtFacet,
+  createActionFacet,
+  createEventFacet,
+  createStateFacet,
+  createAmbientFacet,
+  createStreamChangeFacet,
   // VEIL operation factories
   addFacet,
   removeFacet,

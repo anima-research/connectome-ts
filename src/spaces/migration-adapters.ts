@@ -153,7 +153,7 @@ export class VEILOperationReceptor implements Receptor {
     // For change/remove, create diagnostic event facets
     const facet = createEventFacet({
       id: `sys-op-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-      content: `Legacy operation ${operation.type}`,
+      content: `Unsupported delta ${operation.type}`,
       source: 'migration-adapter',
       eventType: 'system-operation',
       metadata: operation,

@@ -45,39 +45,6 @@ export type DefineActionFacet = CleanBaseFacet & { type: 'action-definition' };
 // Import Facet type separately to avoid circular dependency
 import type { Facet } from './facet-types';
 
-// VEIL Operations
-export interface AddFacetOperation {
-  type: 'addFacet';
-  facet: Facet;
-}
-
-export interface ChangeStateOperation {
-  type: 'changeFacet';
-  id: string;
-  changes: {
-    content?: string;
-    attributes?: Record<string, any>;
-  };
-  updateMode?: 'full' | 'attributesOnly';  // Default is 'full' for backward compatibility
-}
-
-export interface AddScopeOperation {
-  type: 'addScope';
-  scope: string;
-}
-
-export interface DeleteScopeOperation {
-  type: 'deleteScope';
-  scope: string;
-}
-
-// Note: AgentActivationOperation has been replaced with AgentActivationFacet
-
-export interface AddStreamOperation {
-  type: 'addStream';
-  stream: StreamInfo;
-}
-
 // Import VEILDelta from facet-types
 import { VEILDelta } from './facet-types';
 

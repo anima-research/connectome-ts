@@ -30,7 +30,6 @@ import {
   Effector, 
   FacetDelta, 
   ReadonlyVEILState,
-  EphemeralCleanupTransform,
   EffectorResult,
   FacetFilter
 } from './receptor-effector-types';
@@ -96,7 +95,7 @@ export class Space extends Element {
   
   // NEW: Receptor/Effector architecture
   private receptors: Map<string, Receptor[]> = new Map();
-  private transforms: Transform[] = [new EphemeralCleanupTransform()];
+  private transforms: Transform[] = [];
   private effectors: Effector[] = [];
   
   constructor(veilState: VEILStateManager, hostRegistry?: Map<string, any>) {
@@ -334,34 +333,33 @@ export class Space extends Element {
       };
       const phase1Changes = this.veilState.applyFrame(phase1Frame);
       
-      // PHASE 2: VEIL → VEIL (via Transforms) - loop until no more facets
-      const allPhase2Facets: Facet[] = [];
+      // PHASE 2: VEIL → VEIL (via Transforms) - loop until no more deltas
+      const allPhase2Deltas: VEILDelta[] = [];
+      const allPhase2Changes: FacetDelta[] = [];
       let iteration = 0;
       const maxIterations = 10; // Prevent infinite loops
       
       while (iteration < maxIterations) {
-        const phase2Facets = this.runPhase2();
+        const phase2Deltas = this.runPhase2();
         
-        if (phase2Facets.length === 0) {
-          // No more facets generated, we're done
+        if (phase2Deltas.length === 0) {
+          // No more deltas generated, we're done
           break;
         }
         
-        // Apply these facets to state so next iteration can see them
+        // Apply these deltas to state so next iteration can see them
         const phase2Sequence = this.veilState.getNextSequence();
         const phase2Frame: Frame = {
           sequence: phase2Sequence,
           timestamp,
           events: [],
-          deltas: phase2Facets.map(facet => ({
-            type: 'addFacet' as const,
-            facet
-          })),
+          deltas: phase2Deltas,
           transition: createDefaultTransition(phase2Sequence, timestamp)
         };
-        this.veilState.applyFrame(phase2Frame);
+        const phase2Changes = this.veilState.applyFrame(phase2Frame);
         
-        allPhase2Facets.push(...phase2Facets);
+        allPhase2Deltas.push(...phase2Deltas);
+        allPhase2Changes.push(...phase2Changes);
         iteration++;
       }
       
@@ -370,11 +368,11 @@ export class Space extends Element {
       }
       
       // Collect all operations for the complete frame
-      const allFacets = [...phase1Facets, ...allPhase2Facets];
-      frame.deltas = allFacets.map(facet => ({
+      const phase1Deltas = phase1Facets.map(facet => ({
         type: 'addFacet' as const,
         facet
       }));
+      frame.deltas = [...phase1Deltas, ...allPhase2Deltas];
       
       // Also support legacy distributeEvent for components not yet migrated
       for (const event of events) {
@@ -402,14 +400,7 @@ export class Space extends Element {
       }
       
       // Collect all changes from both phases
-      const allChanges = [...phase1Changes];
-      if (allPhase2Facets.length > 0) {
-        const phase2Changes: FacetDelta[] = allPhase2Facets.map(facet => ({
-          type: 'added' as const,
-          facet
-        }));
-        allChanges.push(...phase2Changes);
-      }
+      const allChanges = [...phase1Changes, ...allPhase2Changes];
       
       // PHASE 3: VEIL → Events (via Effectors)
       const newEvents = await this.runPhase3(allChanges);
@@ -497,18 +488,19 @@ export class Space extends Element {
   /**
    * PHASE 2: VEIL → VEIL
    */
-  private runPhase2(): Facet[] {
-    const facets: Facet[] = [];
+  private runPhase2(): VEILDelta[] {
+    const deltas: VEILDelta[] = [];
     const readonlyState = this.getReadonlyState();
     
     for (const transform of this.transforms) {
       try {
-        const newFacets = transform.process(readonlyState);
-        facets.push(...newFacets);
+        const newDeltas = transform.process(readonlyState);
+        deltas.push(...newDeltas);
       } catch (error) {
         console.error('Transform error:', error);
-        facets.push(
-          createEventFacet({
+        deltas.push({
+          type: 'addFacet',
+          facet: createEventFacet({
             id: `error-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
             content: `Transform error: ${String(error)}`,
             source: 'space',
@@ -520,11 +512,11 @@ export class Space extends Element {
             streamId: 'system',
             streamType: 'system'
           })
-        );
+        });
       }
     }
     
-    return facets;
+    return deltas;
   }
   
   /**
@@ -863,12 +855,16 @@ export class Space extends Element {
   }
   
   /**
-   * Handle agent activation internally
+   * Handle events by queueing them for frame processing
    */
   async handleEvent(event: SpaceEvent): Promise<void> {
+    // Queue the event for processing
+    this.queueEvent(event);
+    
+    // Also call parent for legacy component handling
     await super.handleEvent(event);
     
-    // Handle agent:activate events
+    // Handle agent:activate events (legacy)
     if (event.topic === 'agent:activate' && this.currentFrame) {
       const payload = event.payload as any;
       
@@ -935,16 +931,6 @@ export class Space extends Element {
           agentName,
           streamRef: frame.activeStream
         });
-      }
-      
-      // LEGACY: Process operations - will be handled by effectors
-      // For now, just process regular VEIL operations
-      for (const op of frame.deltas) {
-        // Skip legacy operations that no longer exist
-        if (['act', 'speak', 'think'].includes(op.type)) {
-          console.warn(`Legacy operation type "${op.type}" - should be using addFacet instead`);
-          continue;
-        }
       }
     }
     

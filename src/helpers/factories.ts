@@ -20,6 +20,7 @@ import type {
   StreamChangeFacet
 } from '../veil/types';
 import { Element } from '../spaces/element';
+import { validateFacet } from '../validation/facet-validation';
 
 // Counter for friendly sequential IDs
 let idCounter = 0;
@@ -50,7 +51,7 @@ export interface SpeechFacetInit {
 
 export function createSpeechFacet(init: SpeechFacetInit): SpeechFacet {
   const { content, agentId, streamId, id, agentName, streamType } = init;
-  return {
+  const facet: SpeechFacet = {
     id: id ?? friendlyId('speech'),
     type: 'speech',
     content,
@@ -59,6 +60,11 @@ export function createSpeechFacet(init: SpeechFacetInit): SpeechFacet {
     streamId,
     ...(streamType ? { streamType } : {})
   };
+  
+  // Validate before returning
+  validateFacet(facet, 'speech', { context: 'createSpeechFacet' });
+  
+  return facet;
 }
 
 export interface ThoughtFacetInit {
@@ -72,7 +78,7 @@ export interface ThoughtFacetInit {
 
 export function createThoughtFacet(init: ThoughtFacetInit): ThoughtFacet {
   const { content, agentId, streamId, id, agentName, streamType } = init;
-  return {
+  const facet: ThoughtFacet = {
     id: id ?? friendlyId('thought'),
     type: 'thought',
     content,
@@ -81,6 +87,11 @@ export function createThoughtFacet(init: ThoughtFacetInit): ThoughtFacet {
     streamId,
     ...(streamType ? { streamType } : {})
   };
+  
+  // Validate before returning
+  validateFacet(facet, 'thought', { context: 'createThoughtFacet' });
+  
+  return facet;
 }
 
 export interface ActionFacetInit {
@@ -106,7 +117,7 @@ export function createActionFacet(init: ActionFacetInit): ActionFacet {
     id
   } = init;
 
-  return {
+  const facet: ActionFacet = {
     id: id ?? friendlyId('action'),
     type: 'action',
     content,
@@ -119,6 +130,11 @@ export function createActionFacet(init: ActionFacetInit): ActionFacet {
     streamId,
     ...(streamType ? { streamType } : {})
   };
+  
+  // Validate before returning
+  validateFacet(facet, 'action', { context: 'createActionFacet' });
+  
+  return facet;
 }
 
 export interface EventFacetInit {
@@ -133,7 +149,7 @@ export interface EventFacetInit {
 
 export function createEventFacet(init: EventFacetInit): EventFacet {
   const { content, source, eventType, metadata, streamId, streamType, id } = init;
-  return {
+  const facet: EventFacet = {
     id: id ?? friendlyId('event'),
     type: 'event',
     content,
@@ -145,6 +161,11 @@ export function createEventFacet(init: EventFacetInit): EventFacet {
     streamId,
     ...(streamType ? { streamType } : {})
   };
+  
+  // Validate before returning
+  validateFacet(facet, 'event', { context: 'createEventFacet' });
+  
+  return facet;
 }
 
 export interface StateFacetInit {
@@ -158,7 +179,7 @@ export interface StateFacetInit {
 
 export function createStateFacet(init: StateFacetInit): StateFacet {
   const { content, entityType, entityId, state = {}, scopes = [], id } = init;
-  return {
+  const facet: StateFacet = {
     id: id ?? friendlyId('state'),
     type: 'state',
     content,
@@ -167,6 +188,11 @@ export function createStateFacet(init: StateFacetInit): StateFacet {
     entityId,
     scopes
   };
+  
+  // Validate before returning
+  validateFacet(facet, 'state', { context: 'createStateFacet' });
+  
+  return facet;
 }
 
 export interface AmbientFacetInit {
@@ -178,13 +204,18 @@ export interface AmbientFacetInit {
 
 export function createAmbientFacet(init: AmbientFacetInit): AmbientFacet {
   const { content, streamId, streamType, id } = init;
-  return {
+  const facet: AmbientFacet = {
     id: id ?? friendlyId('ambient'),
     type: 'ambient',
     content,
     streamId,
     ...(streamType ? { streamType } : {})
   };
+  
+  // Validate before returning
+  validateFacet(facet, 'ambient', { context: 'createAmbientFacet' });
+  
+  return facet;
 }
 
 export interface StreamChangeFacetInit {
@@ -196,7 +227,7 @@ export interface StreamChangeFacetInit {
 
 export function createStreamChangeFacet(init: StreamChangeFacetInit): StreamChangeFacet {
   const { operation, streamId, streamType, id } = init;
-  return {
+  const facet: StreamChangeFacet = {
     id: id ?? friendlyId('stream-change'),
     type: 'stream-change',
     state: {
@@ -206,6 +237,11 @@ export function createStreamChangeFacet(init: StreamChangeFacetInit): StreamChan
     },
     ephemeral: true
   };
+  
+  // Validate before returning
+  validateFacet(facet, 'stream-change', { context: 'createStreamChangeFacet' });
+  
+  return facet;
 }
 
 /**
@@ -313,7 +349,7 @@ export function createAgentActivation(
 ): AgentActivationFacet {
   const { id, priority = 'normal', sourceAgentId, ...extraState } = options;
   
-  return {
+  const facet: AgentActivationFacet = {
     id: id || friendlyId('activation'),
     type: 'agent-activation',
     state: {
@@ -324,6 +360,11 @@ export function createAgentActivation(
     },
     ephemeral: true
   };
+  
+  // Validate before returning
+  validateFacet(facet, 'agent-activation', { context: 'createAgentActivation' });
+  
+  return facet;
 }
 
 

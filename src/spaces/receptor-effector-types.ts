@@ -6,7 +6,8 @@ import {
   OutgoingVEILFrame,
   StreamRef,
   AgentInfo,
-  hasEphemeralAspect
+  hasEphemeralAspect,
+  VEILDelta
 } from '../veil/types';
 import { createEventFacet } from '../helpers/factories';
 import { SpaceEvent } from './types';
@@ -24,12 +25,13 @@ export interface Receptor {
 }
 
 /**
- * Pure function that transforms VEIL state into new facets
+ * Pure function that transforms VEIL state
  * Used for derived state, cleanup, indexes, etc.
+ * Can add, change, or remove facets - just like Receptors
  */
 export interface Transform {
-  /** Process current state to produce new facets */
-  process(state: ReadonlyVEILState): Facet[];
+  /** Process current state to produce VEIL operations */
+  process(state: ReadonlyVEILState): VEILDelta[];
 }
 
 /**
@@ -104,27 +106,5 @@ export interface ReadonlyVEILState {
   hasFacet(id: string): boolean;
 }
 
-// Built-in Transform that runs first in Phase 2
-export class EphemeralCleanupTransform implements Transform {
-  process(state: ReadonlyVEILState): Facet[] {
-    const ephemeralIds = Array.from(state.facets.values())
-      .filter(f => hasEphemeralAspect(f))
-      .map(f => f.id);
-
-    if (ephemeralIds.length === 0) {
-      return [];
-    }
-
-    return [
-      createEventFacet({
-        id: `cleanup-ephemeral-${state.currentSequence}-${Date.now()}`,
-        content: `Cleanup ${ephemeralIds.length} ephemeral facet(s)`,
-        source: 'ephemeral-cleanup',
-        eventType: 'ephemeral-summary',
-        metadata: { targetIds: ephemeralIds },
-        streamId: 'system',
-        streamType: 'system'
-      })
-    ];
-  }
-}
+// Ephemeral facets are not actively cleaned up - they naturally fade away
+// by not being persisted and being ignored by systems that don't need them

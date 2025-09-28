@@ -26,6 +26,7 @@ import { SpaceEvent } from '../spaces/types';
 import { AgentInterface, AgentState, AgentCommand } from './types';
 import { LLMProvider } from '../llm/llm-interface';
 import { getGlobalTracer, TraceStorage } from '../tracing';
+import { RenderedContext } from '../hud/types-v2';
 
 export class AgentEffector implements Effector {
   // Watch for activation facets AND their rendered contexts
@@ -83,7 +84,7 @@ export class AgentEffector implements Effector {
           (f.state as Record<string, any>).activationId === activationId
         );
 
-        if (!contextFacet || !hasContentAspect(contextFacet)) {
+        if (!contextFacet || !hasStateAspect(contextFacet)) {
           // No context yet, will process in next frame
           continue;
         }
@@ -95,9 +96,13 @@ export class AgentEffector implements Effector {
         const streamId = streamRef?.streamId ?? (activationState.streamId as string | undefined) ?? 'default';
 
         try {
+          // Get the context from the state
+          const contextState = contextFacet.state as { context: RenderedContext };
+          const context = contextState.context;
+          
           // Run the agent cycle
           const response = await this.runAgentCycle(
-            contextFacet.content,
+            context,
             streamRef,
             activationId
           );
@@ -117,18 +122,8 @@ export class AgentEffector implements Effector {
             });
           }
           
-          // Create event to remove activation facet
-          events.push({
-            topic: 'veil:operation',
-            source: { elementId: 'agent-effector', elementPath: [] },
-            timestamp: Date.now(),
-            payload: {
-              operation: {
-                type: 'removeFacet',
-                id: activationId
-              }
-            }
-          });
+          // Activation facet is ephemeral and will naturally fade away
+          // No need to explicitly remove it
 
         } catch (error) {
           console.error('Agent cycle error:', error);
@@ -170,26 +165,14 @@ export class AgentEffector implements Effector {
   }
   
   private async runAgentCycle(
-    renderedContext: string,
+    context: RenderedContext,
     streamRef?: StreamRef,
     activationId?: string
   ): Promise<{ facets: Facet[] }> {
     const facets: Facet[] = [];
     
-    // Parse the rendered context to extract token count
-    const contextMetadata = this.parseContextMetadata(renderedContext);
-    
-    // Run the agent's cycle
-    const outgoingFrame = await this.agent.runCycle(
-      { 
-        messages: [{ role: 'user', content: renderedContext }],
-        metadata: {
-          totalTokens: contextMetadata.totalTokens || 0,
-          renderedFrames: []
-        }
-      },
-      streamRef
-    );
+    // Run the agent's cycle with the full context
+    const outgoingFrame = await this.agent.runCycle(context, streamRef);
     
     // Convert agent operations to facets
     for (const operation of outgoingFrame.deltas) {

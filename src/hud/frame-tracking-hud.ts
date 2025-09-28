@@ -376,13 +376,13 @@ export class FrameTrackingHUD implements CompressibleHUD {
   private renderFacet(facet: Facet): string | null {
     const tracer = getGlobalTracer();
     
-    // Skip action-definition facets and empty facets with no children
-    if (facet.type === 'action-definition') {
+    // Only render facets with ContentAspect
+    // This allows component developers to create custom content facets
+    if (!hasContentAspect(facet)) {
       return null;
     }
 
-    const hasFacetContent = hasContentAspect(facet);
-    const facetContent = hasFacetContent ? facet.content : '';
+    const facetContent = facet.content;
     const facetChildren = Array.isArray((facet as any)?.children)
       ? ((facet as any).children as Facet[])
       : [];
@@ -406,7 +406,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
         id: facet.id,
         facetType: facet.type,
         displayName: (facet as any).displayName,
-        hasContent: hasFacetContent,
+        hasContent: true, // We already checked hasContentAspect
         contentPreview: facetContent
           ? facetContent.substring(0, 100) + (facetContent.length > 100 ? '...' : '')
           : null,

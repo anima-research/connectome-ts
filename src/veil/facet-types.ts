@@ -214,12 +214,13 @@ export type AgentActivationFacet = BaseFacet & StateAspect<{
 };
 
 /**
- * Rendered context for agents
+ * Rendered context for agents (meta-facet, not rendered in conversation)
  */
-export type RenderedContextFacet = BaseFacet & ContentAspect & StateAspect<{
+export type RenderedContextFacet = BaseFacet & StateAspect<{
   activationId: string;
   tokenCount: number;
   compressionRatio?: number;
+  context?: any; // The actual RenderedContext object
 }> & EphemeralAspect & {
   type: 'rendered-context';
 };
@@ -242,29 +243,46 @@ export type ActionDefinitionFacet = BaseFacet & StateAspect<{
 
 /**
  * All facets that have content (visible to agents)
+ * This is any facet with ContentAspect
  */
-export type ContentFacet = 
-  | SpeechFacet 
-  | ThoughtFacet 
+export type ContentFacet = Facet & ContentAspect;
+
+/**
+ * The Facet type - extensible by component developers
+ * Any object that extends BaseFacet is a valid facet
+ * Behavior is determined by aspects, not by specific type
+ */
+export interface Facet extends BaseFacet {
+  // type can be any string, allowing extension
+  type: string;
+  // Any additional properties are allowed
+  [key: string]: any;
+}
+
+/**
+ * Core facet types provided by the framework
+ * Component developers can create additional types
+ */
+export type CoreFacet = 
+  // Agent Communication Facets
+  | SpeechFacet
+  | ThoughtFacet
   | ActionFacet
+  // Core Content Facets
   | EventFacet
   | StateFacet
   | AmbientFacet
   | EphemeralFacet
-  | RenderedContextFacet;
-
-/**
- * All possible facet types
- */
-export type Facet = 
-  | ContentFacet
+  // Configuration Facets
   | ConfigFacet
   | InternalStateFacet
+  // Meta-Facets (Infrastructure)
   | StateChangeFacet
   | ScopeChangeFacet
   | StreamChangeFacet
   | AgentLifecycleFacet
   | AgentActivationFacet
+  | RenderedContextFacet
   | ActionDefinitionFacet;
 
 // ============================================

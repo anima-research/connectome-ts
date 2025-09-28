@@ -16,7 +16,7 @@ import { isForkInvariant } from '../spaces/types';
 import { getPersistenceMetadata } from '../persistence/decorators';
 
 /**
- * Manages the current VEIL state by applying frame operations
+ * Manages the current VEIL state by applying frame deltas
  */
 export class VEILStateManager {
   private state: VEILState;
@@ -110,8 +110,25 @@ export class VEILStateManager {
 
         // Handle state if present
         if ('state' in operation.changes && operation.changes.state) {
-          const previous = (updated as any).state ?? {};
-          (updated as any).state = { ...previous, ...operation.changes.state };
+          const previousState = this.isPlainObject((updated as any).state)
+            ? (updated as any).state
+            : {};
+          (updated as any).state = this.deepMergeObjects(
+            previousState,
+            operation.changes.state as Record<string, any>
+          );
+        }
+
+        // Handle other object-like fields that should merge deeply
+        for (const [key, value] of Object.entries(operation.changes)) {
+          if (key === 'state' || key === 'content' || value === undefined) {
+            continue;
+          }
+
+          const existingValue = (updated as any)[key];
+          if (this.isPlainObject(existingValue) && this.isPlainObject(value)) {
+            (updated as any)[key] = this.deepMergeObjects(existingValue, value as Record<string, any>);
+          }
         }
 
         // Handle aspect fields
@@ -158,13 +175,11 @@ export class VEILStateManager {
       this.state.currentAgent = agentInfo.agentId;
     }
     
-    // LEGACY: All operations are now standard VEIL operations
-    
-    // Process deltas (legacy outgoing frames may still contain operations array)
-    const deltas: any[] = (frame as any).deltas || (frame as any).operations || [];
+    // Process deltas from the outgoing frame
+    const deltas: VEILOperation[] = frame.deltas || [];
     for (const operation of deltas) {
       if (operation.type === 'addFacet' || operation.type === 'changeFacet' || operation.type === 'removeFacet') {
-        this.applyDelta(operation as VEILOperation, frame.sequence, frame.timestamp);
+        this.applyDelta(operation, frame.sequence, frame.timestamp);
       }
     }
 
@@ -290,6 +305,54 @@ export class VEILStateManager {
 
   private cloneFacet<T extends Facet>(facet: T): T {
     return JSON.parse(JSON.stringify(facet)) as T;
+  }
+
+  private deepMergeObjects<T extends Record<string, any>>(
+    target: Record<string, any> | undefined,
+    source: Record<string, any>
+  ): T {
+    const base: Record<string, any> = this.isPlainObject(target) ? { ...target } : {};
+
+    for (const [key, incoming] of Object.entries(source)) {
+      if (incoming === undefined) {
+        continue;
+      }
+
+      if (Array.isArray(incoming)) {
+        base[key] = this.cloneArray(incoming);
+        continue;
+      }
+
+      if (this.isPlainObject(incoming)) {
+        const existingValue = this.isPlainObject(base[key]) ? base[key] : undefined;
+        base[key] = this.deepMergeObjects(existingValue, incoming);
+        continue;
+      }
+
+      base[key] = incoming;
+    }
+
+    return base as T;
+  }
+
+  private cloneArray(values: any[]): any[] {
+    return values.map(item => {
+      if (this.isPlainObject(item)) {
+        return this.deepMergeObjects(undefined, item as Record<string, any>);
+      }
+      if (Array.isArray(item)) {
+        return this.cloneArray(item);
+      }
+      return item;
+    });
+  }
+
+  private isPlainObject(value: unknown): value is Record<string, any> {
+    if (typeof value !== 'object' || value === null) {
+      return false;
+    }
+    const prototype = Object.getPrototypeOf(value);
+    return prototype === Object.prototype || prototype === null;
   }
 
   private notifyListeners(): void {

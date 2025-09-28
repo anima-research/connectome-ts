@@ -7,7 +7,7 @@
  */
 
 import { Transform, ReadonlyVEILState } from '../spaces/receptor-effector-types';
-import { Facet, hasStateAspect } from '../veil/types';
+import { Facet, hasStateAspect, VEILDelta } from '../veil/types';
 import { FrameTrackingHUD } from './frame-tracking-hud';
 import { CompressionEngine } from '../compression/types-v2';
 import { HUDConfig } from './types-v2';
@@ -24,8 +24,8 @@ export class ContextTransform implements Transform {
     this.hud = new FrameTrackingHUD();
   }
   
-  process(state: ReadonlyVEILState): Facet[] {
-    const contextFacets: Facet[] = [];
+  process(state: ReadonlyVEILState): VEILDelta[] {
+    const deltas: VEILDelta[] = [];
     
     // Find activation facets that need context
     for (const [id, facet] of state.facets) {
@@ -52,26 +52,25 @@ export class ContextTransform implements Transform {
           agentOptions
         );
         
-        // Convert messages to a single content string
-        const contentString = context.messages
-          .map(msg => `<${msg.role}>\n${msg.content}\n</${msg.role}>`)
-          .join('\n\n');
-        
-        // Create context facet
-        contextFacets.push({
-          id: `context-${id}-${Date.now()}`,
-          type: 'rendered-context',
-          content: contentString,
-          state: {
-            activationId: id,
-            tokenCount: context.metadata.totalTokens
-          },
-          ephemeral: true
+        // Store the full rendered context object in state
+        // The agent needs the message array with roles
+        deltas.push({
+          type: 'addFacet',
+          facet: {
+            id: `context-${id}-${Date.now()}`,
+            type: 'rendered-context',
+            state: {
+              activationId: id,
+              tokenCount: context.metadata.totalTokens,
+              context: context // Store the full RenderedContext object
+            },
+            ephemeral: true
+          }
         });
       }
     }
     
-    return contextFacets;
+    return deltas;
   }
   
   private buildAgentOptions(activationState: Record<string, any>): HUDConfig {
