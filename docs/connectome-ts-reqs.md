@@ -6,11 +6,11 @@ I am looking for a pretty much an independent implementation, I don't think we c
 
 Spaces are Elements. Elements are arranged in a tree in a root Space (think Unity).
 
-What I want to do better is to avoid the hardcoding that was made in the current implementation: all events, both from adapters and internally generated should propagate through an event system to all elements that subscribe to them. We should still frame start/frame end events that occur when an event in the space queue starts being processed and after it finishes processing.
+What I want to do better is to avoid the hardcoding that was made in the current implementation: all events, both from adapters and internally generated should propagate through an event system to all elements that subscribe to them. Frame processing is marked by frame start events when an event in the space queue begins processing.
 
 Communication routing is handled through a "stream reference" mechanism rather than hardcoded channels. When events arrive from external sources (Discord, Minecraft, etc.), they set the active stream for that interaction. The agent's speak operations then naturally flow to the active stream, though they can override with explicit targets when needed for cross-channel communication.
 
-Compression Engine processing happens after the end of frame, HUD begins to render after the compression engine has finished its first pass. Compression Engine should have its own internal asynchronicity (compression happens ahead of when its needed for context building in the HUD), so the first pass likely will only enqueue tasks and block only if needed data is not yet available.
+Compression Engine processing happens during the maintenance phase, HUD begins to render after the compression engine has finished its first pass. Compression Engine should have its own internal asynchronicity (compression happens ahead of when its needed for context building in the HUD), so the first pass likely will only enqueue tasks and block only if needed data is not yet available.
 
 We should aim for integration with Discord adapter as the main target against against which to test, then we can add more elements, like an internal scratchpad, a social graph, a shell terminal, file terminal, etc.
 
@@ -18,23 +18,38 @@ Few word on VEIL:
 
 VEIL is essentially a markup language for the perceptual context of an LLM. Only a part of it gets rendered in the request that is sent to the API provider. VEIL is produced by the Elements when they are handling space events through the event system. 
 
-VEIL is composed of VEIL frames, each frame is a delta applied to the previous frame. Frames can be incoming or outgoing. Elements can change the current VEIL frame at will up until the frame end. The execution order of Elements is not guaranted, so when dependendies arise Elements should call other elements as needed instead of relying on events, although normally elements are decoupled and not sensitive to order.
+VEIL is composed of VEIL frames, each frame is a delta applied to the previous frame. Frames carry both their deltas and the SpaceEvents that triggered them, enabling proper turn attribution in multi-agent contexts. The `events` field in frames is crucial for turn attribution - it contains the SpaceEvents that triggered the frame, allowing the HUD to determine message roles (user/assistant/system). Elements process events through the four-phase RETM cycle, with all changes consolidated into a single frame.
 
 VEIL state is composed of facets. The order of facets in the VEIL document determines temporality.
 
-There are the following types of facets:
+Facets are composed using aspects - interfaces that define capabilities rather than rigid types. This allows extensibility while maintaining semantic clarity:
 
-Events: Have strict temporality - occur at one specific moment
-States: Have defined temporality at creation but remain valid until changed/invalidated. Support optional attributeRenderers for granular updates and transitionRenderers for narrative state changes.
-Ambient: Has loose temporality - valid from creation until scope is destroyed. Ambient facets "float" in the context, preferring to be rendered at a fixed depth from the current moment (e.g., 3-5 messages back) to stay in the attention zone while respecting temporal constraints. Examples include mission objectives, tool instructions, or contextual reminders.
-Tool definitions: Tool definitions don't get rendered. Instructions for using tools are displayed using other facet types. Tool definitions allow the HUD to process completions and extract commands. Modern tool definitions support:
-  - Element routing via elementPath/elementId
-  - Generic event emission instead of callbacks
-  - Hierarchical namespaces (e.g., chat.general.say)
-  - Parameter schemas with type information
-Speech: Natural language output from agent speak operations
-Thought: Internal reasoning from agent think operations
-Action: Structured actions from agent act operations
+Core Aspects:
+- ContentAspect: Has renderable content (text/images)
+- StateAspect: Contains mutable state
+- EphemeralAspect: Exists only for current frame
+- AgentGeneratedAspect: Created by an agent
+- StreamAspect: Associated with a communication stream
+- ScopedAspect: Bound to scopes
+
+Common Facet Types (built from aspects):
+
+Content Facets (have ContentAspect):
+- Event: Strict temporality - occurs at one moment
+- State: Mutable world/UI state visible to agents. Supports inline renderers:
+  - attributeRenderers: For granular attribute display
+  - transitionRenderers: For narrative state changes
+- Ambient: Floating context that stays in attention zone
+- Speech/Thought/Action: Agent-generated content
+- Ephemeral: Temporary content that doesn't persist
+
+Meta Facets (infrastructure, typically not rendered):
+- stream-change, scope-change: System state changes
+- agent-activation: Triggers agent processing
+- rendered-context: HUD-generated context (ephemeral)
+- action-definition: Tool definitions (not directly rendered)
+
+The aspect system allows components to define custom facets while maintaining consistent behavior. The HUD uses aspects (particularly ContentAspect) to determine what to render.
 
 Events, states and ambient contain content. The content can be a combination of text and images. They also include an id (normally does not get rendered to the agent), displayName (can be blank), and an arbitrary set of key-value pairs. Facets don't normally include a timestamp.
 
@@ -46,16 +61,24 @@ Facets can be assigned scopes. If all scope is destroyed, the associated facets 
 
 An incoming VEIL frame includes an "active stream" reference that specifies the active communication context with metadata. This stream reference determines where agent responses are directed by default.
 
-An incoming VEIL delta can contain any number of the following operations:
+VEIL deltas represent exotemporal changes to the perceptual state. There are only three fundamental delta types:
 
-1. Adding a facet
-2. Changing a state  
-3. Adding or deleting scopes
-4. Adding, updating, or deleting streams (communication contexts)
-5. Adding, removing, or updating agents (for multi-agent systems)
-6. Removing a facet: suppresses rendering of a facet (and its children) without destroying history. Two modes:
-   - 'hide': For attention management - facet still exists, state changes still apply, but no rendering (including transitions)
-   - 'delete': For error correction - facet is effectively gone, state changes are silently ignored
+1. addFacet: Introduces a new facet to the VEIL state
+2. changeFacet: Modifies an existing facet (deep merges changes, preserves functions like renderers)
+3. removeFacet: Removes a facet from active state (preserves history)
+
+All system behaviors are expressed through facets. Scopes, streams, and agents are managed through dedicated meta-facets rather than special operations. This unified model simplifies the architecture while maintaining full expressiveness.
+
+VEIL as Single Source of Truth:
+VEIL is the primary persistence mechanism for Connectome. All component state, agent memory, and system configuration lives in VEIL as facets. This principle ensures:
+- Complete system state can be persisted by saving VEIL frames
+- System state can be restored by replaying frames
+- Time travel and debugging through frame history
+- Clear audit trail of all state changes
+
+Components requiring persistent state use InternalStateFacet (no ContentAspect, not rendered to agents). This maintains the purity of Receptors (stateless transformers) while allowing stateful behavior through VEIL. Effectors can maintain runtime state but should sync important state to VEIL for persistence.
+
+Ephemeral facets are automatically cleaned up after all four phases complete, not actively removed during processing. This ensures they're available throughout the entire frame processing cycle.
 
 Facets can include saliency hints to help the HUD make intelligent context management decisions:
 - Temporal hints: transient (float 0.0-1.0+ for decay rate)
@@ -63,7 +86,7 @@ Facets can include saliency hints to help the HUD make intelligent context manag
 - Importance hints: pinned, reference
 - Graph relationships: linkedTo[], linkedFrom[]
 
-An outgoing VEIL delta uses the same operations as incoming deltas (addFacet, changeState, etc.). Agent behavior is expressed through specific facet types:
+An outgoing VEIL delta uses the same three delta types. Agent behavior is expressed through specific facet types:
 
 1. Speech facets: Natural language dialogue from the agent (routed to the active stream by default, can override with explicit target)
 2. Action facets: Structured tool invocations from act operations
@@ -80,7 +103,7 @@ This allows HUDs to render them with appropriate semantic meaning while maintain
 
 Multi-Agent Support:
 The system supports multiple agents operating in the same space through:
-- Agent registration via addAgent/removeAgent/updateAgent operations
+- Agent registration via meta-facets (agent-add, agent-remove, agent-update)
 - Agent attribution in facets (agentId and agentName fields)
 - Targeted agent activation using agentActivation facets with sourceAgentId/targetAgentId
 - Automatic attribution of agent-generated facets (speech, thought, action)
@@ -98,7 +121,37 @@ Note: Block format has limitations with nested braces and should be used for sim
 
 Space/Element System Requirements:
 
-Elements are the basic building blocks arranged in a tree hierarchy, with Space as the root element. Elements can have Components that add behavior. Events flow through the element tree using a topic-based subscription system (e.g., "discord.message", "timer.expired"). Elements produce VEIL operations in response to events.
+Elements are the basic building blocks arranged in a tree hierarchy, with Space as the root element. Elements can have Components that add behavior. Events flow through the element tree using a topic-based subscription system (e.g., "discord.message", "timer.expired"). 
+
+Four-Phase Processing Architecture (RETM):
+The RETM (Receptor/Effector/Transform/Maintainer) architecture provides a deterministic four-phase cycle for processing events:
+
+Phase 1 - Events → Facets (Receptors):
+- Pure functions that transform SpaceEvents into Facets
+- No side effects or external dependencies
+- Multiple receptors can process the same event
+- Stateless by design - any state must be read from VEIL
+
+Phase 2 - Facets → Facets (Transforms):
+- Pure functions that process VEIL state to produce new facets
+- Examples: HUD context generation, state transition detection
+- Loops until no new facets are generated (enables cascading)
+- Maximum of 100 iterations to prevent infinite loops
+- Can read any facet in VEIL, including InternalStateFacets
+
+Phase 3 - Facets → Events/Actions (Effectors):
+- Stateful components that observe facet changes
+- Can emit new events, perform external actions
+- Examples: Agent activation, console output, Discord messaging
+- Should persist important state to VEIL via InternalStateFacets
+
+Phase 4 - Maintenance → Events (Maintainers):
+- Perform system maintenance operations
+- Examples: Element tree management, persistence, transition tracking
+- Can emit new events for the next frame
+- Cannot modify VEIL directly
+
+This architecture provides clear data flow, testability through pure functions in Phases 1-2, and controlled side effects in Phases 3-4. The stateless nature of Receptors and Transforms ensures deterministic replay - given the same VEIL state and events, the system will always produce the same results.
 
 Reference Injection:
 The ConnectomeHost maintains a unified reference registry that is shared with spaces. Components can:
@@ -118,6 +171,8 @@ The AXON protocol enables Connectome to dynamically load components from externa
 4. **Parameter Passing**: URL parameters are passed to loaded components (e.g., `axon://game.server/spacegame?token=xyz`)
 5. **Action Registration**: Loaded components can register actions that agents can invoke via `@element.action` syntax
 6. **Module Versioning**: Cache-busting ensures fresh modules after changes
+7. **RETM Support**: AXON modules can export Receptors, Effectors, Transforms, and Maintainers directly
+8. **V2 Environment**: Extended environment provides all RETM interfaces and helpers
 
 The AxonElement acts as a loader that:
 - Fetches the manifest from the HTTP endpoint
@@ -130,7 +185,7 @@ This architecture allows protocol-specific adapters (Discord, Minecraft, etc.) t
 
 Event System Requirements:
 
-First-class events include frame lifecycle (start/end), time events, element lifecycle (mount/unmount), and scheduled events. Adapter-specific events (Discord, filesystem, etc.) are defined by their respective elements. Events use structured element references instead of strings for source identification.
+First-class events include frame start, time events, element lifecycle (mount/unmount), and scheduled events. Adapter-specific events (Discord, filesystem, etc.) are defined by their respective elements. Events use structured element references instead of strings for source identification.
 
 Agent Interface Requirements:
 
@@ -145,6 +200,13 @@ The ConnectomeHost maintains a unified reference registry that serves as the sin
 - Reference metadata lookup supports inheritance chains for proper injection into subclasses
 - AXON-loaded components receive reference resolution after dynamic loading
 - The system ensures references are available before component lifecycle methods that need them
+
+Element Tree Persistence:
+- Element tree structure is persisted in VEIL via ElementTreeFacet
+- Components are registered in ComponentRegistry
+- Element creation/deletion is declarative via events
+- ElementRequestReceptor processes element:create/delete events
+- ElementTreeMaintainer handles actual instantiation
 
 Stream References:
 
@@ -227,12 +289,13 @@ State preservation in compression:
 - This ensures the HUD can correctly track state evolution even when frames are compressed
 
 State transition rendering:
-- State facets can define attributeRenderers for individual attribute updates (e.g., showing "(3 items)" when count changes)
-- State facets can define transitionRenderers that provide narrative descriptions during state changes
-- Transition renderers receive both old and new values, allowing contextual narratives (e.g., "Box #3 materializes!")
-- When both are defined, transition renderers take priority during state changes
-- This reduces redundancy between state updates and event emissions while maintaining engaging context
-- The HUD tracks both before and after states for each frame to enable accurate transition detection
+- State facets include inline renderers as part of their definition
+- attributeRenderers: Display functions for individual attributes (e.g., "(3 items)")
+- transitionRenderers: Narrative functions for state changes (e.g., "Box #3 materializes!")
+- Renderers are preserved through facet operations (changeFacet maintains functions)
+- StateTransitionTransform (Phase 2) automatically generates event facets from state changes
+- This ensures historical consistency - old frames render with their original logic
+- Renderers can be provided as functions (converted to strings for persistence) or strings
 
 Attention-aware compression:
 - Content to be compressed is wrapped in `<content_to_compress>` tags in the rendered context
@@ -254,60 +317,66 @@ Note, that the rendered context is not VEIL. In the rendered context it is impos
 Current Implementation Status:
 
 Completed:
-- VEIL data model with all facet types (event, state, ambient, tool, speech, thought, action, agentActivation)
-- VEILStateManager for managing facets and frame history
-- Multi-agent support with agent operations (addAgent, removeAgent, updateAgent)
-- Agent attribution in facets (agentId, agentName fields)
-- Targeted agent activation with source/target agent IDs
-- Unified host registry system for references (single source of truth)
-- Improved reference injection supporting inheritance chains
-- FrameTrackingHUD with frame-based rendering (no turn grouping, historical state accuracy)
-- State preservation through incremental replay of operations
-- @element.action syntax with hierarchical paths and named parameters
-- Action parser with type inference for inline parameters
-- BasicAgent with modern tool registration (ToolDefinition objects)
-- Generic event emission for tool actions (no hardcoded callbacks)
-- LLMProvider interface with AnthropicProvider implementation
-- Retry logic with exponential backoff and error logging
-- Prefill mode support with proper formatting
-- Token budget management (context vs generation limits)
-- Compression engine API with state delta preservation
+- Aspect-based facet system with extensible types (Facet as interface)
+- Three fundamental delta types: addFacet, changeFacet, removeFacet
+- Four-phase processing (RETM): Receptors → Transforms → Effectors → Maintainers
+- VEILStateManager with deep merge support for changeFacet
+- Runtime facet validation with configurable strictness
+- Inline state renderers (preserved through operations)
+- StateTransitionTransform for automatic event generation
+- Multi-agent support through facet attribution
+- Unified host registry system for references
+- FrameTrackingHUD with aspect-based rendering
+- ConsoleInputReceptor and ConsoleOutputEffector
+- ContextTransform replacing HUD context generation
+- AgentEffector replacing AgentComponent
+- @element.action syntax with hierarchical paths
+- Action parser with type inference
+- BasicAgent with facet-based operations
+- LLMProvider interface with AnthropicProvider
+- Retry logic with exponential backoff
+- Prefill mode support
+- Token budget management
+- Compression engine API with state preservation
 - SimpleTestCompressionEngine and AttentionAwareCompressionEngine
-- Tracing system with synchronous file-based storage
-- Console chat adapter as test harness
-- Interactive element test scenarios
-- Agent activation queue with source-based deduplication
-- Basic Space/Element/Component structure with event handling
-- Event priority queue with immediate/high/normal/low priorities
-- Three-phase event propagation (capture, at-target, bubble)
-- Event control utilities (stopPropagation, stopImmediatePropagation, preventDefault)
-- State transition rendering with attributeRenderers and transitionRenderers
-- HUD before/after state tracking for transition detection
-- AXON Protocol for dynamic component loading from external services
-- AxonElement implementation for loading components via HTTP/WebSocket
-- Discord adapter integration via AXON protocol (move out of core)
+- Tracing system with file-based storage
+- Event priority queue and propagation
+- AXON Protocol for dynamic component loading
+- Discord adapter via AXON
 - Scheduled events and timers
-- Full agent sleep/wake functionality with pending activation processing
-- Full compression implementation with LLM-based summarization
-- MCP (Model Context Protocol) session server for managing long-running services
-- Debug UI with frame tracking and agent state visualization
-- Component helper methods (requireReference, getReference) for easier reference access
+- Agent sleep/wake functionality
+- Full compression with LLM summarization
+- MCP session server
+- Debug UI with frame tracking
+- Component helper methods (requireReference, getReference)
+- Maintainers for system-level operations
+- Element tree persistence via VEIL
+- ComponentRegistry for declarative element management
+- AXON RETM support
+- Removal of frame:end events
+- Phase 2 looping with iteration limit
 
 Still Pending:
 - Additional adapters (filesystem, shell terminal, etc.)
 - Discovery mechanism for @element.? syntax
 - Enhanced block parameter parsing (proper grammar/parser)
-- changeFacet operation
-- lazy loading for frames to avoid memory runaway
-- reorganize persistence to better support long contexts
-- typing notifications for discord
-- support for deletion and editing of Discord messages
-- resource facets
-- content markup language to reference facets
-- how to communicate to the agent custom llm provider settings
-- llm provider and hud needs to support custom settings
-- llm provider prompt caching support
+- Lazy loading for frames to avoid memory issues
+- Reorganize persistence for long contexts
+- Typing notifications for Discord
+- Support for deletion and editing of Discord messages
+- Resource facets
+- Content markup language to reference facets
+- Custom LLM provider settings communication
+- LLM provider prompt caching support
+- Meta-facets for scope/stream/agent changes
 
 Recently Removed/Deprecated:
-- Legacy operations (agentActivation, toolCall, innerThoughts, cycleRequest) - replaced with facet-based approach
-- Separate stream reference tracking - now handled via stream operations (addStream, updateStream, deleteStream)
+- Legacy operations beyond add/change/remove facet
+- Separate operations for streams/scopes/agents (now meta-facets)
+- EphemeralCleanupTransform (ephemeral facets naturally fade)
+- AgentComponent (replaced by AgentEffector)
+- Direct VEIL manipulation in components (use Receptors/Effectors)
+- Fixed facet types (now extensible via Facet interface)
+- frame:end events (functionality moved to Maintainers)
+- Legacy Component support
+- Direct element tree manipulation (now declarative via VEIL)
