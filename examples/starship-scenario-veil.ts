@@ -1,9 +1,9 @@
 // Complete VEIL frames for the starship scenario
 // This file shows all VEIL frames that produce the rendered context
 
-import { IncomingVEILFrame, OutgoingVEILFrame } from '../src/veil/types';
+import { Frame } from '../src/veil/types';
 
-export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] = [
+export const starshipScenarioFrames: (Frame | Frame)[] = [
   // Frame 1: Initial state setup
   {
     sequence: 1,
@@ -162,7 +162,7 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         content: "Commander Chen, maintain our current orbit but be ready to break away if needed."
       }
     ]
-  } as OutgoingVEILFrame,
+  } as Frame,
 
   // Frame 5: Scan results
   {
@@ -255,7 +255,7 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         }
       }
     ]
-  } as OutgoingVEILFrame,
+  } as Frame,
 
   // Frame 8: Tool responses and crew activity
   {
@@ -338,7 +338,7 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         delayMs: 2000
       }
     ]
-  } as OutgoingVEILFrame,
+  } as Frame,
 
   // Frame 10: Agent decides to open personal log (outgoing)
   {
@@ -357,7 +357,7 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         }
       }
     ]
-  } as OutgoingVEILFrame,
+  } as Frame,
 
   // Frame 11: System creates log stream in response
   {
@@ -396,7 +396,7 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         target: "starship:captain-log"  // Explicitly targeting the log
       }
     ]
-  } as OutgoingVEILFrame,
+  } as Frame,
 
   // Frame 13: Tool definitions for the additional tools used
   {

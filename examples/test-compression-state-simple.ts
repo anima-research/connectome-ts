@@ -5,7 +5,7 @@
 import { VEILStateManager } from '../src/veil/veil-state';
 import { FrameTrackingHUD } from '../src/hud/frame-tracking-hud';
 import { SimpleTestCompressionEngine } from '../src/compression/simple-test-engine';
-import { IncomingVEILFrame, OutgoingVEILFrame } from '../src/veil/types';
+import { Frame } from '../src/veil/types';
 
 // Create a modified compression engine with lower thresholds
 class TestCompressionEngine extends SimpleTestCompressionEngine {
@@ -29,7 +29,7 @@ async function testCompressionWithState() {
   const compression = new TestCompressionEngine();
   
   // Create test frames
-  const frames: (IncomingVEILFrame | OutgoingVEILFrame)[] = [
+  const frames: (Frame | Frame)[] = [
     // Frame 1: Initial state
     {
       sequence: 1,
@@ -46,7 +46,7 @@ async function testCompressionWithState() {
           }
         }
       ]
-    } as IncomingVEILFrame,
+    } as Frame,
     
     // Frame 2: Change state (will be compressed)
     {
@@ -62,7 +62,7 @@ async function testCompressionWithState() {
           }
         }
       ]
-    } as IncomingVEILFrame,
+    } as Frame,
     
     // Frame 3: Change state again (will be compressed)
     {
@@ -78,7 +78,7 @@ async function testCompressionWithState() {
           }
         }
       ]
-    } as IncomingVEILFrame,
+    } as Frame,
     
     // Frame 4: Final state in compressed range
     {
@@ -94,7 +94,7 @@ async function testCompressionWithState() {
           }
         }
       ]
-    } as IncomingVEILFrame,
+    } as Frame,
     
     // Frame 5: After compression
     {
@@ -112,12 +112,12 @@ async function testCompressionWithState() {
           }
         }
       ]
-    } as IncomingVEILFrame
+    } as Frame
   ];
   
   // Process frames
   for (const frame of frames) {
-    veilState.applyIncomingFrame(frame as IncomingVEILFrame);
+    veilState.applyFrame(frame as Frame);
   }
   
   const currentFacets = veilState.getActiveFacets();

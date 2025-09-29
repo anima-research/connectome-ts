@@ -11,7 +11,7 @@ import { Component } from '../spaces/component';
 import { Space } from '../spaces/space';
 import { SpaceEvent, StreamRef } from '../spaces/types';
 import { 
-  IncomingVEILFrame, 
+  Frame, 
   VEILDelta,
   SpeechFacet,
   hasStreamAspect,
@@ -223,7 +223,7 @@ export class ConsoleChatComponent extends Component {
     });
   }
 
-  private hasStreamFacet(frame: IncomingVEILFrame): boolean {
+  private hasStreamFacet(frame: Frame): boolean {
     return frame.deltas.some(op => 
       op.type === 'addFacet' &&
       op.facet?.type === 'stream-change' &&

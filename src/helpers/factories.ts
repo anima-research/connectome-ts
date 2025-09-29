@@ -17,7 +17,8 @@ import type {
   EventFacet,
   StateFacet,
   AmbientFacet,
-  StreamChangeFacet
+  StreamChangeFacet,
+  InternalStateFacet
 } from '../veil/types';
 import { Element } from '../spaces/element';
 import { validateFacet } from '../validation/facet-validation';
@@ -175,10 +176,23 @@ export interface StateFacetInit {
   state?: Record<string, any>;
   scopes?: string[];
   id?: string;
+  // Renderers can be provided as functions (will be converted to strings) or as strings
+  attributeRenderers?: Record<string, ((value: any) => string | null) | string>;
+  transitionRenderers?: Record<string, ((newValue: any, oldValue: any) => string | null) | string>;
 }
 
 export function createStateFacet(init: StateFacetInit): StateFacet {
-  const { content, entityType, entityId, state = {}, scopes = [], id } = init;
+  const { 
+    content, 
+    entityType, 
+    entityId, 
+    state = {}, 
+    scopes = [], 
+    id,
+    attributeRenderers,
+    transitionRenderers
+  } = init;
+  
   const facet: StateFacet = {
     id: id ?? friendlyId('state'),
     type: 'state',
@@ -188,6 +202,24 @@ export function createStateFacet(init: StateFacetInit): StateFacet {
     entityId,
     scopes
   };
+  
+  // Add renderers if provided, converting functions to strings
+  if (attributeRenderers) {
+    facet.attributeRenderers = {};
+    for (const [key, renderer] of Object.entries(attributeRenderers)) {
+      facet.attributeRenderers[key] = typeof renderer === 'function' 
+        ? `return (${renderer.toString()})(value);`
+        : renderer;
+    }
+  }
+  if (transitionRenderers) {
+    facet.transitionRenderers = {};
+    for (const [key, renderer] of Object.entries(transitionRenderers)) {
+      facet.transitionRenderers[key] = typeof renderer === 'function'
+        ? `return (${renderer.toString()})(newValue, oldValue);`
+        : renderer;
+    }
+  }
   
   // Validate before returning
   validateFacet(facet, 'state', { context: 'createStateFacet' });
@@ -240,6 +272,27 @@ export function createStreamChangeFacet(init: StreamChangeFacetInit): StreamChan
   
   // Validate before returning
   validateFacet(facet, 'stream-change', { context: 'createStreamChangeFacet' });
+  
+  return facet;
+}
+
+export interface InternalStateFacetInit {
+  componentId: string;
+  state: Record<string, any>;
+  id?: string;
+}
+
+export function createInternalStateFacet(init: InternalStateFacetInit): InternalStateFacet {
+  const { componentId, state, id } = init;
+  const facet: InternalStateFacet = {
+    id: id ?? friendlyId('internal-state'),
+    type: 'internal-state',
+    componentId,
+    state
+  };
+  
+  // Note: InternalStateFacet intentionally has no ContentAspect
+  // It's not rendered to agents, only used for component persistence
   
   return facet;
 }

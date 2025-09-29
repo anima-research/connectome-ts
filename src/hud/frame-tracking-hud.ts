@@ -5,10 +5,8 @@
 
 import {
   Facet,
-  IncomingVEILFrame,
-  OutgoingVEILFrame,
+  Frame,
   OutgoingVEILOperation,
-  hasAgentGeneratedAspect,
   hasContentAspect,
   hasStateAspect
 } from '../veil/types';
@@ -16,13 +14,10 @@ import { CompressibleHUD, RenderedContext, HUDConfig } from './types-v2';
 import { CompressionEngine, RenderedFrame, StateDelta } from '../compression/types-v2';
 import { getGlobalTracer, TraceCategory } from '../tracing';
 
-// Union type for frames
-type VEILFrame = IncomingVEILFrame | OutgoingVEILFrame;
-
 export class FrameTrackingHUD implements CompressibleHUD {
   
   render(
-    frames: VEILFrame[],
+    frames: Frame[],
     currentFacets: Map<string, Facet>,
     compression?: CompressionEngine,
     config: HUDConfig = {}
@@ -37,7 +32,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
   }
   
   renderWithFrameTracking(
-    frames: VEILFrame[],
+    frames: Frame[],
     currentFacets: Map<string, Facet>,
     compression?: CompressionEngine,
     config: HUDConfig = {}
@@ -64,24 +59,23 @@ export class FrameTrackingHUD implements CompressibleHUD {
     
     const frameRenderings: RenderedFrame[] = [];
     const frameContents: Array<{ 
-      type: 'incoming' | 'outgoing' | 'compressed';
+      type: 'user' | 'agent' | 'system' | 'compressed';
       content: string;
       sequence: number;
     }> = [];
     let totalTokens = 0;
-    
+
     // Note on token budget: We currently include ALL frames even if we exceed the budget.
     // Dropping frames (whether old or new) is problematic:
     // - Dropping old frames loses important context and setup
     // - Dropping new frames (the previous behavior) causes amnesia about recent messages
     // If frame dropping becomes necessary, it should be done intelligently (e.g., using
     // compression, importance scoring, or keeping a sliding window of recent + important frames).
-    
-    
+
     // Track state as we replay operations - start with empty state
     const replayedState = new Map<string, Facet>();
     const removals = new Map<string, 'hide' | 'delete'>();
-    
+
     // Render each frame
     for (const frame of frames) {
       // Check if this frame is compressed
@@ -93,7 +87,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
           if (stateDelta) {
             this.applyStateDelta(stateDelta, replayedState);
           }
-          
+
           // Add replacement even if it's empty string (for compressed frames)
           if (replacement) {
             frameContents.push({
@@ -106,23 +100,12 @@ export class FrameTrackingHUD implements CompressibleHUD {
           continue;
         }
       }
-      
-      // For incoming frames, we need both before and after states
-      let beforeState: Map<string, Facet> | undefined;
-      
-      if (this.isIncomingFrame(frame)) {
-        // Deep clone the state before updates to detect transitions
-        beforeState = new Map();
-        for (const [id, facet] of replayedState) {
-          beforeState.set(id, this.cloneFacet(facet));
-        }
-        this.updateReplayedState(frame as IncomingVEILFrame, replayedState, removals);
-      }
-      
-      // Render frame with both states available
-      const { content, facetIds } = this.renderFrame(frame, replayedState, beforeState, removals);
+
+      const source = this.getFrameSource(frame);
+
+      const { content, facetIds } = this.renderFrameContent(frame, source, replayedState, removals);
       const tokens = this.estimateTokens(content);
-      
+
       // Trace each frame rendering
       tracer?.record({
         id: `${traceId}-frame-${frame.sequence}`,
@@ -133,7 +116,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
         operation: 'renderFrame',
         data: {
           frameSequence: frame.sequence,
-          frameType: this.isIncomingFrame(frame) ? 'incoming' : 'outgoing',
+          frameSource: source,
           operationCount: frame.deltas.length,
           deltas: frame.deltas.map(op => op.type),
           contentLength: content.length,
@@ -144,25 +127,25 @@ export class FrameTrackingHUD implements CompressibleHUD {
         },
         parentId: traceId
       });
-      
+
       frameRenderings.push({
         frameSequence: frame.sequence,
         content,
         tokens,
         facetIds
       });
-      
+
       // Only add non-empty content
       if (content.trim()) {
         frameContents.push({
-          type: this.isIncomingFrame(frame) ? 'incoming' : 'outgoing',
+          type: source,
           content,
           sequence: frame.sequence
         });
         totalTokens += tokens;
       }
     }
-    
+
     // Check if we exceeded token budget (but don't drop frames)
     if (config.maxTokens && totalTokens > config.maxTokens) {
       console.warn(`[HUD] Token budget exceeded: ${totalTokens} > ${config.maxTokens}.`);
@@ -188,52 +171,108 @@ export class FrameTrackingHUD implements CompressibleHUD {
     };
   }
   
-  private renderFrame(
-    frame: VEILFrame,
+  private renderAgentFrame(frame: Frame): string {
+    const parts: string[] = [];
+
+    for (const operation of frame.deltas) {
+      if (operation.type === 'addFacet') {
+        const facet = operation.facet;
+        switch (facet.type) {
+          case 'speech':
+            if (hasContentAspect(facet)) {
+              parts.push(facet.content);
+            }
+            break;
+
+          case 'action':
+            if (hasStateAspect(facet)) {
+              const { toolName, parameters } = facet.state as {
+                toolName?: string;
+                parameters?: Record<string, unknown>;
+              };
+              if (toolName) {
+                parts.push(this.renderToolCall(toolName, parameters ?? {}));
+              }
+            }
+            break;
+
+          case 'thought':
+            if (hasContentAspect(facet)) {
+              parts.push(`<thought>${facet.content}</thought>`);
+            }
+            break;
+        }
+      }
+    }
+
+    // Wrap agent operations in turn marker
+    if (parts.length > 0) {
+      return `<my_turn>\n\n${parts.join('\n\n')}\n\n</my_turn>`;
+    }
+
+    return '';
+  }
+
+  private getFrameSource(frame: Frame): 'user' | 'agent' | 'system' {
+    if (!frame.events || frame.events.length === 0) {
+      return 'system';
+    }
+
+    // Check for user input events
+    const userTopics = ['console:input', 'discord:message', 'minecraft:chat'];
+    if (frame.events.some(event => userTopics.includes(event.topic))) {
+      return 'user';
+    }
+
+    // Check for agent-generated events by looking at VEIL operations from agent elements
+    if (frame.events.some(event => {
+      if (event.topic === 'veil:operation' && event.source) {
+        // Check if source is an AgentElement by elementType
+        // This is more robust than string matching on elementId
+        return event.source.elementType === 'AgentElement';
+      }
+      return false;
+    })) {
+      return 'agent';
+    }
+
+    // Check if any events have agent-related topics
+    const agentTopics = ['agent:speech', 'agent:thought', 'agent:action'];
+    if (frame.events.some(event => agentTopics.includes(event.topic))) {
+      return 'agent';
+    }
+
+    return 'system';
+  }
+
+  private renderFrameContent(
+    frame: Frame,
+    source: 'user' | 'agent' | 'system',
     replayedState: Map<string, Facet>,
-    beforeState?: Map<string, Facet>,
     removals?: Map<string, 'hide' | 'delete'>
   ): { content: string; facetIds: string[] } {
-    const parts: string[] = [];
-    const facetIds: string[] = [];
-    
-    // Separate handling for incoming vs outgoing frames
-    if (this.isIncomingFrame(frame)) {
-      const content = this.renderIncomingFrame(frame as IncomingVEILFrame, replayedState, beforeState, removals);
-      return { content, facetIds: this.extractFacetIds(frame) };
-    } else {
-      const content = this.renderOutgoingFrame(frame as OutgoingVEILFrame);
-      return { content, facetIds: [] };
+    if (source === 'agent') {
+      return {
+        content: this.renderAgentFrame(frame),
+        facetIds: []
+      };
     }
-  }
-  
-  private isIncomingFrame(frame: VEILFrame): boolean {
-    // Treat frames that change or remove existing facets as incoming context
-    return frame.deltas.some(op => {
-      if (op.type === 'changeFacet' || op.type === 'removeFacet') {
-        return true;
-      }
 
-      if (op.type === 'addFacet') {
-        const facet = op.facet;
-        // Agent-generated facets represent outgoing content from the local agent
-        return !hasAgentGeneratedAspect(facet);
-      }
-
-      return false;
-    });
+    const content = this.renderEnvironmentFrame(frame, replayedState, removals);
+    return {
+      content,
+      facetIds: this.extractFacetIds(frame)
+    };
   }
-  
-  private renderIncomingFrame(
-    frame: IncomingVEILFrame,
+
+  private renderEnvironmentFrame(
+    frame: Frame,
     replayedState: Map<string, Facet>,
-    _beforeState?: Map<string, Facet>,
     removals?: Map<string, 'hide' | 'delete'>
   ): string {
     const parts: string[] = [];
-    const renderedStates = new Map<string, string>(); // Track rendered facets by id
+    const renderedStates = new Map<string, string>();
 
-    // First pass: capture final facet renderings after applying deltas
     for (const operation of frame.deltas) {
       switch (operation.type) {
         case 'addFacet': {
@@ -251,6 +290,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
               renderedStates.set(facet.id, rendered);
             }
           }
+          replayedState.set(facet.id, facet);
           break;
         }
 
@@ -274,12 +314,10 @@ export class FrameTrackingHUD implements CompressibleHUD {
         }
 
         case 'removeFacet':
-          // Nothing to render for removals in this pass
           break;
       }
     }
 
-    // Second pass: render facets in the order of operations
     for (const operation of frame.deltas) {
       switch (operation.type) {
         case 'addFacet': {
@@ -321,58 +359,26 @@ export class FrameTrackingHUD implements CompressibleHUD {
           break;
         }
 
-        case 'removeFacet':
-          // Removals don't render content, but ensure we drop any pending renderings
+        case 'removeFacet': {
           renderedStates.delete(operation.id);
+          if (removals) {
+            removals.set(operation.id, 'delete');
+            const facet = replayedState.get(operation.id);
+            if (facet && Array.isArray((facet as any)?.children)) {
+              for (const child of (facet as any).children as Facet[]) {
+                removals.set(child.id, 'delete');
+              }
+            }
+          }
+          replayedState.delete(operation.id);
           break;
+        }
       }
     }
 
     return parts.join('\n');
   }
-  
-  private renderOutgoingFrame(frame: OutgoingVEILFrame): string {
-    const parts: string[] = [];
-    
-    for (const operation of frame.deltas) {
-      if (operation.type === 'addFacet') {
-        const facet = operation.facet;
-        switch (facet.type) {
-          case 'speech':
-            if (hasContentAspect(facet)) {
-              parts.push(facet.content);
-            }
-            break;
 
-          case 'action':
-            if (hasStateAspect(facet)) {
-              const { toolName, parameters } = facet.state as {
-                toolName?: string;
-                parameters?: Record<string, unknown>;
-              };
-              if (toolName) {
-                parts.push(this.renderToolCall(toolName, parameters ?? {}));
-              }
-            }
-            break;
-
-          case 'thought':
-            if (hasContentAspect(facet)) {
-              parts.push(`<thought>${facet.content}</thought>`);
-            }
-            break;
-        }
-      }
-    }
-    
-    // Wrap agent operations in turn marker
-    if (parts.length > 0) {
-      return `<my_turn>\n\n${parts.join('\n\n')}\n\n</my_turn>`;
-    }
-    
-    return '';
-  }
-  
   private renderFacet(facet: Facet): string | null {
     const tracer = getGlobalTracer();
     
@@ -519,7 +525,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
   }
   
   private buildFrameBasedMessages(
-    frameContents: Array<{ type: 'incoming' | 'outgoing' | 'compressed'; content: string; sequence: number }>,
+    frameContents: Array<{ type: 'user' | 'agent' | 'system' | 'compressed'; content: string; sequence: number }>,
     currentFacets: Map<string, Facet>,
     config: HUDConfig
   ): RenderedContext['messages'] {
@@ -527,9 +533,22 @@ export class FrameTrackingHUD implements CompressibleHUD {
     
     // Each frame becomes its own message
     for (const frame of frameContents) {
-      // Compressed frames are treated as assistant messages
-      const role = frame.type === 'incoming' ? 'user' : 'assistant';
-      
+      let role: 'user' | 'assistant' | 'system';
+      switch (frame.type) {
+        case 'user':
+          role = 'user';
+          break;
+        case 'agent':
+          role = 'assistant';
+          break;
+        case 'system':
+          role = 'system';
+          break;
+        default:
+          role = 'assistant';
+          break;
+      }
+
       messages.push({
         role,
         content: frame.content
@@ -628,7 +647,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
     return result;
   }
   
-  private extractFacetIds(frame: VEILFrame): string[] {
+  private extractFacetIds(frame: Frame): string[] {
     const ids: string[] = [];
     
     for (const op of frame.deltas) {
@@ -644,48 +663,6 @@ export class FrameTrackingHUD implements CompressibleHUD {
   
   private sanitizeTagName(name: string): string {
     return name.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
-  }
-  
-  private updateReplayedState(
-    frame: IncomingVEILFrame,
-    replayedState: Map<string, Facet>,
-    removals?: Map<string, 'hide' | 'delete'>
-  ): void {
-    for (const operation of frame.deltas) {
-      switch (operation.type) {
-        case 'addFacet': {
-          replayedState.set(operation.facet.id, operation.facet);
-          break;
-        }
-
-        case 'changeFacet': {
-          const existingFacet = replayedState.get(operation.id);
-          if (!existingFacet) {
-            break;
-          }
-
-          const updatedFacet = this.mergeFacetChanges(existingFacet, operation.changes);
-          replayedState.set(operation.id, updatedFacet);
-          break;
-        }
-
-        case 'removeFacet': {
-          if (removals) {
-            removals.set(operation.id, 'delete');
-
-            const facet = replayedState.get(operation.id);
-            if (facet && Array.isArray((facet as any)?.children)) {
-              for (const child of (facet as any).children as Facet[]) {
-                removals.set(child.id, 'delete');
-              }
-            }
-          }
-
-          replayedState.delete(operation.id);
-          break;
-        }
-      }
-    }
   }
   
   private applyStateDelta(delta: StateDelta, replayedState: Map<string, Facet>): void {
@@ -780,7 +757,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
     };
   }
   
-  needsCompression(frames: VEILFrame[], config: HUDConfig): boolean {
+  needsCompression(frames: Frame[], config: HUDConfig): boolean {
     // Simple check based on frame count or estimated tokens
     return frames.length > 50;
   }

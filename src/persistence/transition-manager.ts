@@ -7,7 +7,7 @@ import { Space } from '../spaces/space';
 import { Element } from '../spaces/element';
 import { VEILStateManager } from '../veil/veil-state';
 import { SpaceEvent, FrameEndEvent, ElementRef } from '../spaces/types';
-import { IncomingVEILFrame } from '../veil/types';
+import { Frame } from '../veil/types';
 import {
   FrameTransition,
   TransitionNode,
@@ -391,14 +391,14 @@ export class TransitionManager {
     
     // Apply VEIL operations by creating a frame
     if (transition.veilOps.length > 0) {
-      const frame = {
+      const frame: Frame = {
         sequence: transition.sequence,
         timestamp: transition.timestamp,
         events: [],
         deltas: transition.veilOps,
-        transition: transition  // Include the transition itself
+        transition // Include the transition itself
       };
-      this.veilState.applyIncomingFrame(frame);
+      this.veilState.applyFrame(frame);
     }
     
     console.log(`Applied transition ${transition.sequence}`);

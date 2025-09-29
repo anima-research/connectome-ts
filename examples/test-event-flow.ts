@@ -206,7 +206,7 @@ async function demonstrateEventFlow() {
     }]
   };
   
-  veilState.applyIncomingFrame(incomingFrame);
+  veilState.applyFrame(incomingFrame);
   space.processIncomingFrame(incomingFrame);
   
   console.log('\nAgent will now process and potentially respond...\n');

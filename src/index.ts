@@ -47,6 +47,17 @@ export { Component } from './spaces/component';
 export * from './spaces/receptor-effector-types';
 // Note: EphemeralCleanupTransform removed - ephemeral facets naturally fade away
 
+// Transform exports
+export { StateTransitionTransform } from './transforms/state-transition-transform';
+
+// Element tree system exports
+export { 
+  registerComponent,
+  ElementRequestReceptor,
+  ElementTreeTransform,
+  ElementTreeMaintainer
+} from './spaces/element-tree-receptors';
+
 // Validation exports
 export * from './validation/facet-validation';
 
@@ -55,6 +66,7 @@ export * from './agent/types';
 export { BasicAgent } from './agent/basic-agent';
 export { AgentComponent } from './agent/agent-component';
 export { AgentEffector } from './agent/agent-effector';
+export { AgentElement } from './agent/agent-element';
 export { createBasicAgent, type CreateAgentOptions } from './agent/agent-factory';
 
 // Element exports
@@ -63,6 +75,19 @@ export { ConsoleChatComponent } from './elements/console-chat';
 // Component exports
 export { AxonLoaderComponent } from './components/axon-loader';
 export { SpaceNotesComponent } from './components/space-notes';
+
+// AXON exports
+export { createAxonEnvironment } from './axon/environment';
+export { createAxonEnvironmentV2 } from './axon/environment-v2';
+export { 
+  IAxonManifest,
+  IAxonComponentConstructor,
+  IComponent,
+  IVEILComponent,
+  IInteractiveComponent,
+  IAxonEnvironment
+} from './axon/interfaces';
+export * from './axon/interfaces-v2';
 
 // Tracing exports
 export * from './tracing';

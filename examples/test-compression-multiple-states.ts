@@ -6,13 +6,13 @@ import { VEILStateManager } from '../src/veil/veil-state';
 import { FrameTrackingHUD } from '../src/hud/frame-tracking-hud';
 import { AttentionAwareCompressionEngine } from '../src/compression/attention-aware-engine';
 import { MockLLMProvider } from '../src/llm/mock-llm-provider';
-import { IncomingVEILFrame } from '../src/veil/types';
+import { Frame } from '../src/veil/types';
 
 async function testCompressionMultipleStates() {
   console.log('=== Testing Compression with Multiple State Changes ===\n');
   
   const veilState = new VEILStateManager();
-  const frames: IncomingVEILFrame[] = [];
+  const frames: Frame[] = [];
   
   // Frame 1: Add multiple initial states
   frames.push({
@@ -132,7 +132,7 @@ async function testCompressionMultipleStates() {
   
   // Apply all frames
   for (const frame of frames) {
-    veilState.applyIncomingFrame(frame);
+    veilState.applyFrame(frame);
   }
   
   const currentFacets = veilState.getActiveFacets();

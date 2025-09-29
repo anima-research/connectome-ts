@@ -5,7 +5,7 @@
 import { VEILStateManager } from '../src/veil/veil-state';
 import { FrameTrackingHUD } from '../src/hud/frame-tracking-hud';
 import { SimpleTestCompressionEngine } from '../src/compression/simple-test-engine';
-import { IncomingVEILFrame, OutgoingVEILFrame } from '../src/veil/types';
+import { Frame } from '../src/veil/types';
 
 async function testCompressionWithState() {
   console.log('=== Test Compression with State Preservation ===\n');
@@ -16,7 +16,7 @@ async function testCompressionWithState() {
   const compression = new SimpleTestCompressionEngine();
   
   // Create test frames with state changes
-  const frames: (IncomingVEILFrame | OutgoingVEILFrame)[] = [
+  const frames: (Frame | Frame)[] = [
     // Frame 1: Initial state
     {
       sequence: 1,
@@ -151,9 +151,9 @@ async function testCompressionWithState() {
   // Process frames through VEIL state
   for (const frame of frames) {
     if ('activeStream' in frame || frame.deltas.some((op: any) => op.type === 'addFacet' || op.type === 'changeFacet')) {
-      veilState.applyIncomingFrame(frame as IncomingVEILFrame);
+      veilState.applyFrame(frame as Frame);
     } else {
-      veilState.recordOutgoingFrame(frame as OutgoingVEILFrame);
+      veilState.applyFrame(frame as Frame);
     }
   }
   

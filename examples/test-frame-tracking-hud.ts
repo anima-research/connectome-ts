@@ -7,14 +7,14 @@ import { FrameTrackingHUD } from '../src/hud/frame-tracking-hud';
 import { TurnBasedXmlHUD } from '../src/hud/turn-based-xml-hud';
 import { ChronologicalCompressionEngine } from '../src/compression/chronological-engine';
 import { starshipScenarioFrames } from './starship-scenario-veil';
-import { IncomingVEILFrame, OutgoingVEILFrame } from '../src/veil/types';
+import { Frame } from '../src/veil/types';
 
 async function testFrameTrackingHUD() {
   console.log('=== Testing FrameTrackingHUD ===\n');
   
   // Set up VEIL state
   const veilState = new VEILStateManager();
-  const frameHistory: (IncomingVEILFrame | OutgoingVEILFrame)[] = [];
+  const frameHistory: (Frame | Frame)[] = [];
   
   // Apply all frames
   console.log('Applying frames...');
@@ -28,12 +28,12 @@ async function testFrameTrackingHUD() {
       
       if (hasIncomingOps) {
         // This is an incoming frame
-        veilState.applyIncomingFrame(frame as any);
-        frameHistory.push(frame as IncomingVEILFrame);
+        veilState.applyFrame(frame as any);
+        frameHistory.push(frame as Frame);
       } else {
         // This is an outgoing frame (has speak/toolCall operations)
-        veilState.recordOutgoingFrame(frame as any);
-        frameHistory.push(frame as OutgoingVEILFrame);
+        veilState.applyFrame(frame as any);
+        frameHistory.push(frame as Frame);
       }
     }
   }

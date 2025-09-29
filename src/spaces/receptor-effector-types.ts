@@ -2,8 +2,7 @@
 
 import { 
   Facet, 
-  IncomingVEILFrame,
-  OutgoingVEILFrame,
+  Frame,
   StreamRef,
   AgentInfo,
   hasEphemeralAspect,
@@ -96,7 +95,7 @@ export interface ReadonlyVEILState {
   agents: ReadonlyMap<string, AgentInfo>;
   currentStream?: StreamRef;
   currentAgent?: string;
-  frameHistory: ReadonlyArray<IncomingVEILFrame | OutgoingVEILFrame>;
+  frameHistory: ReadonlyArray<Frame>;
   currentSequence: number;
   removals: ReadonlyMap<string, 'hide' | 'delete'>;
   
@@ -108,3 +107,16 @@ export interface ReadonlyVEILState {
 
 // Ephemeral facets are not actively cleaned up - they naturally fade away
 // by not being persisted and being ignored by systems that don't need them
+
+/**
+ * Maintainer for Phase 4 - handles maintenance operations
+ * Runs after all other phases, can emit events for next frame
+ * Cannot modify VEIL directly, only emit events
+ */
+export interface Maintainer {
+  /** Perform maintenance operations, return events for next frame */
+  maintain(state: ReadonlyVEILState): SpaceEvent[];
+}
+
+// Re-export SpaceEvent for convenience
+export { SpaceEvent };

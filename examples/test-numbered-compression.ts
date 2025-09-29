@@ -8,7 +8,7 @@ import { FrameTrackingHUD } from '../src/hud/frame-tracking-hud';
 import { AttentionAwareCompressionEngine } from '../src/compression/attention-aware-engine';
 import { MockLLMProvider } from '../src/llm/mock-llm-provider';
 import { LLMProviderFactory } from '../src/llm/llm-interface';
-import { IncomingVEILFrame, OutgoingVEILFrame } from '../src/veil/types';
+import { Frame } from '../src/veil/types';
 
 // Register mock provider
 LLMProviderFactory.register('mock', () => new MockLLMProvider());
@@ -18,12 +18,12 @@ async function testNumberedCompression() {
   
   // Create VEIL state and frames
   const veilState = new VEILStateManager();
-  const frames: (IncomingVEILFrame | OutgoingVEILFrame)[] = [];
+  const frames: (Frame | Frame)[] = [];
   
   // Generate 50 numbered event frames
   console.log('Generating 50 event frames...');
   for (let i = 1; i <= 50; i++) {
-    const frame: IncomingVEILFrame = {
+    const frame: Frame = {
       sequence: i,
       timestamp: new Date().toISOString(),
       deltas: [
@@ -40,13 +40,13 @@ async function testNumberedCompression() {
       ]
     };
     
-    veilState.applyIncomingFrame(frame);
+    veilState.applyFrame(frame);
     frames.push(frame);
   }
   
   // Add some agent turns for variety
   for (let i = 51; i <= 55; i++) {
-    const frame: OutgoingVEILFrame = {
+    const frame: Frame = {
       sequence: i,
       timestamp: new Date().toISOString(),
       deltas: [
@@ -57,7 +57,7 @@ async function testNumberedCompression() {
       ]
     };
     
-    veilState.recordOutgoingFrame(frame);
+    veilState.applyFrame(frame);
     frames.push(frame);
   }
   

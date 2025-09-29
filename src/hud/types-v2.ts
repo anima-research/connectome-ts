@@ -3,12 +3,10 @@
  * No ContentBlock abstraction
  */
 
-import { Facet, IncomingVEILFrame, OutgoingVEILFrame, OutgoingVEILOperation } from '../veil/types';
+import { Facet, Frame, OutgoingVEILOperation } from '../veil/types';
 import { CompressionEngine, RenderedFrame } from '../compression/types-v2';
 
 // Union type for frames
-type VEILFrame = IncomingVEILFrame | OutgoingVEILFrame;
-
 /**
  * Result of rendering VEIL state
  */
@@ -62,7 +60,7 @@ export interface HUD {
    * @param config - Rendering configuration
    */
   render(
-    frames: VEILFrame[],
+    frames: Frame[],
     currentFacets: Map<string, Facet>,
     compression?: CompressionEngine,
     config?: HUDConfig
@@ -91,7 +89,7 @@ export interface CompressibleHUD extends HUD {
    * Returns both the context and frame-by-frame rendering
    */
   renderWithFrameTracking(
-    frames: VEILFrame[],
+    frames: Frame[],
     currentFacets: Map<string, Facet>,
     compression?: CompressionEngine,
     config?: HUDConfig
@@ -104,7 +102,7 @@ export interface CompressibleHUD extends HUD {
    * Check if compression is needed based on current state
    */
   needsCompression(
-    frames: VEILFrame[],
+    frames: Frame[],
     config: HUDConfig
   ): boolean;
 }

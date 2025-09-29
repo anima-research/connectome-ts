@@ -4,10 +4,8 @@
  */
 
 import { CompressionEngine, CompressibleRange, CompressionResult, RenderedFrame, StateDelta } from './types-v2';
-import { Facet, IncomingVEILFrame, OutgoingVEILFrame } from '../veil/types';
+import { Facet, Frame } from '../veil/types';
 import { LLMProvider, LLMMessage } from '../llm/llm-interface';
-
-type VEILFrame = IncomingVEILFrame | OutgoingVEILFrame;
 
 interface CompressionRecord {
   range: { from: number; to: number };
@@ -32,7 +30,7 @@ export class AttentionAwareCompressionEngine implements CompressionEngine {
   ) {}
   
   identifyCompressibleRanges(
-    frames: VEILFrame[],
+    frames: Frame[],
     renderedFrames: RenderedFrame[]
   ): CompressibleRange[] {
     const ranges: CompressibleRange[] = [];
@@ -76,7 +74,7 @@ export class AttentionAwareCompressionEngine implements CompressionEngine {
   
   async compressRange(
     range: CompressibleRange,
-    frames: VEILFrame[],
+    frames: Frame[],
     renderedFrames: RenderedFrame[],
     currentFacets: Map<string, Facet>
   ): Promise<CompressionResult> {
@@ -182,7 +180,7 @@ The following ${pending.toFrame - pending.fromFrame + 1} frames (${pending.total
     return null;
   }
   
-  private computeStateDelta(frames: VEILFrame[]): StateDelta {
+  private computeStateDelta(frames: Frame[]): StateDelta {
     const stateDelta: StateDelta = {
       changes: new Map(),
       added: [],

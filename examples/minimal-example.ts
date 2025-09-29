@@ -1,7 +1,7 @@
 // Minimal example showing VEIL frames and their rendered output
 // This demonstrates the core concepts without the complexity of the full scenario
 
-import { IncomingVEILFrame, OutgoingVEILFrame } from '../src/veil/types';
+import { Frame } from '../src/veil/types';
 
 // Simple chat interaction with tool usage
 export const minimalExample = {
@@ -39,7 +39,7 @@ export const minimalExample = {
           }
         }
       ]
-    } as IncomingVEILFrame,
+    } as Frame,
 
     // Frame 2: User asks a question
     {
@@ -59,7 +59,7 @@ export const minimalExample = {
           type: 'agent-activation'
         }
       ]
-    } as IncomingVEILFrame,
+    } as Frame,
 
     // Frame 3: Agent responds
     {
@@ -83,7 +83,7 @@ export const minimalExample = {
           }
         }
       ]
-    } as OutgoingVEILFrame,
+    } as Frame,
 
     // Frame 4: Tool results
     {
@@ -102,7 +102,7 @@ export const minimalExample = {
           type: 'agent-activation'
         }
       ]
-    } as IncomingVEILFrame,
+    } as Frame,
 
     // Frame 5: Agent provides answer
     {
@@ -118,7 +118,7 @@ export const minimalExample = {
           content: "Based on the search results, the authentication logic is implemented across several files:\n\n1. **src/auth/login.ts** - Handles the login flow and user credential verification\n2. **src/auth/middleware.ts** - Contains middleware for protecting routes and validating sessions\n3. **src/services/auth-service.ts** - Core authentication service with business logic\n\nThe main authentication logic appears to be in the auth service, with the login flow handled separately and middleware for route protection."
         }
       ]
-    } as OutgoingVEILFrame
+    } as Frame
   ],
 
   // Rendered Output

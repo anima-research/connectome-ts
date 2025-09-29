@@ -3,17 +3,16 @@
  */
 
 import { CompressionEngine, CompressibleRange, CompressionResult, RenderedFrame, StateDelta } from './types-v2';
-import { Facet, IncomingVEILFrame, OutgoingVEILFrame } from '../veil/types';
+import { Facet, Frame } from '../veil/types';
 
 // Union type for frames
-type VEILFrame = IncomingVEILFrame | OutgoingVEILFrame;
 
 export class SimpleTestCompressionEngine implements CompressionEngine {
   private compressions = new Map<number, string>();
   private stateDeltas = new Map<number, StateDelta>();
   
   identifyCompressibleRanges(
-    frames: VEILFrame[],
+    frames: Frame[],
     renderedFrames: RenderedFrame[]
   ): CompressibleRange[] {
     const ranges: CompressibleRange[] = [];
@@ -46,7 +45,7 @@ export class SimpleTestCompressionEngine implements CompressionEngine {
   
   async compressRange(
     range: CompressibleRange,
-    frames: VEILFrame[],
+    frames: Frame[],
     renderedFrames: RenderedFrame[],
     currentFacets: Map<string, Facet>
   ): Promise<CompressionResult> {

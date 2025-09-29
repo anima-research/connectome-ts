@@ -28,6 +28,16 @@ const TOOLS = {
       properties: {}
     }
   },
+  setResponseLimits: {
+    description: 'Set response limits for MCP responses',
+    parameters: {
+      type: 'object',
+      properties: {
+        charLimit: { type: 'number', description: 'Maximum characters in any response' },
+        defaultFrameLimit: { type: 'number', description: 'Default number of frames to return' }
+      }
+    }
+  },
   getState: {
     description: 'Get the current VEIL state and space structure',
     parameters: {
@@ -203,6 +213,16 @@ function sendResponse(id: string | number, result?: any, error?: any) {
   console.log(JSON.stringify(response));
 }
 
+// Truncate text to character limit
+function truncateText(text: string, limit: number): string {
+  if (text.length <= limit) {
+    return text;
+  }
+  
+  const truncated = text.substring(0, limit - 100); // Leave room for truncation notice
+  return `${truncated}\n\n[RESPONSE TRUNCATED - Original size: ${text.length} characters, limit: ${limit} characters]`;
+}
+
 // Initialize MCP instance
 const mcpInstance = new ConnectomeDebugMCP();
 
@@ -253,6 +273,9 @@ async function processMessage(message: any) {
               break;
             case 'getConnectionStatus':
               result = await mcpInstance.getConnectionStatus();
+              break;
+            case 'setResponseLimits':
+              result = await mcpInstance.setResponseLimits(args);
               break;
             case 'getState':
               result = await mcpInstance.getState();
@@ -309,10 +332,15 @@ async function processMessage(message: any) {
               throw new Error(`Unknown tool: ${name}`);
           }
           
+          // Get current response limits
+          const limits = mcpInstance.getResponseLimits();
+          const resultText = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+          const truncatedText = truncateText(resultText, limits.charLimit);
+          
           sendResponse(id, {
             content: [{
               type: 'text',
-              text: typeof result === 'string' ? result : JSON.stringify(result, null, 2)
+              text: truncatedText
             }]
           });
         } catch (err: any) {

@@ -55,6 +55,8 @@ export class BoxDispenserComponent extends InteractiveComponent {
 - @dispenser.setSize("small"|"medium"|"large") - Change box size
 - @dispenser.setColor("red"|"blue"|"green"|"rainbow") - Change box color`
     });
+    
+    // Add state facet with renderers included!
     this.addFacet({
       id: 'dispenser-state',
       type: 'state',
@@ -63,6 +65,7 @@ export class BoxDispenserComponent extends InteractiveComponent {
       attributes: {
         boxesDispensed: 0
       },
+      // Renderers are now functions that will be auto-converted to serializable strings
       attributeRenderers: {
         boxesDispensed: (value: number) => value > 0 ? `(${value} boxes created)` : null
       },
@@ -74,8 +77,7 @@ export class BoxDispenserComponent extends InteractiveComponent {
           return null;
         }
       }
-  });
-
+    });
   }
   
   async handleEvent(event: SpaceEvent): Promise<void> {

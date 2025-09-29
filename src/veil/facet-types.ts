@@ -116,6 +116,9 @@ export type StateFacet = BaseFacet & ContentAspect & StateAspect & ScopedAspect 
   type: 'state';
   entityType: 'component' | 'element' | 'agent';
   entityId: string;
+  // Optional renderers for state transitions (as serializable JS code strings)
+  attributeRenderers?: Record<string, string>; // JS code: (value) => string | null
+  transitionRenderers?: Record<string, string>; // JS code: (newValue, oldValue) => string | null
 };
 
 /**
@@ -235,6 +238,39 @@ export type ActionDefinitionFacet = BaseFacet & StateAspect<{
   handler: string;
 }> & {
   type: 'action-definition';
+};
+
+/**
+ * Element tree structure facet (infrastructure)
+ */
+export type ElementTreeFacet = BaseFacet & StateAspect<{
+  elementId: string;
+  elementType: string;
+  parentId: string | null;
+  name: string;
+  active: boolean;
+  components: Array<{
+    type: string;
+    index: number;
+    config?: any;
+  }>;
+}> & {
+  type: 'element-tree';
+};
+
+/**
+ * Element creation request facet (ephemeral)
+ */
+export type ElementRequestFacet = BaseFacet & StateAspect<{
+  parentId: string | null;
+  elementType: string;
+  name: string;
+  components?: Array<{
+    type: string;
+    config?: any;
+  }>;
+}> & EphemeralAspect & {
+  type: 'element-request';
 };
 
 // ============================================

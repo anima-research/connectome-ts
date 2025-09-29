@@ -1,7 +1,7 @@
 import { Element } from './element';
-import { SpaceEvent, FrameStartEvent, FrameEndEvent, StreamRef, EventPhase, ElementRef } from './types';
+import { SpaceEvent, FrameStartEvent, FrameEndEvent, StreamRef, ElementRef } from './types';
 import { VEILStateManager } from '../veil/veil-state';
-import { IncomingVEILFrame, OutgoingVEILFrame, Frame, Facet, VEILDelta, AgentInfo, createDefaultTransition } from '../veil/types';
+import { Frame, Facet, VEILDelta, AgentInfo, createDefaultTransition } from '../veil/types';
 import { matchesTopic } from './utils';
 import { 
   TraceStorage, 
@@ -9,13 +9,12 @@ import {
   getGlobalTracer 
 } from '../tracing';
 import { EventPriorityQueue } from './priority-queue';
-import { eventBubbles } from './event-utils';
 import type { 
   DebugObserver,
   DebugFrameStartContext,
   DebugFrameCompleteContext,
   DebugEventContext,
-  DebugOutgoingFrameContext,
+  DebugAgentFrameContext,
   DebugRenderedContextInfo
 } from '../debug/types';
 import { DebugServer, DebugServerConfig } from '../debug/debug-server';
@@ -31,7 +30,8 @@ import {
   FacetDelta, 
   ReadonlyVEILState,
   EffectorResult,
-  FacetFilter
+  FacetFilter,
+  Maintainer
 } from './receptor-effector-types';
 import { VEILOperationReceptor } from './migration-adapters';
 
@@ -66,7 +66,7 @@ export class Space extends Element {
   /**
    * Current frame being processed
    */
-  private currentFrame?: IncomingVEILFrame;
+  private currentFrame?: Frame;
   
   /**
    * Active stream reference
@@ -79,6 +79,7 @@ export class Space extends Element {
    */
   private processingFrame: boolean = false;
   
+  
   /**
    * Tracer for observability
    */
@@ -88,6 +89,11 @@ export class Space extends Element {
    * Registered debug observers that mirror internal activity to external tooling
    */
   private debugObservers: DebugObserver[] = [];
+  
+  /**
+   * Frame completion observers (for persistence, etc)
+   */
+  private frameObservers: Array<(frame: Frame) => Promise<void>> = [];
 
   private debugServerInstance?: DebugServer;
 
@@ -97,6 +103,7 @@ export class Space extends Element {
   private receptors: Map<string, Receptor[]> = new Map();
   private transforms: Transform[] = [];
   private effectors: Effector[] = [];
+  private maintainers: Maintainer[] = [];
   
   constructor(veilState: VEILStateManager, hostRegistry?: Map<string, any>) {
     super('root');
@@ -104,13 +111,8 @@ export class Space extends Element {
     this.hostRegistry = hostRegistry || new Map(); // Fallback for tests
     this.tracer = getGlobalTracer();
     
-    // Subscribe to agent frame events
-    this.subscribe('agent:frame-ready');
+    // Subscribe to agent activation events
     this.subscribe('agent:activate');
-    
-    // Subscribe to element lifecycle events for transition tracking
-    this.subscribe('element:mount');
-    this.subscribe('element:unmount');
     
     // Add built-in VEIL operation receptor for compatibility
     this.addReceptor(new VEILOperationReceptor());
@@ -132,6 +134,10 @@ export class Space extends Element {
   
   addEffector(effector: Effector): void {
     this.effectors.push(effector);
+  }
+  
+  addMaintainer(maintainer: Maintainer): void {
+    this.maintainers.push(maintainer);
   }
   
   /**
@@ -158,7 +164,7 @@ export class Space extends Element {
    * can display exactly what the LLM saw.
    */
   recordRenderedContext(
-    frame: IncomingVEILFrame,
+    frame: Frame,
     context: RenderedContext,
     metadata: { agentId?: string; agentName?: string; streamRef?: StreamRef } = {}
   ): void {
@@ -236,7 +242,7 @@ export class Space extends Element {
   /**
    * Get the current frame (for components to add operations)
    */
-  getCurrentFrame(): IncomingVEILFrame | undefined {
+  getCurrentFrame(): Frame | undefined {
     return this.currentFrame;
   }
   
@@ -300,7 +306,7 @@ export class Space extends Element {
       };
       
       // Keep currentFrame for compatibility
-      this.currentFrame = frame as IncomingVEILFrame;
+      this.currentFrame = frame;
       this.notifyDebugFrameStart(this.currentFrame, {
         queuedEvents: this.eventQueue.length
       });
@@ -313,6 +319,7 @@ export class Space extends Element {
           events.push(event);
         }
       }
+      
       
       // Record events in frame
       frame.events = events;
@@ -331,21 +338,24 @@ export class Space extends Element {
         })),
         transition: createDefaultTransition(frameId, timestamp)
       };
-      const phase1Changes = this.veilState.applyFrame(phase1Frame);
+      const phase1Changes = this.veilState.applyFrame(phase1Frame, true); // Skip ephemeral cleanup
       
       // PHASE 2: VEIL → VEIL (via Transforms) - loop until no more deltas
       const allPhase2Deltas: VEILDelta[] = [];
       const allPhase2Changes: FacetDelta[] = [];
       let iteration = 0;
-      const maxIterations = 10; // Prevent infinite loops
+      const maxIterations = 100; // Prevent infinite loops
+      let lastPhase2Deltas: VEILDelta[] = [];
       
       while (iteration < maxIterations) {
         const phase2Deltas = this.runPhase2();
+        lastPhase2Deltas = phase2Deltas;
         
         if (phase2Deltas.length === 0) {
           // No more deltas generated, we're done
           break;
         }
+        
         
         // Apply these deltas to state so next iteration can see them
         const phase2Sequence = this.veilState.getNextSequence();
@@ -356,7 +366,7 @@ export class Space extends Element {
           deltas: phase2Deltas,
           transition: createDefaultTransition(phase2Sequence, timestamp)
         };
-        const phase2Changes = this.veilState.applyFrame(phase2Frame);
+        const phase2Changes = this.veilState.applyFrame(phase2Frame, true); // Skip ephemeral cleanup
         
         allPhase2Deltas.push(...phase2Deltas);
         allPhase2Changes.push(...phase2Changes);
@@ -364,7 +374,7 @@ export class Space extends Element {
       }
       
       if (iteration === maxIterations) {
-        console.warn(`Phase 2 hit max iterations (${maxIterations}), possible infinite loop in transforms`);
+        throw new Error(`Phase 2 exceeded maximum iterations (${maxIterations}). Possible infinite loop in transforms. Last ${lastPhase2Deltas.length} deltas were of types: ${lastPhase2Deltas.map(d => d.type).join(', ')}`);
       }
       
       // Collect all operations for the complete frame
@@ -374,16 +384,6 @@ export class Space extends Element {
       }));
       frame.deltas = [...phase1Deltas, ...allPhase2Deltas];
       
-      // Also support legacy distributeEvent for components not yet migrated
-      for (const event of events) {
-        await this.distributeEvent(event);
-        if (this.currentFrame) {
-          this.notifyDebugFrameEvent(this.currentFrame, event, {
-            phase: event.eventPhase ?? EventPhase.NONE,
-            targetId: event.target?.elementId
-          });
-        }
-      }
       
       // Update currentFrame operations with all operations (including legacy)
       this.currentFrame.deltas = [...this.currentFrame.deltas, ...frame.deltas];
@@ -405,8 +405,15 @@ export class Space extends Element {
       // PHASE 3: VEIL → Events (via Effectors)
       const newEvents = await this.runPhase3(allChanges);
       
-      // Queue new events for next frame
-      newEvents.forEach(event => this.queueEvent(event));
+      // PHASE 4: Maintenance (Element tree, references, cleanup)
+      const maintenanceEvents = await this.runPhase4();
+      
+      // Queue all new events for next frame
+      [...newEvents, ...maintenanceEvents].forEach(event => this.queueEvent(event));
+      
+      // Clean up ephemeral facets now that all phases are complete
+      const ephemeralCleanup = this.veilState.cleanupEphemeralFacets();
+      allChanges.push(...ephemeralCleanup);
       
       // Notify debug observers
         this.notifyDebugFrameComplete(this.currentFrame, {
@@ -414,18 +421,6 @@ export class Space extends Element {
           processedEvents: events.length
         });
         
-      // Emit frame:end for compatibility
-      await this.distributeEvent({
-        topic: 'frame:end',
-        source: this.getRef(),
-        payload: { 
-          frameId, 
-          hasOperations, 
-          hasActivation,
-          transition: frame.transition 
-        },
-        timestamp: Date.now()
-      } as FrameEndEvent);
       
     } finally {
       this.currentFrame = undefined;
@@ -561,6 +556,36 @@ export class Space extends Element {
   }
   
   /**
+   * PHASE 4: Maintenance
+   */
+  private async runPhase4(): Promise<SpaceEvent[]> {
+    const events: SpaceEvent[] = [];
+    const readonlyState = this.getReadonlyState();
+    
+    for (const maintainer of this.maintainers) {
+      try {
+        const maintenanceEvents = maintainer.maintain(readonlyState);
+        events.push(...maintenanceEvents);
+      } catch (error) {
+        console.error('Maintainer error:', error);
+        // Create error event
+        events.push({
+          topic: 'system:error',
+          source: this.getRef(),
+          timestamp: Date.now(),
+          payload: {
+            type: 'maintainer-error',
+            maintainer: maintainer.constructor.name,
+            error: String(error)
+          }
+        });
+      }
+    }
+    
+    return events;
+  }
+  
+  /**
    * Helper to check if facet matches effector filters
    */
   private matchesEffectorFilters(facet: Facet, filters: FacetFilter[]): boolean {
@@ -623,144 +648,7 @@ export class Space extends Element {
     };
   }
   
-  /**
-   * Distribute an event through the element tree
-   */
-  private async distributeEvent(event: SpaceEvent): Promise<void> {
-    // For broadcast-style events (like agent:response), distribute to all subscribers
-    if (this.isBroadcastEvent(event)) {
-      await this.broadcastEvent(event);
-      return;
-    }
-    
-    // Otherwise use three-phase propagation
-    await this.propagateEvent(event);
-  }
   
-  /**
-   * Check if an event should be broadcast to all subscribers
-   */
-  private isBroadcastEvent(event: SpaceEvent): boolean {
-    // Default to broadcast unless explicitly set to false
-    if ('broadcast' in event) {
-      return event.broadcast !== false;
-    }
-    
-    // All events broadcast by default
-    return true;
-  }
-  
-  /**
-   * Broadcast an event to all subscribed elements
-   */
-  private async broadcastEvent(event: SpaceEvent): Promise<void> {
-    await this.broadcastToElement(this, event);
-  }
-  
-  /**
-   * Recursively broadcast to element and children
-   */
-  private async broadcastToElement(element: Element, event: SpaceEvent): Promise<void> {
-    if (!element.active) return;
-    
-    if (element.isSubscribedTo(event.topic)) {
-      await element.handleEvent(event);
-    }
-    
-    // Broadcast to all children
-    for (const child of element.children) {
-      await this.broadcastToElement(child, event);
-    }
-  }
-  
-  /**
-   * Use three-phase propagation for an event
-   */
-  private async propagateEvent(event: SpaceEvent): Promise<void> {
-    // Find the target element based on the event source
-    const targetElement = this.findElementByRef(event.source);
-    if (!targetElement) {
-      console.warn(`Target element not found for event: ${event.topic}`, event.source);
-      return;
-    }
-    
-    // Set the target
-    event.target = targetElement.getRef();
-    
-    // Build the propagation path from root to target
-    const path: Element[] = [];
-    let current: Element | null = targetElement;
-    while (current) {
-      path.unshift(current);
-      current = current.parent;
-    }
-    
-    // Phase 1: Capturing phase (root to target)
-    event.eventPhase = EventPhase.CAPTURING_PHASE;
-    for (let i = 0; i < path.length - 1; i++) {
-      const element = path[i];
-      if (!element.active) continue;
-      
-      if (element.isSubscribedTo(event.topic)) {
-        await element.handleEvent(event);
-        
-        if (event.propagationStopped) {
-          return;
-        }
-      }
-    }
-    
-    // Phase 2: At target
-    event.eventPhase = EventPhase.AT_TARGET;
-    if (targetElement.active && targetElement.isSubscribedTo(event.topic)) {
-      await targetElement.handleEvent(event);
-      
-      if (event.propagationStopped) {
-        return;
-      }
-    }
-    
-    // Phase 3: Bubbling phase (target to root)
-    if (eventBubbles(event)) {
-      event.eventPhase = EventPhase.BUBBLING_PHASE;
-      for (let i = path.length - 2; i >= 0; i--) {
-        const element = path[i];
-        if (!element.active) continue;
-        
-        if (element.isSubscribedTo(event.topic)) {
-          await element.handleEvent(event);
-          
-          if (event.propagationStopped) {
-            return;
-          }
-        }
-      }
-    }
-    
-    // Reset phase
-    event.eventPhase = EventPhase.NONE;
-  }
-  
-  /**
-   * Find an element by its reference
-   */
-  private findElementByRef(ref: ElementRef): Element | null {
-    return this.findElementByIdInTree(this, ref.elementId);
-  }
-  
-  /**
-   * Recursively find element by ID in the tree
-   */
-  private findElementByIdInTree(root: Element, id: string): Element | null {
-    if (root.id === id) return root;
-    
-    for (const child of root.children) {
-      const found = this.findElementByIdInTree(child, id);
-      if (found) return found;
-    }
-    
-    return null;
-  }
   
   
   /**
@@ -793,27 +681,27 @@ export class Space extends Element {
     return Array.from(this.hostRegistry.keys());
   }
 
-  private notifyDebugFrameStart(frame: IncomingVEILFrame, context: DebugFrameStartContext): void {
+  private notifyDebugFrameStart(frame: Frame, context: DebugFrameStartContext): void {
     for (const observer of this.debugObservers) {
       observer.onFrameStart?.(frame, context);
     }
   }
 
-  private notifyDebugFrameEvent(frame: IncomingVEILFrame, event: SpaceEvent, context: DebugEventContext): void {
+  private notifyDebugFrameEvent(frame: Frame, event: SpaceEvent, context: DebugEventContext): void {
     for (const observer of this.debugObservers) {
       observer.onFrameEvent?.(frame, event, context);
     }
   }
 
-  private notifyDebugFrameComplete(frame: IncomingVEILFrame, context: DebugFrameCompleteContext): void {
+  private notifyDebugFrameComplete(frame: Frame, context: DebugFrameCompleteContext): void {
     for (const observer of this.debugObservers) {
       observer.onFrameComplete?.(frame, context);
     }
   }
 
-  private notifyDebugOutgoingFrame(frame: OutgoingVEILFrame, context: DebugOutgoingFrameContext): void {
+  private notifyDebugAgentFrame(frame: Frame, context: DebugAgentFrameContext): void {
     for (const observer of this.debugObservers) {
-      observer.onOutgoingFrame?.(frame, context);
+      observer.onAgentFrame?.(frame, context);
     }
   }
 
@@ -848,10 +736,6 @@ export class Space extends Element {
       timestamp: Date.now()
     });
     
-    // Subscribe to agent:activate if not already subscribed
-    if (!this.isSubscribedTo('agent:activate')) {
-      this.subscribe('agent:activate');
-    }
   }
   
   /**
@@ -860,79 +744,6 @@ export class Space extends Element {
   async handleEvent(event: SpaceEvent): Promise<void> {
     // Queue the event for processing
     this.queueEvent(event);
-    
-    // Also call parent for legacy component handling
-    await super.handleEvent(event);
-    
-    // Handle agent:activate events (legacy)
-    if (event.topic === 'agent:activate' && this.currentFrame) {
-      const payload = event.payload as any;
-      
-      // Add activation facet
-      this.currentFrame.deltas.push({
-        type: 'addFacet',
-        facet: {
-          id: `agent-activation-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        type: 'agent-activation',
-          content: payload.reason || 'Agent activation requested',
-          attributes: {
-        source: payload.source || 'system',
-            sourceAgentId: payload.sourceAgentId,
-            sourceAgentName: payload.sourceAgentName,
-        reason: payload.reason || 'requested',
-            priority: payload.priority || 'normal',
-            targetAgent: payload.targetAgent,
-            targetAgentId: payload.targetAgentId,
-            config: payload.config
-          }
-        }
-      } as any);
-      
-      // Set active stream for response routing
-      if (!payload.streamId) {
-        console.warn('[Space] agent:activate event missing streamId - using console:default as fallback. Agent responses may not route correctly.');
-      }
-      const streamId = payload.streamId || 'console:default';
-      this.currentFrame.activeStream = {
-        streamId: streamId,
-        streamType: payload.streamType || streamId.split(':')[0],
-        metadata: payload.metadata || {}
-      };
-    }
-    
-    // Handle agent:frame-ready events
-    if (event.topic === 'agent:frame-ready') {
-      const { frame: agentFrame, agentId, agentName, renderedContext, rawCompletion } = event.payload as any;
-      
-      // Clone the frame to avoid mutating the agent's original
-      const nextSequence = this.veilState.getNextSequence();
-      const frame: OutgoingVEILFrame = {
-        ...agentFrame,
-        deltas: [...agentFrame.deltas],
-        sequence: nextSequence,
-        timestamp: agentFrame.timestamp || new Date().toISOString(),
-        activeStream: agentFrame.activeStream || this.activeStream,
-        uuid: deterministicUUID(`outgoing-${nextSequence}`)
-      };
-
-      // Attach raw completion to outgoing frame for debug purposes
-      if (rawCompletion) {
-        (frame as any).renderedContext = rawCompletion;
-      }
-
-      // Record the frame with agent information
-      this.veilState.recordOutgoingFrame(frame, { agentId, agentName });
-      this.notifyDebugOutgoingFrame(frame, { agentId, agentName });
-      
-      // If rendered context was provided, record it for the current frame (incoming frame)
-      if (renderedContext && this.currentFrame) {
-        this.recordRenderedContext(this.currentFrame, renderedContext, {
-          agentId,
-          agentName,
-          streamRef: frame.activeStream
-        });
-      }
-    }
     
     // Track element operations in transition
     if (this.currentFrame?.transition) {

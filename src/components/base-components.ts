@@ -2,7 +2,7 @@ import { Component } from '../spaces/component';
 import { SpaceEvent } from '../spaces/types';
 import { Space } from '../spaces/space';
 import {
-  IncomingVEILFrame,
+  Frame,
   VEILDelta,
   Facet,
   StateFacet,

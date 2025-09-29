@@ -179,7 +179,7 @@ export interface TopicSubscription {
 export interface AgentInterface {
   /**
    * Called after all components have processed frame:end
-   * Returns outgoing frame if agent generates a response
+   * Returns an agent-generated frame if the agent produces a response
    */
   onFrameComplete(frame: any, state: any): Promise<any>;
   

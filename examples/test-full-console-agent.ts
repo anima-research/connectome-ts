@@ -14,7 +14,8 @@ import {
   MockLLMProvider,
   AnthropicProvider,
   ContextTransform,
-  AgentEffector
+  AgentEffector,
+  AgentElement
 } from '../src';
 import { 
   ConsoleInputReceptor, 
@@ -69,8 +70,13 @@ async function main() {
   space.addTransform(contextTransform);
   console.log('- Note: Ephemeral facets naturally fade away, no cleanup needed');
   
+  // Create an agent element to host the effector
+  const agentElement = new AgentElement('Assistant', 'assistant-agent');
+  space.addChild(agentElement);
+  console.log('- Agent element created and added to space');
+  
   // Phase 3: VEIL changes → Events/Actions
-  const agentEffector = new AgentEffector(agent);
+  const agentEffector = new AgentEffector(agentElement, agent);
   console.log('- AgentEffector added');
   space.addEffector(agentEffector);
   

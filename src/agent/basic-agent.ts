@@ -13,8 +13,7 @@ import {
 } from './types';
 import { 
   Facet,
-  IncomingVEILFrame, 
-  OutgoingVEILFrame, 
+  Frame, 
   OutgoingVEILOperation,
   VEILState,
   StreamRef,
@@ -85,7 +84,7 @@ export class BasicAgent implements AgentInterface {
     }
   }
   
-  async onFrameComplete(frame: IncomingVEILFrame, state: VEILState): Promise<OutgoingVEILFrame | undefined> {
+  async onFrameComplete(frame: Frame, state: VEILState): Promise<Frame | undefined> {
     this.tracer?.record({
       id: `agent-frame-${frame.sequence}`,
       timestamp: Date.now(),
@@ -181,7 +180,7 @@ export class BasicAgent implements AgentInterface {
     return true;
   }
   
-  async runCycle(context: RenderedContext, streamRef?: StreamRef): Promise<OutgoingVEILFrame> {
+  async runCycle(context: RenderedContext, streamRef?: StreamRef): Promise<Frame> {
     const cycleSpan = this.tracer?.startSpan('runCycle', 'BasicAgent');
     
     try {
@@ -261,12 +260,12 @@ export class BasicAgent implements AgentInterface {
       // Apply stream routing to speak operations
       const operations = this.applyStreamRouting(parsed.operations, streamRef);
       
-      // Create outgoing frame without sequence (Space will assign it)
+      // Create agent-generated frame without sequence (Space will assign it)
       const timestamp = new Date().toISOString();
       const transition = createDefaultTransition(-1, timestamp);
       transition.veilOps = operations;
 
-      const frame: OutgoingVEILFrame = {
+      const frame: Frame = {
         sequence: -1, // Placeholder - Space will assign proper sequence
         timestamp,
         events: [],

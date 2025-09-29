@@ -5,7 +5,7 @@
 import { Element } from '../spaces/element';
 import { Space } from '../spaces/space';
 import { VEILStateManager } from '../veil/veil-state';
-import { IncomingVEILFrame, OutgoingVEILFrame } from '../veil/types';
+import { Frame } from '../veil/types';
 import { SpaceEvent } from '../spaces/types';
 import {
   PersistenceConfig,
@@ -293,13 +293,7 @@ export class PersistenceManager {
    */
   private async applyDelta(delta: FrameDelta) {
     // Apply frame
-    if ('activeStream' in delta.frame) {
-      // Incoming frame
-      await this.veilState.applyIncomingFrame(delta.frame as IncomingVEILFrame);
-    } else {
-      // Outgoing frame
-      this.veilState.recordOutgoingFrame(delta.frame as OutgoingVEILFrame);
-    }
+    await this.veilState.applyFrame(delta.frame as Frame);
 
     // Apply element operations
     if (delta.elementOperations) {

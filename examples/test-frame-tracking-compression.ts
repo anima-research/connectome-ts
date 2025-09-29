@@ -6,14 +6,14 @@ import { VEILStateManager } from '../src/veil/veil-state';
 import { FrameTrackingHUD } from '../src/hud/frame-tracking-hud';
 import { SimpleTestCompressionEngine } from '../src/compression/simple-test-engine';
 import { starshipScenarioFrames } from './starship-scenario-veil';
-import { IncomingVEILFrame, OutgoingVEILFrame } from '../src/veil/types';
+import { Frame } from '../src/veil/types';
 
 async function testWithCompression() {
   console.log('=== Testing FrameTrackingHUD with Compression ===\n');
   
   // Set up VEIL state
   const veilState = new VEILStateManager();
-  const frameHistory: (IncomingVEILFrame | OutgoingVEILFrame)[] = [];
+  const frameHistory: (Frame | Frame)[] = [];
   
   // Apply all frames
   console.log('Setting up VEIL state...');
@@ -25,11 +25,11 @@ async function testWithCompression() {
       );
       
       if (hasIncomingOps) {
-        veilState.applyIncomingFrame(frame as any);
-        frameHistory.push(frame as IncomingVEILFrame);
+        veilState.applyFrame(frame as any);
+        frameHistory.push(frame as Frame);
       } else {
-        veilState.recordOutgoingFrame(frame as any);
-        frameHistory.push(frame as OutgoingVEILFrame);
+        veilState.applyFrame(frame as any);
+        frameHistory.push(frame as Frame);
       }
     }
   }

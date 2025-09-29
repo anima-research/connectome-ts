@@ -1,14 +1,14 @@
 // Complete VEIL frames for the starship scenario
 // This file shows all VEIL frames that produce the rendered context
 
-import { IncomingVEILFrame, OutgoingVEILFrame, createDefaultTransition } from '../veil/types';
+import { Frame, createDefaultTransition } from '../veil/types';
 
 const BRIDGE_STREAM_ID = 'starship:bridge';
 const BRIDGE_STREAM_TYPE = 'starship';
 const CAPTAIN_AGENT_ID = 'captain';
 const CAPTAIN_AGENT_NAME = 'Captain Reyes';
 
-export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] = [
+export const starshipScenarioFrames: (Frame | Frame)[] = [
   // Frame 1: Initial state setup
   {
     sequence: 1,

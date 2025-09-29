@@ -27,6 +27,7 @@ import { AgentInterface, AgentState, AgentCommand } from './types';
 import { LLMProvider } from '../llm/llm-interface';
 import { getGlobalTracer, TraceStorage } from '../tracing';
 import { RenderedContext } from '../hud/types-v2';
+import { Element } from '../spaces/element';
 
 export class AgentEffector implements Effector {
   // Watch for activation facets AND their rendered contexts
@@ -40,7 +41,10 @@ export class AgentEffector implements Effector {
   private tracer?: TraceStorage;
   private cachedAgentId?: string;
   
-  constructor(agent: AgentInterface) {
+  constructor(
+    private element: Element,
+    agent: AgentInterface
+  ) {
     this.agent = agent;
     this.tracer = getGlobalTracer();
   }
@@ -111,7 +115,7 @@ export class AgentEffector implements Effector {
           for (const facet of response.facets) {
             events.push({
               topic: 'veil:operation',
-              source: { elementId: 'agent-effector', elementPath: [] },
+              source: this.element.getRef(),
               timestamp: Date.now(),
               payload: {
                 operation: {
@@ -233,15 +237,8 @@ export class AgentEffector implements Effector {
   }
 
   private getAgentId(): string {
-    if (!this.cachedAgentId) {
-      const candidate = (this.agent as any)?.config?.name as string | undefined;
-      if (candidate) {
-        this.cachedAgentId = candidate.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-      } else {
-        this.cachedAgentId = `agent-${Math.random().toString(36).substr(2, 9)}`;
-      }
-    }
-    return this.cachedAgentId;
+    // Use the element's ID as the agent ID for consistency
+    return this.element.id;
   }
   
   // Handle agent commands via facets

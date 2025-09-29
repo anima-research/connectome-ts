@@ -12,8 +12,8 @@ import { AgentConfig, ToolDefinition } from '../src/agent/types';
 import { VEILStateManager } from '../src/veil/veil-state';
 import { FrameTrackingHUD } from '../src/hud/frame-tracking-hud';
 import { 
-  IncomingVEILFrame,
-  OutgoingVEILFrame,
+  Frame,
+  Frame,
   StreamRef,
   AgentActivationOperation,
   VEILOperation,
@@ -143,7 +143,7 @@ function createDefaultTracer(): TraceStorage | undefined {
 
 // Initialize the interactive box state
 function initializeBoxState(space: Space, veilState: VEILStateManager) {
-  const frame: IncomingVEILFrame = {
+  const frame: Frame = {
     sequence: veilState.getNextSequence(),
     timestamp: new Date().toISOString(),
     activeStream: {
@@ -193,7 +193,7 @@ Note: If you want to talk about actions without executing them, wrap them in bac
   });
   
   // Apply the frame to VEIL state
-  veilState.applyIncomingFrame(frame);
+  veilState.applyFrame(frame);
 }
 
 // Handle box opening action

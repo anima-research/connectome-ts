@@ -123,9 +123,9 @@ export function createDefaultTransition(sequence: number, timestamp: string): Fr
   };
 }
 
-// Legacy aliases - DELETE THESE ONCE MIGRATION COMPLETE
-export type IncomingVEILFrame = Frame;
-export type OutgoingVEILFrame = Frame;
+// Frame types are now unified - no more incoming/outgoing distinction
+// Turn attribution is determined by frame.events, not frame type
+
 export type OutgoingVEILOperation = VEILOperation;
 
 // VEIL State
@@ -136,7 +136,7 @@ export interface VEILState {
   agents: Map<string, AgentInfo>;  // Active agents
   currentStream?: StreamRef;  // Currently active stream
   currentAgent?: string;  // Currently processing agent
-  frameHistory: (IncomingVEILFrame | OutgoingVEILFrame)[];
+  frameHistory: Frame[];
   currentSequence: number;
   removals: Map<string, 'hide' | 'delete'>;  // Tracks removed facets
 }

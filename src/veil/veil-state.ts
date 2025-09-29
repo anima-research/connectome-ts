@@ -1,8 +1,6 @@
 import { 
   Facet, 
   VEILState, 
-  IncomingVEILFrame, 
-  OutgoingVEILFrame, 
   VEILOperation,
   StreamRef,
   FrameTransition,
@@ -44,16 +42,9 @@ export class VEILStateManager {
   }
 
   /**
-   * Apply an incoming frame to the current state
-   */
-  applyIncomingFrame(frame: IncomingVEILFrame): void {
-    this.applyFrame(frame as any);
-  }
-  
-  /**
    * Apply a frame and return the changes
    */
-  applyFrame(frame: Frame): FacetDelta[] {
+  applyFrame(frame: Frame, skipEphemeralCleanup: boolean = false): FacetDelta[] {
     // Validate sequence - must be exactly the next number
     const expectedSequence = this.state.currentSequence + 1;
     if (frame.sequence !== expectedSequence) {
@@ -62,7 +53,7 @@ export class VEILStateManager {
         `(current: ${this.state.currentSequence})`
       );
     }
-    
+
     const changes: FacetDelta[] = [];
 
     // Update active stream if provided
@@ -81,9 +72,58 @@ export class VEILStateManager {
     // Update state
     this.state.frameHistory.push(frame);
     this.state.currentSequence = frame.sequence;
+    
+    // Remove ephemeral facets at end of frame (unless skipped)
+    if (!skipEphemeralCleanup) {
+      const ephemeralFacets: Array<[string, Facet]> = [];
+      for (const [id, facet] of this.state.facets) {
+        if ('ephemeral' in facet && facet.ephemeral === true) {
+          ephemeralFacets.push([id, facet]);
+        }
+      }
+      
+      // Remove ephemeral facets
+      for (const [id, facet] of ephemeralFacets) {
+        this.state.facets.delete(id);
+        // Also track this as a removal for the frame
+        changes.push({
+          type: 'removed',
+          facet
+        });
+      }
+    }
 
     // Notify listeners
     this.notifyListeners();
+    
+    return changes;
+  }
+  
+  /**
+   * Clean up ephemeral facets - call this at the end of full frame processing
+   */
+  cleanupEphemeralFacets(): FacetDelta[] {
+    const changes: FacetDelta[] = [];
+    const ephemeralFacets: Array<[string, Facet]> = [];
+    
+    for (const [id, facet] of this.state.facets) {
+      if ('ephemeral' in facet && facet.ephemeral === true) {
+        ephemeralFacets.push([id, facet]);
+      }
+    }
+    
+    // Remove ephemeral facets
+    for (const [id, facet] of ephemeralFacets) {
+      this.state.facets.delete(id);
+      changes.push({
+        type: 'removed',
+        facet
+      });
+    }
+    
+    if (changes.length > 0) {
+      this.notifyListeners();
+    }
     
     return changes;
   }
@@ -139,7 +179,8 @@ export class VEILStateManager {
           }
         }
 
-        this.state.facets.set(operation.id, this.cloneFacet(updated));
+        // Don't clone again - we already preserved what we need
+        this.state.facets.set(operation.id, updated);
         return { type: 'changed', facet: updated, oldFacet: existing };
       }
       case 'removeFacet': {
@@ -153,39 +194,6 @@ export class VEILStateManager {
       default:
         return null;
     }
-  }
-
-  /**
-   * Record an outgoing frame (from agent) and create facets for agent actions
-   */
-  recordOutgoingFrame(frame: OutgoingVEILFrame, agentInfo?: { agentId: string; agentName?: string }): void {
-    // Validate sequence - must be exactly the next number
-    const expectedSequence = this.state.currentSequence + 1;
-    if (frame.sequence !== expectedSequence) {
-      throw new Error(
-        `Frame sequence error: expected ${expectedSequence}, got ${frame.sequence} ` +
-        `(current: ${this.state.currentSequence})`
-      );
-    }
-    
-    const frameTimestamp = new Date().toISOString();
-    
-    // Set current agent if provided
-    if (agentInfo?.agentId) {
-      this.state.currentAgent = agentInfo.agentId;
-    }
-    
-    // Process deltas from the outgoing frame
-    const deltas: VEILOperation[] = frame.deltas || [];
-    for (const operation of deltas) {
-      if (operation.type === 'addFacet' || operation.type === 'changeFacet' || operation.type === 'removeFacet') {
-        this.applyDelta(operation, frame.sequence, frame.timestamp);
-      }
-    }
-
-    this.state.frameHistory.push(frame);
-    this.state.currentSequence = frame.sequence;
-    this.notifyListeners();
   }
 
   /**
@@ -451,7 +459,7 @@ export class VEILStateManager {
     return { invariant, stateful };
   }
   
-  private analyzeAffectedState(frames: Array<IncomingVEILFrame | OutgoingVEILFrame>): {
+  private analyzeAffectedState(frames: Frame[]): {
     facets: Set<string>;
     warnings: string[];
   } {
@@ -620,9 +628,9 @@ export class VEILStateManager {
           );
           
           if (isIncoming) {
-            this.applyIncomingFrame(frame as IncomingVEILFrame);
+            this.applyFrame(frame);
           } else {
-            this.recordOutgoingFrame(frame as OutgoingVEILFrame);
+            this.applyFrame(frame);
           }
         }
         

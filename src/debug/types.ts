@@ -1,4 +1,4 @@
-import type { IncomingVEILFrame, OutgoingVEILFrame, StreamRef } from '../veil/types';
+import type { Frame, StreamRef } from '../veil/types';
 import type { SpaceEvent, EventPhase } from '../spaces/types';
 import type { RenderedContext } from '../hud/types-v2';
 
@@ -11,7 +11,7 @@ export interface DebugFrameCompleteContext {
   processedEvents: number;
 }
 
-export interface DebugOutgoingFrameContext {
+export interface DebugAgentFrameContext {
   agentId?: string;
   agentName?: string;
 }
@@ -34,9 +34,9 @@ export interface DebugRenderedContextInfo {
  * Observer interface used by the Space to notify the debug server about runtime activity.
  */
 export interface DebugObserver {
-  onFrameStart?(frame: IncomingVEILFrame, context: DebugFrameStartContext): void;
-  onFrameEvent?(frame: IncomingVEILFrame, event: SpaceEvent, context: DebugEventContext): void;
-  onFrameComplete?(frame: IncomingVEILFrame, context: DebugFrameCompleteContext): void;
-  onOutgoingFrame?(frame: OutgoingVEILFrame, context: DebugOutgoingFrameContext): void;
+  onFrameStart?(frame: Frame, context: DebugFrameStartContext): void;
+  onFrameEvent?(frame: Frame, event: SpaceEvent, context: DebugEventContext): void;
+  onFrameComplete?(frame: Frame, context: DebugFrameCompleteContext): void;
+  onAgentFrame?(frame: Frame, context: DebugAgentFrameContext): void;
   onRenderedContext?(info: DebugRenderedContextInfo): void;
 }

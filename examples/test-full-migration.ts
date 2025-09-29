@@ -15,7 +15,7 @@ config();
 import { 
   Space,
   VEILStateManager,
-  Element,
+  AgentElement,
   BasicAgent,
   AnthropicProvider,
   MockLLMProvider
@@ -105,8 +105,12 @@ async function main() {
     maxTokens: 4000
   }));
   
+  // Create an agent element
+  const agentElement = new AgentElement('Assistant', 'assistant-agent');
+  space.addChild(agentElement);
+  
   // PHASE 3: VEIL → Events/Actions (Effectors)
-  space.addEffector(new AgentEffector(agent));
+  space.addEffector(new AgentEffector(agentElement, agent));
   space.addEffector(new ConsoleOutputEffector((content) => {
     console.log(`\n[Assistant]: ${content}`);
   }));

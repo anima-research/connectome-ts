@@ -27,6 +27,8 @@ interface FrameDetail extends Frame {
 export class ConnectomeDebugMCP {
   private debugUrl: string | null = null;
   private isConnected: boolean = false;
+  private responseCharLimit: number = 10000; // Default 10k characters
+  private defaultFrameLimit: number = 30; // Default 30 frames
   
   constructor() {
     if (process.env.MCP_DEBUG) {
@@ -90,6 +92,41 @@ export class ConnectomeDebugMCP {
     };
   }
   
+  /**
+   * Set response limits for MCP responses
+   * @tool
+   */
+  async setResponseLimits(params: { 
+    charLimit?: number; 
+    defaultFrameLimit?: number 
+  }): Promise<{ charLimit: number; defaultFrameLimit: number }> {
+    if (params.charLimit !== undefined && params.charLimit > 0) {
+      this.responseCharLimit = params.charLimit;
+    }
+    if (params.defaultFrameLimit !== undefined && params.defaultFrameLimit > 0) {
+      this.defaultFrameLimit = params.defaultFrameLimit;
+    }
+    
+    if (process.env.MCP_DEBUG) {
+      console.error(`[DebugMCP] Response limits updated: charLimit=${this.responseCharLimit}, defaultFrameLimit=${this.defaultFrameLimit}`);
+    }
+    
+    return {
+      charLimit: this.responseCharLimit,
+      defaultFrameLimit: this.defaultFrameLimit
+    };
+  }
+  
+  /**
+   * Get current response limits
+   */
+  getResponseLimits(): { charLimit: number; defaultFrameLimit: number } {
+    return {
+      charLimit: this.responseCharLimit,
+      defaultFrameLimit: this.defaultFrameLimit
+    };
+  }
+  
   private ensureConnected(): void {
     if (!this.isConnected || !this.debugUrl) {
       throw new Error('Not connected to debug server. Use connect() first.');
@@ -141,11 +178,13 @@ export class ConnectomeDebugMCP {
     metrics: any;
   }> {
     const query = new URLSearchParams();
-    if (params.limit !== undefined) query.set('limit', params.limit.toString());
+    // Use default frame limit if no limit specified
+    const limit = params.limit !== undefined ? params.limit : this.defaultFrameLimit;
+    query.set('limit', limit.toString());
     if (params.offset !== undefined) query.set('offset', params.offset.toString());
     
     const queryString = query.toString();
-    const path = queryString ? `/api/frames?${queryString}` : '/api/frames';
+    const path = `/api/frames?${queryString}`;
     
     return this.fetchJSON(path);
   }
