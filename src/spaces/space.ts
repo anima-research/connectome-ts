@@ -331,7 +331,7 @@ export class Space extends Element {
       const phase1Frame: Frame = {
         sequence: frameId,
         timestamp,
-        events: [],
+        events: events, // Include the events that triggered this frame
         deltas: phase1Facets.map(facet => ({
           type: 'addFacet' as const,
           facet

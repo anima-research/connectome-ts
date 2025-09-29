@@ -11,13 +11,15 @@ import {
 import { 
   AgentEffector,
   MockLLMProvider,
+  BasicAgent,
   AgentElement
 } from '../src';
 import {
   PersistenceMaintainer,
-  PersistenceMaintainerConfig,
   TransitionMaintainer
 } from '../src/persistence';
+import { PersistenceMaintainerConfig } from '../src/persistence/persistence-maintainer';
+import { TransitionConfig } from '../src/persistence/transition-maintainer';
 
 async function main() {
   console.log('=== Testing Persistence with Maintainers ===\n');
@@ -33,29 +35,42 @@ async function main() {
   space.addEffector(new ConsoleOutputEffector());
   
   // Add persistence maintainers
-  const persistenceMaintainer = new PersistenceMaintainer(veilState, {
+  const persistenceConfig: PersistenceMaintainerConfig = {
     storagePath: './test-persistence',
     snapshotInterval: 5, // Every 5 frames for testing
     maxDeltasPerFile: 10
-  });
+  };
+  const persistenceMaintainer = new PersistenceMaintainer(veilState, persistenceConfig);
   space.addMaintainer(persistenceMaintainer);
   
-  const transitionMaintainer = new TransitionMaintainer(veilState, {
+  const transitionConfig: TransitionConfig = {
     storagePath: './test-transitions',
     snapshotInterval: 3 // Every 3 transitions for testing
-  });
+  };
+  const transitionMaintainer = new TransitionMaintainer(veilState, transitionConfig);
   space.addMaintainer(transitionMaintainer);
   
   // Create agent
   const agentElement = new AgentElement('test-agent');
   space.addChild(agentElement);
   
-  const mockProvider = new MockLLMProvider([
-    { pattern: /hello/i, response: "Hello! The persistence system is working." },
-    { pattern: /test/i, response: "I'm tracking all our conversations in the persistence layer." }
+  const mockProvider = new MockLLMProvider();
+  mockProvider.setResponses([
+    "Hello! The persistence system is working.",
+    "I'm tracking all our conversations in the persistence layer.",
+    "All messages are being persisted correctly."
   ]);
   
-  space.addEffector(new AgentEffector(agentElement, mockProvider));
+  const agent = new BasicAgent({
+    config: {
+      name: 'PersistenceTestAgent',
+      systemPrompt: 'You are testing the persistence system.'
+    },
+    provider: mockProvider,
+    veilStateManager: veilState
+  });
+  
+  space.addEffector(new AgentEffector(agentElement, agent));
   
   console.log('1. Sending test messages...\n');
   

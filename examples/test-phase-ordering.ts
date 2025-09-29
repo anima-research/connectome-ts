@@ -8,7 +8,10 @@ import {
   FacetDelta,
   ReadonlyVEILState,
   SpaceEvent,
-  VEILDelta
+  VEILDelta,
+  EffectorResult,
+  hasContentAspect,
+  Facet
 } from '../src';
 import { createEventFacet } from '../src/helpers/factories';
 
@@ -16,17 +19,17 @@ import { createEventFacet } from '../src/helpers/factories';
 class PhaseTestReceptor implements Receptor {
   topics = ['test:input'];
   
-  transform(event: SpaceEvent, state: ReadonlyVEILState): VEILDelta[] {
+  transform(event: SpaceEvent, state: ReadonlyVEILState): Facet[] {
     console.log('[PHASE 1 - Receptor] Processing event:', event.topic);
-    return [{
-      type: 'addFacet',
-      facet: createEventFacet({
-        content: `Phase 1 processed: ${event.payload.message}`,
-        source: event.source,
-        agentId: 'system',
+    const payload = event.payload as { message: string };
+    return [
+      createEventFacet({
+        content: `Phase 1 processed: ${payload.message}`,
+        source: 'test-receptor',
+        eventType: 'test',
         streamId: 'test'
       })
-    }];
+    ];
   }
 }
 
@@ -35,18 +38,26 @@ class PhaseTestTransform implements Transform {
   process(state: ReadonlyVEILState): VEILDelta[] {
     console.log('[PHASE 2 - Transform] Processing state with', state.facets.size, 'facets');
     
+    // Check if we already created our transform facet
+    const hasTransformFacet = Array.from(state.facets.values())
+      .some(f => f.type === 'event' && hasContentAspect(f) && f.content.includes('Phase 2 transform applied'));
+    
+    if (hasTransformFacet) {
+      return []; // Already processed
+    }
+    
     // Look for phase 1 facets and create derived facets
     const phase1Facets = Array.from(state.facets.values())
-      .filter(f => f.type === 'event' && f.content?.includes('Phase 1 processed'));
+      .filter(f => f.type === 'event' && hasContentAspect(f) && f.content.includes('Phase 1 processed'));
     
     if (phase1Facets.length > 0) {
-      console.log('[PHASE 2 - Transform] Found', phase1Facets.length, 'Phase 1 facets');
+      console.log('[PHASE 2 - Transform] Found', phase1Facets.length, 'Phase 1 facets, creating transform facet');
       return [{
         type: 'addFacet',
         facet: createEventFacet({
           content: 'Phase 2 transform applied',
-          source: { elementId: 'transform', elementPath: [] },
-          agentId: 'system',
+          source: 'test-transform',
+          eventType: 'transform',
           streamId: 'test'
         })
       }];
@@ -60,12 +71,12 @@ class PhaseTestTransform implements Transform {
 class PhaseTestEffector implements Effector {
   facetFilters = [{ type: 'event' }];
   
-  async process(changes: FacetDelta[], state: ReadonlyVEILState) {
+  async process(changes: FacetDelta[], state: ReadonlyVEILState): Promise<EffectorResult> {
     console.log('[PHASE 3 - Effector] Processing', changes.length, 'changes');
     
     const events: SpaceEvent[] = [];
     for (const change of changes) {
-      if (change.type === 'added' && change.facet.content?.includes('Phase 2 transform')) {
+      if (change.type === 'added' && hasContentAspect(change.facet) && change.facet.content.includes('Phase 2 transform')) {
         console.log('[PHASE 3 - Effector] Reacting to Phase 2 facet, generating event');
         events.push({
           topic: 'test:phase3-reaction',
@@ -87,7 +98,7 @@ class PhaseTestMaintainer implements Maintainer {
     
     // Check if we should emit a maintenance event
     const hasPhase3 = Array.from(state.facets.values())
-      .some(f => f.content?.includes('Phase 3 reacted'));
+      .some(f => hasContentAspect(f) && f.content.includes('Phase 3 reacted'));
     
     if (hasPhase3) {
       console.log('[PHASE 4 - Maintainer] Found Phase 3 activity, emitting maintenance event');

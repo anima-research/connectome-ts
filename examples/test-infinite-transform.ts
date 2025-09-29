@@ -3,7 +3,8 @@ import { VEILStateManager } from '../src/veil/veil-state';
 import { 
   Transform, 
   ReadonlyVEILState,
-  VEILDelta
+  VEILDelta,
+  hasContentAspect
 } from '../src';
 import { createEventFacet } from '../src/helpers/factories';
 
@@ -18,12 +19,12 @@ class InfiniteTransform implements Transform {
     // Always generate a new facet, triggering another iteration
     return [{
       type: 'addFacet',
-      facet: createEventFacet({
-        content: `Infinite loop iteration ${this.counter}`,
-        source: { elementId: 'infinite-transform', elementPath: [] },
-        agentId: 'system',
-        streamId: 'test'
-      })
+        facet: createEventFacet({
+          content: `Infinite loop iteration ${this.counter}`,
+          source: 'infinite-transform',
+          eventType: 'infinite',
+          streamId: 'test'
+        })
     }];
   }
 }
@@ -33,7 +34,7 @@ class CascadingTransform implements Transform {
   process(state: ReadonlyVEILState): VEILDelta[] {
     // Count how many cascade facets exist
     const cascadeFacets = Array.from(state.facets.values())
-      .filter(f => f.content?.includes('Cascade level'));
+      .filter(f => hasContentAspect(f) && f.content.includes('Cascade level'));
     
     // If we have less than 200 cascade facets, create more
     if (cascadeFacets.length < 200) {
@@ -42,8 +43,8 @@ class CascadingTransform implements Transform {
         type: 'addFacet',
         facet: createEventFacet({
           content: `Cascade level ${level}`,
-          source: { elementId: 'cascade-transform', elementPath: [] },
-          agentId: 'system',
+          source: 'cascade-transform',
+          eventType: 'cascade',
           streamId: 'test'
         })
       }];
@@ -79,7 +80,7 @@ async function testInfiniteLoop() {
     console.log('\nERROR: Should have thrown an error!');
   } catch (error) {
     console.log('\nSUCCESS: Caught expected error:');
-    console.log(error.message);
+    console.log(error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -109,12 +110,12 @@ async function testCascadingTransform() {
     console.log('\nERROR: Should have thrown an error!');
   } catch (error) {
     console.log('\nSUCCESS: Caught expected error:');
-    console.log(error.message);
+    console.log(error instanceof Error ? error.message : String(error));
     
     // Check how many facets were created before hitting the limit
     const state = veilState.getState();
     const cascadeFacets = Array.from(state.facets.values())
-      .filter(f => f.content?.includes('Cascade level'));
+      .filter(f => hasContentAspect(f) && f.content.includes('Cascade level'));
     console.log(`\nCreated ${cascadeFacets.length} cascade facets before hitting limit`);
   }
 }
