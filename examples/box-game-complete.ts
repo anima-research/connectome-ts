@@ -1262,21 +1262,31 @@ async function runCompleteBoxGame(): Promise<void> {
   const agentEffector = new AgentEffector(agentElement, agent);
   space.addEffector(agentEffector);
 
-  // Add console interface
-  console.log('💻 Setting up interactive console...');
-  const console_component = new BoxGameConsole();
-  gameElement.addComponent(console_component);
+  // Add console interface (skip in headless mode)
+  if (process.env.HEADLESS === 'true') {
+    console.log('🤖 Running in headless mode - skipping console interface');
+    console.log('🔍 Use MCP tools to interact with the game');
+    // Initialize without console
+    await gameElement.onMount();
+  } else {
+    console.log('💻 Setting up interactive console...');
+    const console_component = new BoxGameConsole();
+    gameElement.addComponent(console_component);
+    // Initialize everything
+    await gameElement.onMount();
+  }
 
-  // Initialize everything
-  await gameElement.onMount();
+  // Welcome message (for all modes)
+  const welcomeMsg = process.env.HEADLESS === 'true'
+    ? 'Headless mode active. Use MCP to create boxes and interact!'
+    : 'Welcome to the Box Game! I\'m your AI companion. Let\'s create some mysterious boxes!';
 
-  // Welcome message
   space.emit({
     topic: 'game:command',
     source: gameElement.getRef(),
     payload: {
       action: 'say',
-      args: ['Welcome to the Box Game! I\'m your AI companion. Let\'s create some mysterious boxes!'],
+      args: [welcomeMsg],
       user: 'system'
     } as GameCommand,
     timestamp: Date.now()
@@ -1312,8 +1322,24 @@ Examples:
   if (debugEnabled) {
     console.log('🔍 Debug UI is running at http://localhost:3015 - inspect game state in real-time!');
   }
-  console.log('Start by creating your first box, e.g.: /create-box sword,potion,treasure');
-  console.log('Or type /help for all available commands\n');
+
+  // In headless mode, keep alive for testing
+  if (process.env.HEADLESS === 'true') {
+    const keepAliveMs = parseInt(process.env.KEEP_ALIVE_MS || '300000'); // default 5 min
+    console.log(`⏱️  Keeping alive for ${keepAliveMs}ms for MCP inspection...`);
+    console.log('📋 Follow test plan in examples/box-game-mcp-test-plan.md\n');
+
+    await new Promise(resolve => setTimeout(resolve, keepAliveMs));
+    console.log('⏱️  Timeout reached, exiting...');
+
+    if (debugServer) {
+      debugServer.stop();
+    }
+    process.exit(0);
+  } else {
+    console.log('Start by creating your first box, e.g.: /create-box sword,potion,treasure');
+    console.log('Or type /help for all available commands\n');
+  }
 }
 
 // ============================================================================
