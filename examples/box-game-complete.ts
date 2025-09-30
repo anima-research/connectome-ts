@@ -68,161 +68,109 @@ interface GameCommand {
 // RECEPTORS (Events → Facets)
 // ============================================================================
 
+/**
+ * BoxGameReceptor: Unified receptor handling all game events
+ */
 class BoxGameReceptor implements Receptor {
   topics = ['console:input', 'game:command', 'agent:action', 'game:box-created', 'game:box-opened', 'game:box-not-found', 'game:box-already-open'];
 
   transform(event: SpaceEvent, state: ReadonlyVEILState): Facet[] {
     const facets: Facet[] = [];
 
+    // Handle user commands
     if (event.topic === 'console:input' || event.topic === 'game:command' || event.topic === 'agent:action') {
       const command = event.payload as GameCommand;
-
       if (command.action === 'create-box' && command.args.length > 0) {
-        const boxId = `box${Date.now()}`;
         const contents = command.args[0].split(',').map(item => item.trim());
-
-        // Create box creation request facet for BoxGameEffector (ephemeral)
-        const requestFacet = createStateFacet({
-          id: `box-creation-request-${boxId}`,
-          content: `Request to create box ${boxId} with ${contents.length} items`,
-          entityType: 'component',
-          entityId: boxId,
-          state: {
-            facetType: 'box-creation-request',
-            boxId,
-            contents,
-            creator: command.user
-          }
-        });
-        // Mark as ephemeral - removed at end of frame
-        (requestFacet as any).ephemeral = true;
-        facets.push(requestFacet);
+        facets.push({
+          id: `game-action-create-${Date.now()}`,
+          type: 'game-action',
+          content: `${command.user} is creating a box with ${contents.length} items`,
+          state: { action: 'create-box', params: { contents, actor: command.user } },
+          ephemeral: true
+        } as Facet);
       }
-
       else if (command.action === 'open-box' && command.args.length > 0) {
-        const boxId = command.args[0];
-
-        // Create box open request facet for BoxGameEffector (ephemeral)
-        const openRequestFacet = createStateFacet({
-          id: `box-open-request-${boxId}-${Date.now()}`,
-          content: `Request to open box ${boxId}`,
-          entityType: 'component',
-          entityId: boxId,
-          state: {
-            facetType: 'box-open-request',
-            boxId,
-            opener: command.user
-          }
-        });
-        // Mark as ephemeral - removed at end of frame
-        (openRequestFacet as any).ephemeral = true;
-        facets.push(openRequestFacet);
+        facets.push({
+          id: `game-action-open-${command.args[0]}-${Date.now()}`,
+          type: 'game-action',
+          content: `${command.user} is opening box ${command.args[0]}`,
+          state: { action: 'open-box', params: { boxId: command.args[0], actor: command.user } },
+          ephemeral: true
+        } as Facet);
       }
-
       else if (command.action === 'say' && command.args.length > 0) {
-        const message = command.args.join(' ');
-
         facets.push(createSpeechFacet({
           id: `speech-${command.user}-${Date.now()}`,
-          content: message,
+          content: command.args.join(' '),
           agentId: command.user,
           agentName: command.user,
           streamId: 'dialogue'
         }));
       }
     }
-
-    // Handle game events from BoxGameEffector and create corresponding facets
+    // Handle game events
     else if (event.topic === 'game:box-created') {
-      const { boxId, contents, creator } = event.payload as any;
-
+      const payload = event.payload as any;
       facets.push(createStateFacet({
-        id: `box-${boxId}`,
-        content: `📦 Box ${boxId}: ${contents.join(', ')} (created by ${creator})`,
+        id: `box-${payload.boxId}`,
+        content: `📦 Box ${payload.boxId}: ${payload.contents.join(', ')} (created by ${payload.creator})`,
         entityType: 'component',
-        entityId: boxId,
-        state: {
-          boxId,
-          contents,
-          creator,
-          isOpen: false,
-          createdAt: Date.now()
-        } as BoxState
+        entityId: payload.boxId,
+        state: { boxId: payload.boxId, contents: payload.contents, creator: payload.creator, isOpen: false, createdAt: Date.now() } as BoxState
       }));
-
       facets.push(createEventFacet({
-        id: `box-created-event-${boxId}`,
-        content: `${creator} created box ${boxId} with ${contents.length} items`,
-        source: creator,
+        id: `box-created-event-${payload.boxId}`,
+        content: `${payload.creator} created box ${payload.boxId} with ${payload.contents.length} items`,
+        source: payload.creator,
         eventType: 'box-created',
         streamId: 'game-events',
-        metadata: { boxId, contents, creator }
+        metadata: payload
       }));
     }
-
     else if (event.topic === 'game:box-opened') {
-      const { boxId, opener, contents, creator } = event.payload as any;
-
-      // Find and update the box state facet
+      const payload = event.payload as any;
       const existingBox = Array.from(state.facets.values()).find(f =>
-        f.type === 'state' &&
-        f.state &&
-        'boxId' in f.state &&
-        f.state.boxId === boxId &&
-        'contents' in f.state &&
-        'creator' in f.state
+        f.type === 'state' && f.state && 'boxId' in f.state && f.state.boxId === payload.boxId
       );
-
       if (existingBox && existingBox.state) {
-        const boxState = existingBox.state as BoxState;
-
-        // Update box state to open (replace existing facet with same ID)
         facets.push(createStateFacet({
-          id: existingBox.id, // Same ID replaces the existing facet
-          content: `📦 Box ${boxId} (OPEN): ${contents.join(', ')} (was created by ${creator})`,
+          id: existingBox.id,
+          content: `📦 Box ${payload.boxId} (OPEN): ${payload.contents.join(', ')} (was created by ${payload.creator})`,
           entityType: 'component',
-          entityId: boxId,
-          state: {
-            ...boxState,
-            isOpen: true
-          } as BoxState
+          entityId: payload.boxId,
+          state: { ...(existingBox.state as BoxState), isOpen: true } as BoxState
         }));
       }
-
-      // Create event facet (sufficient - no need for speech facet)
       facets.push(createEventFacet({
-        id: `box-opened-event-${boxId}-${Date.now()}`,
-        content: `🎉 ${opener} opened box ${boxId}, revealing: ${contents.join(', ')}!`,
-        source: opener,
+        id: `box-opened-event-${payload.boxId}-${Date.now()}`,
+        content: `🎉 ${payload.opener} opened box ${payload.boxId}, revealing: ${payload.contents.join(', ')}!`,
+        source: payload.opener,
         eventType: 'box-opened',
         streamId: 'game-events',
-        metadata: { boxId, opener, contents, creator }
+        metadata: payload
       }));
     }
-
     else if (event.topic === 'game:box-not-found') {
-      const { boxId, opener } = event.payload as any;
-
+      const payload = event.payload as any;
       facets.push(createEventFacet({
-        id: `box-not-found-${boxId}-${Date.now()}`,
-        content: `❌ Box ${boxId} not found!`,
+        id: `box-not-found-${payload.boxId}-${Date.now()}`,
+        content: `❌ Box ${payload.boxId} not found!`,
         source: 'system',
         eventType: 'box-not-found',
         streamId: 'game-events',
-        metadata: { boxId, opener }
+        metadata: payload
       }));
     }
-
     else if (event.topic === 'game:box-already-open') {
-      const { boxId, opener } = event.payload as any;
-
+      const payload = event.payload as any;
       facets.push(createEventFacet({
-        id: `box-already-open-${boxId}-${Date.now()}`,
-        content: `ℹ️ Box ${boxId} is already open!`,
+        id: `box-already-open-${payload.boxId}-${Date.now()}`,
+        content: `ℹ️ Box ${payload.boxId} is already open!`,
         source: 'system',
         eventType: 'box-already-open',
         streamId: 'game-events',
-        metadata: { boxId, opener }
+        metadata: payload
       }));
     }
 
@@ -301,98 +249,63 @@ class UserContextTransform implements Transform {
     const lines: string[] = [];
     lines.push('=== BOX GAME STATUS ===\n');
 
-    // Show boxes visible to this player - exclude request facets and context-scoped facets
-    const boxes = state.getFacetsByType('state').filter(f => {
-      // Filter out ALL context-scoped facets (user AND agent) to prevent cross-triggering
-      const isAnyContextScope = f.scopes?.some((s: string) =>
-        s === 'user-rendered-context' || s === 'agent-rendered-context'
-      );
-
-      // Filter out request facets - only show actual box state facets
-      const isRequestFacet = f.state?.facetType === 'box-creation-request' ||
-                            f.state?.facetType === 'box-open-request';
-
-      // Must have boxId, creator, and contents to be an actual box
-      const isActualBox = f.state &&
-                         'boxId' in f.state &&
-                         'creator' in f.state &&
-                         'contents' in f.state;
-
-      return isActualBox && !isRequestFacet && !isAnyContextScope;
-    });
+    // Get boxes - inline getBoxFacets
+    const boxes = state.getFacetsByType('state')
+      .filter(f => {
+        const isContextScope = f.scopes?.some((s: string) => s === 'user-rendered-context' || s === 'agent-rendered-context');
+        const isActualBox = f.state && 'boxId' in f.state && 'creator' in f.state && 'contents' in f.state;
+        return isActualBox && !isContextScope;
+      })
+      .map(f => f.state as BoxState);
 
     if (boxes.length > 0) {
       lines.push('--- Available Boxes ---');
+      // Inline formatBoxList for user
       boxes.forEach(box => {
-        const boxState = box.state as BoxState;
-
-        // Show different info based on whether player created it or it's open
-        if (boxState.creator === player) {
-          const status = boxState.isOpen ? 'OPEN' : 'closed';
-          lines.push(`📦 Box ID: ${boxState.boxId} (${status}): ${boxState.contents.join(', ')} [YOU created this]`);
-        } else if (boxState.isOpen) {
-          lines.push(`📦 Box ID: ${boxState.boxId} (OPEN): ${boxState.contents.join(', ')} [created by ${boxState.creator}]`);
+        const status = box.isOpen ? 'OPEN' : 'closed';
+        const canSee = box.isOpen || box.creator === player;
+        if (canSee) {
+          const ownership = box.creator === player ? '[YOU created this]' : `[created by ${box.creator}]`;
+          lines.push(`📦 Box ID: ${box.boxId} (${status}): ${box.contents.join(', ')} ${ownership}`);
         } else {
-          lines.push(`📦 Box ID: ${boxState.boxId} (closed): [contents hidden] [created by ${boxState.creator}] - Use @box.open("${boxState.boxId}") to open`);
+          lines.push(`📦 Box ID: ${box.boxId} (${status}): [contents hidden] [created by ${box.creator}] - Use @box.open("${box.boxId}") to open`);
         }
       });
       lines.push('');
     }
 
-    // Recent Activity - collect all activity types and display chronologically
-    const allActivity: Array<{ facet: Facet; displayText: string }> = [];
-
-    // Collect all relevant facets in chronological order (Map maintains insertion order)
+    // Get recent activity - inline getRecentActivity + formatActivity
+    const activity: Array<{content: string; source: string}> = [];
     state.facets.forEach(f => {
-      // Filter out context-scoped facets
-      const isAnyContextScope = f.scopes?.some((s: string) =>
-        s === 'user-rendered-context' || s === 'agent-rendered-context'
-      );
-      if (isAnyContextScope) return;
-
-      // Check if this is an event we want to show
+      const isContextScope = f.scopes?.some((s: string) => s === 'user-rendered-context' || s === 'agent-rendered-context');
+      if (isContextScope) return;
       if (f.type === 'event' && f.content) {
-        allActivity.push({ facet: f, displayText: `  ${f.content}` });
-      }
-
-      // Check if this is a speech facet
-      else if (f.type === 'speech' && f.content) {
+        activity.push({ content: f.content, source: f.state?.source || 'system' });
+      } else if (f.type === 'speech' && f.content) {
         const agentName = (f as any).agentName || (f as any).agentId || 'Unknown';
-        allActivity.push({ facet: f, displayText: `  [${agentName}]: ${f.content}` });
-      }
-
-      // Check if this is a request facet (ephemeral, but might still be in state briefly)
-      else if (f.type === 'state' && f.content) {
-        const isRequestFacet = f.state?.facetType === 'box-creation-request' ||
-                              f.state?.facetType === 'box-open-request';
-        if (isRequestFacet) {
-          allActivity.push({ facet: f, displayText: `  ${f.content}` });
-        }
+        activity.push({ content: f.content, source: agentName });
       }
     });
-
-    // Take the last 10 items (more than before to ensure good coverage)
-    const recentActivity = allActivity.slice(-10);
-
+    const recentActivity = activity.slice(-10);
     if (recentActivity.length > 0) {
       lines.push('--- Recent Activity ---');
       recentActivity.forEach(item => {
-        lines.push(item.displayText);
+        lines.push(`  [${item.source}]: ${item.content}`);
       });
       lines.push('');
     }
 
-    // Commands
     lines.push('--- Available Commands ---');
     lines.push('/create-box apple,orange,banana - Create a box with items');
     lines.push('/open-box <boxId> - Open an existing box');
     lines.push('/say hello everyone! OR hello everyone! - Say something');
     lines.push('');
 
+    // Stats
     const stats = {
       totalBoxes: boxes.length,
-      openBoxes: boxes.filter(b => (b.state as BoxState).isOpen).length,
-      yourBoxes: boxes.filter(b => (b.state as BoxState).creator === player).length
+      openBoxes: boxes.filter(b => b.isOpen).length,
+      yourBoxes: boxes.filter(b => b.creator === player).length
     };
 
     lines.push(`--- Stats ---`);
@@ -414,12 +327,13 @@ class UserContextTransform implements Transform {
 // NEW CLEAN EFFECTORS (External Interface)
 // ============================================================================
 
-// BoxGameEffector: Game world simulation with internal state
+/**
+ * BoxGameEffector: Game world simulation with internal state
+ * Processes game-action facets (unified from user/agent) and agent action facets
+ */
 class BoxGameEffector implements Effector {
-  // Match state facets (user requests) and action facets (agent @box.* actions)
-  facetFilters = [{ type: 'state' }, { type: 'action' }];
+  facetFilters = [{ type: 'game-action' }, { type: 'action' }];
 
-  // Internal game state
   private boxes = new Map<string, BoxState>();
 
   async process(changes: FacetDelta[]): Promise<EffectorResult> {
@@ -429,160 +343,98 @@ class BoxGameEffector implements Effector {
       if (change.type === 'added') {
         const facet = change.facet;
 
-        // Handle state facets (user requests from receptor)
-        if (facet.type === 'state') {
-          const facetType = facet.state?.facetType;
+        // Handle game-action facets (from UserInputReceptor)
+        if (facet.type === 'game-action') {
+          const action = facet.state?.action;
+          const params = facet.state?.params || {};
 
-          // Only process request facets
-          if (facetType !== 'box-creation-request' && facetType !== 'box-open-request') {
-            continue;
+          if (action === 'create-box') {
+            events.push(...this.handleCreateBox(params.contents!, params.actor));
           }
-
-
-          if (facetType === 'box-creation-request') {
-            const { boxId, contents, creator } = facet.state;
-
-
-          // Update internal game state
-          this.boxes.set(boxId, {
-            boxId,
-            contents,
-            creator,
-            isOpen: false,
-            createdAt: Date.now()
-          });
-
-
-          // Emit box creation event
-          events.push({
-            topic: 'game:box-created',
-            source: { elementId: 'box-game-effector', elementPath: [] },
-            payload: { boxId, contents, creator },
-            timestamp: Date.now()
-          });
-        }
-
-        else if (facetType === 'box-open-request') {
-          const { boxId, opener } = facet.state;
-
-
-          const box = this.boxes.get(boxId);
-
-          if (box) {
-
-            if (!box.isOpen) {
-              // Update internal game state
-              box.isOpen = true;
-              this.boxes.set(boxId, box);
-
-
-              // Emit box opened event
-              events.push({
-                topic: 'game:box-opened',
-                source: { elementId: 'box-game-effector', elementPath: [] },
-                payload: { boxId, opener, contents: box.contents, creator: box.creator },
-                timestamp: Date.now()
-              });
-            } else {
-              // Already open
-              events.push({
-                topic: 'game:box-already-open',
-                source: { elementId: 'box-game-effector', elementPath: [] },
-                payload: { boxId, opener },
-                timestamp: Date.now()
-              });
-            }
-          } else {
-            // Box not found
-            events.push({
-              topic: 'game:box-not-found',
-              source: { elementId: 'box-game-effector', elementPath: [] },
-              payload: { boxId, opener },
-              timestamp: Date.now()
-            });
+          else if (action === 'open-box') {
+            events.push(...this.handleOpenBox(params.boxId!, params.actor));
           }
         }
-        }
-
-        // Handle action facets (agent @box.create() / @box.open() actions)
+        // Handle action facets (from agent tool use - @box.create/@box.open)
         else if (facet.type === 'action') {
           const toolName = facet.state?.toolName;
           const params = facet.state?.parameters || {};
 
-
           if (toolName === 'box.create') {
-            // Extract items from parameters
             const itemsString = params.value || params.items || '';
             const contents = itemsString.split(',').map((item: string) => item.trim()).filter((item: string) => item);
-            const boxId = `box${Date.now()}`;
-            const creator = 'agent'; // Agent created this box
-
-
-            // Update internal game state
-            this.boxes.set(boxId, {
-              boxId,
-              contents,
-              creator,
-              isOpen: false,
-              createdAt: Date.now()
-            });
-
-
-            // Emit box creation event
-            events.push({
-              topic: 'game:box-created',
-              source: { elementId: 'box-game-effector', elementPath: [] },
-              payload: { boxId, contents, creator },
-              timestamp: Date.now()
-            });
+            events.push(...this.handleCreateBox(contents, 'agent'));
           }
-
           else if (toolName === 'box.open') {
-            // Extract boxId from parameters
             const boxId = params.value || params.boxId || '';
-            const opener = 'agent'; // Agent is opening the box
-
-
-            const box = this.boxes.get(boxId);
-
-            if (box) {
-
-              if (!box.isOpen) {
-                // Update internal game state
-                box.isOpen = true;
-                this.boxes.set(boxId, box);
-
-
-                // Emit box opened event
-                events.push({
-                  topic: 'game:box-opened',
-                  source: { elementId: 'box-game-effector', elementPath: [] },
-                  payload: { boxId, opener, contents: box.contents, creator: box.creator },
-                  timestamp: Date.now()
-                });
-              } else {
-                events.push({
-                  topic: 'game:box-already-open',
-                  source: { elementId: 'box-game-effector', elementPath: [] },
-                  payload: { boxId, opener },
-                  timestamp: Date.now()
-                });
-              }
-            } else {
-              events.push({
-                topic: 'game:box-not-found',
-                source: { elementId: 'box-game-effector', elementPath: [] },
-                payload: { boxId, opener },
-                timestamp: Date.now()
-              });
-            }
+            events.push(...this.handleOpenBox(boxId, 'agent'));
           }
         }
       }
     }
 
-
     return { events };
+  }
+
+  /**
+   * Unified box creation logic - called by both user and agent paths
+   */
+  private handleCreateBox(contents: string[], creator: string): SpaceEvent[] {
+    const boxId = `box${Date.now()}`;
+
+    // Update internal game state
+    this.boxes.set(boxId, {
+      boxId,
+      contents,
+      creator,
+      isOpen: false,
+      createdAt: Date.now()
+    });
+
+    // Emit box creation event
+    return [{
+      topic: 'game:box-created',
+      source: { elementId: 'box-game-effector', elementPath: [] },
+      payload: { boxId, contents, creator },
+      timestamp: Date.now()
+    }];
+  }
+
+  /**
+   * Unified box opening logic - called by both user and agent paths
+   */
+  private handleOpenBox(boxId: string, opener: string): SpaceEvent[] {
+    const box = this.boxes.get(boxId);
+
+    if (!box) {
+      return [{
+        topic: 'game:box-not-found',
+        source: { elementId: 'box-game-effector', elementPath: [] },
+        payload: { boxId, opener },
+        timestamp: Date.now()
+      }];
+    }
+
+    if (box.isOpen) {
+      return [{
+        topic: 'game:box-already-open',
+        source: { elementId: 'box-game-effector', elementPath: [] },
+        payload: { boxId, opener },
+        timestamp: Date.now()
+      }];
+    }
+
+    // Update internal game state
+    box.isOpen = true;
+    this.boxes.set(boxId, box);
+
+    // Emit box opened event
+    return [{
+      topic: 'game:box-opened',
+      source: { elementId: 'box-game-effector', elementPath: [] },
+      payload: { boxId, opener, contents: box.contents, creator: box.creator },
+      timestamp: Date.now()
+    }];
   }
 }
 
@@ -641,52 +493,45 @@ class AgentContextTransform implements Transform {
     const lines: string[] = [];
     lines.push('=== BOX GAME - AGENT VIEW ===\n');
 
-    // Show all boxes (with full visibility for agent)
-    const boxes = state.getFacetsByType('state').filter(f => {
-      const isAnyContextScope = f.scopes?.some((s: string) =>
-        s === 'user-rendered-context' || s === 'agent-rendered-context'
-      );
-      const isRequestFacet = f.state?.facetType === 'box-creation-request' ||
-                            f.state?.facetType === 'box-open-request';
-      const isActualBox = f.state &&
-                         'boxId' in f.state &&
-                         'creator' in f.state &&
-                         'contents' in f.state;
-      return isActualBox && !isRequestFacet && !isAnyContextScope;
-    });
+    // Get boxes - inline getBoxFacets
+    const boxes = state.getFacetsByType('state')
+      .filter(f => {
+        const isContextScope = f.scopes?.some((s: string) => s === 'user-rendered-context' || s === 'agent-rendered-context');
+        const isActualBox = f.state && 'boxId' in f.state && 'creator' in f.state && 'contents' in f.state;
+        return isActualBox && !isContextScope;
+      })
+      .map(f => f.state as BoxState);
 
     if (boxes.length > 0) {
       lines.push('Current boxes:');
+      // Inline formatBoxList for agent (agent sees all)
       boxes.forEach(box => {
-        const boxState = box.state as BoxState;
-        const status = boxState.isOpen ? 'OPEN' : 'closed';
-        lines.push(`- Box ${boxState.boxId} (${status}): ${boxState.contents.join(', ')} [created by ${boxState.creator}]`);
+        const status = box.isOpen ? 'OPEN' : 'closed';
+        lines.push(`- Box ${box.boxId} (${status}): ${box.contents.join(', ')} [created by ${box.creator}]`);
       });
       lines.push('');
     } else {
       lines.push('No boxes exist yet.\n');
     }
 
-    // Recent activity (chronological)
-    const allActivity: string[] = [];
+    // Get recent activity - inline getRecentActivity + formatActivity
+    const activity: Array<{content: string; source: string}> = [];
     state.facets.forEach(f => {
-      const isAnyContextScope = f.scopes?.some((s: string) =>
-        s === 'user-rendered-context' || s === 'agent-rendered-context'
-      );
-      if (isAnyContextScope) return;
-
+      const isContextScope = f.scopes?.some((s: string) => s === 'user-rendered-context' || s === 'agent-rendered-context');
+      if (isContextScope) return;
       if (f.type === 'event' && f.content) {
-        allActivity.push(f.content);
+        activity.push({ content: f.content, source: f.state?.source || 'system' });
       } else if (f.type === 'speech' && f.content) {
         const agentName = (f as any).agentName || (f as any).agentId || 'Unknown';
-        allActivity.push(`[${agentName}]: ${f.content}`);
+        activity.push({ content: f.content, source: agentName });
       }
     });
-
-    const recentActivity = allActivity.slice(-8);
+    const recentActivity = activity.slice(-8);
     if (recentActivity.length > 0) {
       lines.push('Recent activity:');
-      recentActivity.forEach(item => lines.push(`- ${item}`));
+      recentActivity.forEach(item => {
+        lines.push(`- [${item.source}]: ${item.content}`);
+      });
       lines.push('');
     }
 
