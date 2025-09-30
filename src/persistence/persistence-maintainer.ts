@@ -1,4 +1,5 @@
-import { Maintainer, ReadonlyVEILState, SpaceEvent } from '../spaces/receptor-effector-types';
+import { ReadonlyVEILState, SpaceEvent, FacetDelta } from '../spaces/receptor-effector-types';
+import { BaseMaintainer } from '../components/base-martem';
 import { VEILStateManager } from '../veil/veil-state';
 import { FileStorageAdapter } from './file-storage';
 import { FrameDelta, PersistenceSnapshot, ElementOperation } from './types';
@@ -15,7 +16,7 @@ export interface PersistenceMaintainerConfig {
  * Maintainer that handles persistence of VEIL state
  * Runs in Phase 4 after all other processing is complete
  */
-export class PersistenceMaintainer implements Maintainer {
+export class PersistenceMaintainer extends BaseMaintainer {
   private storage: FileStorageAdapter;
   private lastSnapshotSequence: number = 0;
   private elementOperations: ElementOperation[] = [];
@@ -24,36 +25,27 @@ export class PersistenceMaintainer implements Maintainer {
     private veilState: VEILStateManager,
     private config: PersistenceMaintainerConfig
   ) {
+    super();
     this.storage = new FileStorageAdapter(config.storagePath);
   }
   
-  maintain(state: ReadonlyVEILState): SpaceEvent[] {
-    // Get the current sequence
-    const sequence = state.currentSequence;
-    
-    // Get the last frame from history
-    const frameHistory = state.frameHistory;
-    if (frameHistory.length === 0) {
-      return [];
-    }
-    
-    const lastFrame = frameHistory[frameHistory.length - 1];
-    
+  async process(frame: Frame, changes: FacetDelta[], state: ReadonlyVEILState): Promise<SpaceEvent[]> {
     // Save the frame delta
-    this.saveDelta(lastFrame, sequence).catch(err => {
+    this.saveDelta(frame, frame.sequence).catch(err => {
       console.error('[PersistenceMaintainer] Failed to save delta:', err);
     });
     
     // Check if we need a snapshot
     const snapshotInterval = this.config.snapshotInterval || 100;
-    if (sequence - this.lastSnapshotSequence >= snapshotInterval) {
-      this.createSnapshot(sequence).catch(err => {
+    if (frame.sequence - this.lastSnapshotSequence >= snapshotInterval) {
+      this.createSnapshot(frame.sequence).catch(err => {
         console.error('[PersistenceMaintainer] Failed to create snapshot:', err);
       });
+      this.lastSnapshotSequence = frame.sequence;
     }
     
     // Clear element operations after snapshot
-    if (this.elementOperations.length > 0 && sequence % snapshotInterval === 0) {
+    if (this.elementOperations.length > 0 && frame.sequence % snapshotInterval === 0) {
       this.elementOperations = [];
     }
     

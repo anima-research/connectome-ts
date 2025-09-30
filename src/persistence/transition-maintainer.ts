@@ -1,6 +1,8 @@
-import { Maintainer, ReadonlyVEILState, SpaceEvent } from '../spaces/receptor-effector-types';
+import { ReadonlyVEILState, SpaceEvent, FacetDelta } from '../spaces/receptor-effector-types';
+import { BaseMaintainer } from '../components/base-martem';
 import { TransitionNode } from './transition-types';
 import { VEILStateManager } from '../veil/veil-state';
+import { Frame } from '../veil/types';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -13,7 +15,7 @@ export interface TransitionConfig {
  * Maintainer that tracks frame transitions for time-travel debugging
  * Runs in Phase 4 after all other processing is complete
  */
-export class TransitionMaintainer implements Maintainer {
+export class TransitionMaintainer extends BaseMaintainer {
   private currentBranch: string = 'main';
   private transitionsSinceSnapshot: number = 0;
   
@@ -21,22 +23,17 @@ export class TransitionMaintainer implements Maintainer {
     private veilState: VEILStateManager,
     private config: TransitionConfig
   ) {
+    super();
     this.initializeStorage();
   }
   
-  maintain(state: ReadonlyVEILState): SpaceEvent[] {
-    // Get the last frame which contains the transition
-    const frameHistory = state.frameHistory;
-    if (frameHistory.length === 0) {
+  async process(frame: Frame, changes: FacetDelta[], state: ReadonlyVEILState): Promise<SpaceEvent[]> {
+    // Get the transition from the frame
+    if (!frame.transition) {
       return [];
     }
     
-    const lastFrame = frameHistory[frameHistory.length - 1];
-    if (!lastFrame.transition) {
-      return [];
-    }
-    
-    const transition = lastFrame.transition;
+    const transition = frame.transition;
     
     // Create transition node
     const node: TransitionNode = {

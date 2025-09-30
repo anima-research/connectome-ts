@@ -3,6 +3,7 @@
  * TEMPORARY - Remove once migration is complete
  */
 
+import { BaseReceptor, BaseEffector } from '../components/base-martem';
 import { Component } from './component';
 import { SpaceEvent } from './types';
 import { Facet, VEILDelta } from '../veil/types';
@@ -19,13 +20,14 @@ import {
 /**
  * Adapter to use existing Components as Receptors
  */
-export class ComponentToReceptorAdapter implements Receptor {
+export class ComponentToReceptorAdapter extends BaseReceptor {
   topics: string[];
   
   constructor(
     private component: Component,
     topics: string | string[]
   ) {
+    super();
     this.topics = Array.isArray(topics) ? topics : [topics];
   }
   
@@ -66,13 +68,14 @@ export class ComponentToReceptorAdapter implements Receptor {
 /**
  * Adapter to use existing Components as Effectors
  */
-export class ComponentToEffectorAdapter implements Effector {
+export class ComponentToEffectorAdapter extends BaseEffector {
   facetFilters: FacetFilter[] = [];
   
   constructor(
     private component: Component,
     filters?: FacetFilter[]
   ) {
+    super();
     if (filters) {
       this.facetFilters = filters;
     }
@@ -139,7 +142,7 @@ export function migrateComponent(
 /**
  * Built-in Receptor for VEIL operations (compatibility)
  */
-export class VEILOperationReceptor implements Receptor {
+export class VEILOperationReceptor extends BaseReceptor {
   topics = ['veil:operation'];
   
   transform(event: SpaceEvent, state: ReadonlyVEILState): Facet[] {

@@ -1,4 +1,4 @@
-// Receptor/Effector Types for the new architecture
+// MARTEM Types - Modulator/Afferent/Receptor/Transform/Effector/Maintainer architecture
 
 import { 
   Facet, 
@@ -10,12 +10,100 @@ import {
 } from '../veil/types';
 import { createEventFacet } from '../helpers/factories';
 import { SpaceEvent } from './types';
+import { Component } from '../types/component';
 
 /**
- * Pure function that transforms events into facets
+ * Modulator: Phase 0 - Preprocesses events before they reach receptors
+ * Can filter, aggregate, batch, deduplicate, or transform the event queue
+ */
+export interface Modulator extends Component {
+  /** Process events before they reach receptors */
+  process(events: SpaceEvent[]): SpaceEvent[];
+  
+  /** Optional reset method for stateful modulators */
+  reset?(): void;
+}
+
+/**
+ * Afferent: Async external system listener
+ * Bridges external systems (Discord, WebSockets, etc.) to Connectome events
+ * Managed by effectors, runs asynchronously
+ */
+export interface Afferent<TConfig = any, TCommand = any> extends Component {
+  /** Initialize with configuration and context */
+  initialize(context: AfferentContext<TConfig>): Promise<void>;
+  
+  /** Start listening/processing */
+  start(): Promise<void>;
+  
+  /** Stop listening/processing */
+  stop(graceful?: boolean): Promise<void>;
+  
+  /** Handle commands from effectors */
+  enqueueCommand(command: TCommand): void;
+  
+  /** Get current status */
+  getStatus(): AfferentStatus;
+  
+  /** Get metrics */
+  getMetrics?(): AfferentMetrics;
+}
+
+/**
+ * Context provided to afferents for event emission and configuration
+ */
+export interface AfferentContext<TConfig> {
+  /** Emit events to the main loop */
+  emit: (event: SpaceEvent) => void;
+  
+  /** Emit error events */
+  emitError: (error: AfferentError) => void;
+  
+  /** Configuration from VEIL facet */
+  config: Readonly<TConfig>;
+  
+  /** Afferent ID */
+  afferentId: string;
+}
+
+/**
+ * Afferent status information
+ */
+export interface AfferentStatus {
+  state: 'initializing' | 'running' | 'stopping' | 'stopped' | 'error';
+  lastActivity: number;
+  errorCount: number;
+  lastError?: string;
+}
+
+/**
+ * Afferent metrics
+ */
+export interface AfferentMetrics {
+  eventsEmitted: number;
+  commandsProcessed: number;
+  uptime: number;
+  memoryUsage?: number;
+}
+
+/**
+ * Afferent error structure
+ */
+export interface AfferentError {
+  afferentId: string;
+  afferentType: string;
+  errorType: 'connection' | 'timeout' | 'processing' | 'fatal' | 'config';
+  message: string;
+  stack?: string;
+  recoverable: boolean;
+  details?: Record<string, any>;
+}
+
+/**
+ * Receptor: Phase 1 - Converts events into facets
  * MUST be stateless - same input always produces same output
  */
-export interface Receptor {
+export interface Receptor extends Component {
   /** Which event topics this receptor handles */
   topics: string[];
   
@@ -24,22 +112,25 @@ export interface Receptor {
 }
 
 /**
- * Pure function that transforms VEIL state
+ * Transform: Phase 2 - Transforms VEIL state
  * Used for derived state, cleanup, indexes, etc.
  * Can add, change, or remove facets - just like Receptors
  */
-export interface Transform {
+export interface Transform extends Component {
+  /** Optional filters to limit which facets trigger this transform */
+  facetFilters?: FacetFilter[];
+  
   /** Process current state to produce VEIL operations */
   process(state: ReadonlyVEILState): VEILDelta[];
 }
 
 /**
- * Stateful component that reacts to facet changes
+ * Effector: Phase 3 - Reacts to facet changes
  * Can emit events, perform side effects, or manage external connections
  */
-export interface Effector {
+export interface Effector extends Component {
   /** Which facet types/patterns this effector watches */
-  facetFilters: FacetFilter[];
+  facetFilters?: FacetFilter[];
   
   /** React to facet changes */
   process(changes: FacetDelta[], state: ReadonlyVEILState): Promise<EffectorResult>;
@@ -109,13 +200,13 @@ export interface ReadonlyVEILState {
 // by not being persisted and being ignored by systems that don't need them
 
 /**
- * Maintainer for Phase 4 - handles maintenance operations
+ * Maintainer: Phase 4 - Handles maintenance operations
  * Runs after all other phases, can emit events for next frame
  * Cannot modify VEIL directly, only emit events
  */
-export interface Maintainer {
+export interface Maintainer extends Component {
   /** Perform maintenance operations, return events for next frame */
-  maintain(state: ReadonlyVEILState): SpaceEvent[];
+  process(frame: Frame, changes: FacetDelta[], state: ReadonlyVEILState): Promise<SpaceEvent[]>;
 }
 
 // Re-export SpaceEvent for convenience

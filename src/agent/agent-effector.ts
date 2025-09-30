@@ -6,6 +6,7 @@
  * rendered-context facets, then runs the agent to produce speech/action/thought facets.
  */
 
+import { BaseEffector } from '../components/base-martem';
 import { 
   Effector, 
   FacetDelta, 
@@ -29,7 +30,7 @@ import { getGlobalTracer, TraceStorage } from '../tracing';
 import { RenderedContext } from '../hud/types-v2';
 import { Element } from '../spaces/element';
 
-export class AgentEffector implements Effector {
+export class AgentEffector extends BaseEffector {
   // Watch for activation facets AND their rendered contexts
   facetFilters: FacetFilter[] = [
     { type: 'agent-activation' },
@@ -45,6 +46,7 @@ export class AgentEffector implements Effector {
     private element: Element,
     agent: AgentInterface
   ) {
+    super();
     this.agent = agent;
     this.tracer = getGlobalTracer();
   }

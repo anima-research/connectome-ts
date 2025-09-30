@@ -5,11 +5,12 @@
  * attached to state facets to create human-readable event descriptions.
  */
 
+import { BaseTransform } from '../components/base-martem';
 import { Transform, ReadonlyVEILState } from '../spaces/receptor-effector-types';
 import { Facet, hasStateAspect, StateFacet, VEILDelta } from '../veil/types';
 import { createEventFacet } from '../helpers/factories';
 
-export class StateTransitionTransform implements Transform {
+export class StateTransitionTransform extends BaseTransform {
   private previousStates = new Map<string, any>();
   
   process(state: ReadonlyVEILState): VEILDelta[] {

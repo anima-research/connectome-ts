@@ -6,6 +6,7 @@
  * rendered-context facets for any pending agent activations.
  */
 
+import { BaseTransform } from '../components/base-martem';
 import { Transform, ReadonlyVEILState } from '../spaces/receptor-effector-types';
 import { Facet, hasStateAspect, VEILDelta } from '../veil/types';
 import { FrameTrackingHUD } from './frame-tracking-hud';
@@ -13,7 +14,7 @@ import { CompressionEngine } from '../compression/types-v2';
 import { HUDConfig } from './types-v2';
 import { VEILStateManager } from '../veil/veil-state';
 
-export class ContextTransform implements Transform {
+export class ContextTransform extends BaseTransform {
   private hud: FrameTrackingHUD;
   
   constructor(
@@ -21,6 +22,7 @@ export class ContextTransform implements Transform {
     private compressionEngine?: CompressionEngine,
     private defaultOptions?: Partial<HUDConfig>
   ) {
+    super();
     this.hud = new FrameTrackingHUD();
   }
   

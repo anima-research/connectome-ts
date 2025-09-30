@@ -1,6 +1,7 @@
 import { Receptor, Effector, Transform, FacetDelta, EffectorResult, ReadonlyVEILState, Maintainer } from './receptor-effector-types';
+import { BaseReceptor, BaseTransform, BaseMaintainer } from '../components/base-martem';
 import { SpaceEvent, ElementRef } from './types';
-import { Facet, VEILDelta, ElementTreeFacet, ElementRequestFacet } from '../veil/types';
+import { Facet, VEILDelta, ElementTreeFacet, ElementRequestFacet, Frame } from '../veil/types';
 import { Element } from './element';
 import { Component } from './component';
 import { createEventFacet, createInternalStateFacet, changeFacet } from '../helpers/factories';
@@ -20,7 +21,7 @@ export function registerComponent(typeName: string) {
  * Receptor: Handles element creation requests
  * This allows declarative element creation via events
  */
-export class ElementRequestReceptor implements Receptor {
+export class ElementRequestReceptor extends BaseReceptor {
   topics = ['element:create', 'element:destroy', 'component:add', 'component:remove'];
   
   transform(event: SpaceEvent, state: ReadonlyVEILState): Facet[] {
@@ -87,7 +88,7 @@ export class ElementRequestReceptor implements Receptor {
 /**
  * Transform: Maintains element tree state facets
  */
-export class ElementTreeTransform implements Transform {
+export class ElementTreeTransform extends BaseTransform {
   process(state: ReadonlyVEILState): VEILDelta[] {
     const deltas: VEILDelta[] = [];
     
@@ -134,7 +135,7 @@ export class ElementTreeTransform implements Transform {
  * Maintainer: Manages element tree operations in Phase 4
  * Handles creation, destruction, and component management
  */
-export class ElementTreeMaintainer implements Maintainer {
+export class ElementTreeMaintainer extends BaseMaintainer {
   private elementCache = new Map<string, Element>();
   
   // Track operations for this frame
@@ -146,12 +147,13 @@ export class ElementTreeMaintainer implements Maintainer {
   }> = [];
   
   constructor(private space: Element) {
+    super();
     // Register the space itself
     this.elementCache.set('root', space);
     this.elementCache.set(space.id, space);
   }
   
-  maintain(state: ReadonlyVEILState): SpaceEvent[] {
+  async process(frame: Frame, changes: FacetDelta[], state: ReadonlyVEILState): Promise<SpaceEvent[]> {
     const events: SpaceEvent[] = [];
     
     // Collect all element operations from this frame

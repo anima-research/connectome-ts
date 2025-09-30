@@ -273,6 +273,28 @@ export type ElementRequestFacet = BaseFacet & StateAspect<{
   type: 'element-request';
 };
 
+/**
+ * Component creation request facet for MARTEM architecture (ephemeral)
+ */
+export type ComponentRequestFacet = BaseFacet & StateAspect<{
+  /** Unique component type identifier (e.g., 'discord-afferent', 'rate-limit-modulator') */
+  componentType: string;
+  
+  /** Component class for Space registration */
+  componentClass: 'modulator' | 'afferent' | 'receptor' | 'transform' | 'effector' | 'maintainer';
+  
+  /** Parent element ID */
+  elementId: string;
+  
+  /** Component-specific configuration */
+  config?: any;
+  
+  /** Optional version for hot-reload compatibility */
+  version?: string;
+}> & EphemeralAspect & {
+  type: 'component-request';
+};
+
 // ============================================
 // UNION TYPES
 // ============================================
@@ -312,6 +334,10 @@ export type CoreFacet =
   // Configuration Facets
   | ConfigFacet
   | InternalStateFacet
+  // Element Management
+  | ElementTreeFacet
+  | ElementRequestFacet
+  | ComponentRequestFacet
   // Meta-Facets (Infrastructure)
   | StateChangeFacet
   | ScopeChangeFacet

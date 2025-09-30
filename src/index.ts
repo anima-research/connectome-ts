@@ -41,10 +41,17 @@ export {
 } from './spaces/types';
 export { Space } from './spaces/space';
 export { Element } from './spaces/element';
-export { Component } from './spaces/component';
+export { Component as SpaceComponent } from './spaces/component';
 
-// Receptor/Effector exports
+// Component base type export
+export * from './types/component';
+
+// MARTEM exports (Modulator/Afferent/Receptor/Transform/Effector/Maintainer)
 export * from './spaces/receptor-effector-types';
+
+// Base MARTEM implementations
+export * from './components/base-martem';
+export { BaseAfferent } from './components/base-afferent';
 // Note: EphemeralCleanupTransform removed - ephemeral facets naturally fade away
 
 // Transform exports

@@ -24,6 +24,7 @@ import type { RenderedContext } from '../hud/types-v2';
 import type { RenderedContextSnapshot } from '../persistence/types';
 import { createEventFacet } from '../helpers/factories';
 import { 
+  Modulator,
   Receptor, 
   Transform, 
   Effector, 
@@ -99,7 +100,8 @@ export class Space extends Element {
 
   private renderedContextLog: Map<number, RenderedContextRecord> = new Map();
   
-  // NEW: Receptor/Effector architecture
+  // MARTEM architecture components
+  private modulators: Modulator[] = [];
   private receptors: Map<string, Receptor[]> = new Map();
   private transforms: Transform[] = [];
   private effectors: Effector[] = [];
@@ -118,7 +120,11 @@ export class Space extends Element {
     this.addReceptor(new VEILOperationReceptor());
   }
   
-  // NEW: Receptor/Effector registration methods
+  // MARTEM registration methods
+  
+  addModulator(modulator: Modulator): void {
+    this.modulators.push(modulator);
+  }
   
   addReceptor(receptor: Receptor): void {
     for (const topic of receptor.topics) {
@@ -320,12 +326,14 @@ export class Space extends Element {
         }
       }
       
+      // PHASE 0: Event preprocessing (via Modulators)
+      const processedEvents = this.runPhase0(events);
       
-      // Record events in frame
-      frame.events = events;
+      // Record processed events in frame
+      frame.events = processedEvents;
       
       // PHASE 1: Events → VEIL (via Receptors)
-      const phase1Facets = this.runPhase1(events);
+      const phase1Facets = this.runPhase1(processedEvents);
       
       // Apply Phase 1 facets to state first
       const phase1Frame: Frame = {
@@ -406,7 +414,7 @@ export class Space extends Element {
       const newEvents = await this.runPhase3(allChanges);
       
       // PHASE 4: Maintenance (Element tree, references, cleanup)
-      const maintenanceEvents = await this.runPhase4();
+      const maintenanceEvents = await this.runPhase4(this.currentFrame, allChanges);
       
       // Queue all new events for next frame
       [...newEvents, ...maintenanceEvents].forEach(event => this.queueEvent(event));
@@ -441,10 +449,24 @@ export class Space extends Element {
     }
   }
   
-  // NEW: Three-phase processing methods
+  // MARTEM processing phases
   
   /**
-   * PHASE 1: Events → Facets
+   * PHASE 0: Event preprocessing (Modulators)
+   */
+  private runPhase0(events: SpaceEvent[]): SpaceEvent[] {
+    let processedEvents = events;
+    
+    // Run events through each modulator in sequence
+    for (const modulator of this.modulators) {
+      processedEvents = modulator.process(processedEvents);
+    }
+    
+    return processedEvents;
+  }
+  
+  /**
+   * PHASE 1: Events → Facets (Receptors)
    */
   private runPhase1(events: SpaceEvent[]): Facet[] {
     const facets: Facet[] = [];
@@ -524,7 +546,7 @@ export class Space extends Element {
     for (const effector of this.effectors) {
       // Filter changes this effector cares about
       const relevantChanges = changes.filter(change => 
-        this.matchesEffectorFilters(change.facet, effector.facetFilters)
+        this.matchesEffectorFilters(change.facet, effector.facetFilters || [])
       );
       if (relevantChanges.length === 0) continue;
       
@@ -558,13 +580,13 @@ export class Space extends Element {
   /**
    * PHASE 4: Maintenance
    */
-  private async runPhase4(): Promise<SpaceEvent[]> {
+  private async runPhase4(frame: Frame, changes: FacetDelta[]): Promise<SpaceEvent[]> {
     const events: SpaceEvent[] = [];
     const readonlyState = this.getReadonlyState();
     
     for (const maintainer of this.maintainers) {
       try {
-        const maintenanceEvents = maintainer.maintain(readonlyState);
+        const maintenanceEvents = await maintainer.process(frame, changes, readonlyState);
         events.push(...maintenanceEvents);
       } catch (error) {
         console.error('Maintainer error:', error);

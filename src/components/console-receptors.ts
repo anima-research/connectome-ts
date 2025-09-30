@@ -2,6 +2,7 @@
  * Console Receptors and Effectors for the new architecture
  */
 
+import { BaseReceptor, BaseEffector } from './base-martem';
 import { 
   Receptor, 
   Effector, 
@@ -16,7 +17,7 @@ import { createAgentActivation, createEventFacet } from '../helpers/factories';
 /**
  * Converts console input events into message AND activation facets
  */
-export class ConsoleInputReceptor implements Receptor {
+export class ConsoleInputReceptor extends BaseReceptor {
   topics = ['console:input'];
   
   transform(event: SpaceEvent, state: ReadonlyVEILState): Facet[] {
@@ -52,14 +53,16 @@ export class ConsoleInputReceptor implements Receptor {
 /**
  * Watches for speech facets and outputs to console
  */
-export class ConsoleOutputEffector implements Effector {
+export class ConsoleOutputEffector extends BaseEffector {
   facetFilters = [{
     type: 'speech'
   }];
   
   constructor(
     private write: (content: string) => void = console.log
-  ) {}
+  ) {
+    super();
+  }
   
   async process(changes: FacetDelta[], state: ReadonlyVEILState): Promise<EffectorResult> {
     const externalActions = [];
