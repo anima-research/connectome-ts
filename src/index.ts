@@ -52,6 +52,14 @@ export * from './spaces/receptor-effector-types';
 // Base MARTEM implementations
 export * from './components/base-martem';
 export { BaseAfferent } from './components/base-afferent';
+
+// Migration adapters
+export {
+  VEILOperationReceptor,
+  ComponentToReceptorAdapter,
+  ComponentToEffectorAdapter
+} from './spaces/migration-adapters';
+
 // Note: EphemeralCleanupTransform removed - ephemeral facets naturally fade away
 
 // Transform exports
@@ -82,6 +90,8 @@ export { ConsoleChatComponent } from './elements/console-chat';
 // Component exports
 export { AxonLoaderComponent } from './components/axon-loader';
 export { SpaceNotesComponent } from './components/space-notes';
+export { VEILComponent, InteractiveComponent } from './components/base-components';
+export { ConsoleInputReceptor, ConsoleOutputEffector } from './components/console-receptors';
 
 // AXON exports
 export { createAxonEnvironment } from './axon/environment';

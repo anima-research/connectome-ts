@@ -1,5 +1,23 @@
-const fetch = (...args: Parameters<typeof import('node-fetch')['default']>) =>
-  import('node-fetch').then(({ default: fetch }) => fetch(...args) as any);
+// Use native fetch if available (Node 18+), otherwise use node-fetch
+let fetchImpl: typeof fetch;
+
+async function initializeFetch() {
+  if (typeof globalThis.fetch !== 'undefined') {
+    fetchImpl = globalThis.fetch;
+  } else {
+    // Use Function constructor to preserve dynamic import (avoids TypeScript converting to require())
+    const importFunc = new Function('specifier', 'return import(specifier)');
+    const nodeFetch = await importFunc('node-fetch');
+    fetchImpl = nodeFetch.default as any;
+  }
+}
+
+const fetchPromise = initializeFetch();
+
+async function fetch(url: string, options?: any): Promise<any> {
+  await fetchPromise;
+  return fetchImpl(url, options);
+}
 
 interface DebugState {
   space: any;
