@@ -207,6 +207,24 @@ export abstract class BaseAfferent<TConfig = any, TCommand = any>
     this.metrics.eventsEmitted++;
     this.status.lastActivity = Date.now();
   }
+
+  /**
+   * Override emitFacet for afferents
+   * Afferents can emit facets via events (will be queued for next frame)
+   */
+  protected emitFacet(facet: import('../veil/types').Facet): void {
+    this.emit({
+      topic: 'veil:operation',
+      source: { elementId: this.element?.id || 'afferent', elementPath: [] },
+      timestamp: Date.now(),
+      payload: {
+        operation: {
+          type: 'addFacet',
+          facet
+        }
+      }
+    });
+  }
   
   protected handleError(
     type: AfferentError['errorType'], 

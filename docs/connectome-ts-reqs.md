@@ -123,8 +123,14 @@ Space/Element System Requirements:
 
 Elements are the basic building blocks arranged in a tree hierarchy, with Space as the root element. Elements can have Components that add behavior. Events flow through the element tree using a topic-based subscription system (e.g., "discord.message", "timer.expired"). 
 
-Four-Phase Processing Architecture (RETM):
-The RETM (Receptor/Effector/Transform/Maintainer) architecture provides a deterministic four-phase cycle for processing events:
+Six-Phase Processing Architecture (MARTEM):
+The MARTEM (Modulator/Afferent/Receptor/Transform/Effector/Maintainer) architecture provides a deterministic processing cycle for events:
+
+Phase 0 - Event Preprocessing (Modulators):
+- Pure functions that preprocess events before they enter the system
+- Can filter, aggregate, buffer, or rewrite the event queue
+- No access to VEIL state
+- Examples: Rate limiting, event deduplication, batching
 
 Phase 1 - Events → Facets (Receptors):
 - Pure functions that transform SpaceEvents into Facets
@@ -138,20 +144,28 @@ Phase 2 - Facets → Facets (Transforms):
 - Loops until no new facets are generated (enables cascading)
 - Maximum of 100 iterations to prevent infinite loops
 - Can read any facet in VEIL, including InternalStateFacets
+- Operates as a "chemical reaction space" - deltas applied directly to working state
 
 Phase 3 - Facets → Events/Actions (Effectors):
 - Stateful components that observe facet changes
 - Can emit new events, perform external actions
 - Examples: Agent activation, console output, Discord messaging
-- Should persist important state to VEIL via InternalStateFacets
+- Can directly update their own component-state facets (proposed)
 
 Phase 4 - Maintenance → Events (Maintainers):
 - Perform system maintenance operations
 - Examples: Element tree management, persistence, transition tracking
 - Can emit new events for the next frame
-- Cannot modify VEIL directly
+- Can directly update their own component-state facets (proposed)
 
-This architecture provides clear data flow, testability through pure functions in Phases 1-2, and controlled side effects in Phases 3-4. The stateless nature of Receptors and Transforms ensures deterministic replay - given the same VEIL state and events, the system will always produce the same results.
+Async - External System Integration (Afferents):
+- Run asynchronously outside the frame boundary
+- Bridge external systems to Connectome events
+- Managed by effectors, have their own command queue
+- Examples: Discord WebSocket, console input, file watchers
+- Can update their own component-state via async bridge (proposed)
+
+All MARTEM components implement a unified Component interface with mount/unmount/destroy lifecycle methods. This architecture provides clear data flow, testability through pure functions in Phases 0-2, and controlled side effects in Phases 3-4 and Afferents.
 
 Reference Injection:
 The ConnectomeHost maintains a unified reference registry that is shared with spaces. Components can:
@@ -171,8 +185,9 @@ The AXON protocol enables Connectome to dynamically load components from externa
 4. **Parameter Passing**: URL parameters are passed to loaded components (e.g., `axon://game.server/spacegame?token=xyz`)
 5. **Action Registration**: Loaded components can register actions that agents can invoke via `@element.action` syntax
 6. **Module Versioning**: Cache-busting ensures fresh modules after changes
-7. **RETM Support**: AXON modules can export Receptors, Effectors, Transforms, and Maintainers directly
-8. **V2 Environment**: Extended environment provides all RETM interfaces and helpers
+7. **MARTEM Support**: AXON modules can export Modulators, Afferents, Receptors, Effectors, Transforms, and Maintainers directly
+8. **V2 Environment**: Extended environment provides all MARTEM interfaces, base classes (BaseAfferent, etc.), and helpers
+9. **Mixed Modules**: AXON modules can export both traditional Components and MARTEM components simultaneously
 
 The AxonElement acts as a loader that:
 - Fetches the manifest from the HTTP endpoint
@@ -355,8 +370,23 @@ Completed:
 - AXON RETM support
 - Removal of frame:end events
 - Phase 2 looping with iteration limit
+- MARTEM architecture with Phase 0 Modulators
+- BaseAfferent implementation with command queue
+- Unified Component interface for all MARTEM types
+- BaseModulator, BaseReceptor, BaseTransform, BaseEffector, BaseMaintainer
+- Component lifecycle methods (mount/unmount/destroy)
+- Afferent support in AXON V2 environment
+- Discord Afferent implementation
+- Fixed frame.events for proper turn attribution
+- Element.active property for mount state
+- ComponentRequestFacet for facet-driven component creation
 
 Still Pending:
+- Component State Management (proposed):
+  - ComponentStateFacet implementation
+  - Direct VEIL writes for effectors/maintainers
+  - Afferent state bridge for async updates
+  - Migration from @persistent decorator
 - Additional adapters (filesystem, shell terminal, etc.)
 - Discovery mechanism for @element.? syntax
 - Enhanced block parameter parsing (proper grammar/parser)
@@ -380,3 +410,10 @@ Recently Removed/Deprecated:
 - frame:end events (functionality moved to Maintainers)
 - Legacy Component support
 - Direct element tree manipulation (now declarative via VEIL)
+
+Conceptual Insights:
+- Phase 2 operates as a "chemical reaction space" where facet changes combine atomically without predefined order
+- changeFacet operations are necessary for "rewriting history" (forgetting, reframing) but should be used carefully
+- Transforms should generally create new derived facets rather than modifying existing ones
+- Component state vs perception: VEIL represents both perceptual state and internal machinery
+- Afferents require special handling due to their async nature outside the frame boundary

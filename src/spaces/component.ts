@@ -232,6 +232,84 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
     return this.element.getRef();
   }
 
+  // ============================================
+  // Component State Management (VEIL-based)
+  // ============================================
+
+  /**
+   * Get this component's unique ID for state scoping
+   */
+  protected getComponentId(): string {
+    // Use element ID + component type + index as unique ID
+    const components = Array.from(this.element.components);
+    const index = components.indexOf(this);
+    return `${this.element.id}:${this.constructor.name}:${index}`;
+  }
+
+  /**
+   * Get this component's state from VEIL
+   * Returns empty object if state facet doesn't exist yet
+   */
+  protected getComponentState<T = Record<string, any>>(): T {
+    const space = this.element?.findSpace() as Space | undefined;
+    if (!space || !(space as any).getVEILState) {
+      return {} as T;
+    }
+    
+    const veilState = (space as any).getVEILState().getState();
+    const componentId = this.getComponentId();
+    const stateFacet = veilState.facets.get(`component-state:${componentId}`);
+    
+    return (stateFacet?.state || {}) as T;
+  }
+
+  /**
+   * Update this component's state in VEIL
+   * 
+   * For VEILComponents (Phase 1/2): Uses addOperation() - applies via normal flow
+   * For Effectors/Maintainers (Phase 3/4): Directly modifies VEIL (side effect!) via Space hook
+   * For Afferents: Must emit event, use runtime cache
+   * 
+   * @param updates - Partial state updates (deep merged)
+   */
+  protected updateComponentState(updates: Record<string, any>): void {
+    const componentId = this.getComponentId();
+    const currentState = this.getComponentState();
+    
+    const delta = {
+      type: 'changeFacet' as const,
+      id: `component-state:${componentId}`,
+      changes: {
+        state: { ...currentState, ...updates }
+      }
+    };
+    
+    // Try to apply as scoped write (for Effectors/Maintainers in their phase)
+    const space = this.element?.findSpace() as any;
+    if (space && space._applyComponentStateDelta) {
+      // Direct application during Phase 3/4
+      space._applyComponentStateDelta(delta, componentId);
+    } else {
+      // Fallback to normal addOperation (for VEILComponents)
+      this.addOperation(delta);
+    }
+  }
+
+  /**
+   * Replace entire component state
+   */
+  protected setComponentState<T = Record<string, any>>(state: T): void {
+    const componentId = this.getComponentId();
+    
+    this.addOperation({
+      type: 'changeFacet',
+      id: `component-state:${componentId}`,
+      changes: {
+        state
+      }
+    });
+  }
+
   /**
    * Add a VEIL operation to the current frame
    * This is the primary way components interact with VEIL state
@@ -494,5 +572,62 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
       operation();
     });
     space.requestFrame();
+  }
+
+  // ============================================
+  // Convenience Helpers for Facet Creation
+  // ============================================
+
+  /**
+   * Emit a facet via veil:operation event
+   * For Effectors/Maintainers/Afferents that can't directly add to frame
+   * Can be overridden in subclasses for validation
+   */
+  protected emitFacet(facet: import('../veil/types').Facet): void {
+    this.emit({
+      topic: 'veil:operation',
+      payload: {
+        operation: {
+          type: 'addFacet',
+          facet
+        }
+      }
+    });
+  }
+
+  /**
+   * Emit an agent activation (convenience)
+   * Can be overridden for validation
+   */
+  protected activateAgent(reason: string, options?: {
+    priority?: 'low' | 'normal' | 'high' | 'critical';
+    source?: string;
+    streamRef?: any;
+  }): void {
+    const { createAgentActivation } = require('../helpers/factories');
+    this.emitFacet(createAgentActivation(reason, {
+      source: options?.source || this.element.id,
+      priority: options?.priority || 'normal',
+      streamRef: options?.streamRef
+    }));
+  }
+
+  /**
+   * Emit an event facet (convenience)
+   * Can be overridden for validation
+   */
+  protected emitEventFacet(content: string, options?: {
+    eventType?: string;
+    metadata?: any;
+  }): void {
+    const { createEventFacet } = require('../helpers/factories');
+    this.emitFacet(createEventFacet({
+      id: `${this.element.id}-event-${Date.now()}`,
+      content,
+      source: this.element.id,
+      eventType: options?.eventType || 'event',
+      metadata: options?.metadata,
+      streamId: 'default'
+    }));
   }
 }

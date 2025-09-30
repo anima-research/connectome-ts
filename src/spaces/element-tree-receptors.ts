@@ -68,15 +68,19 @@ export class ElementRequestReceptor extends BaseReceptor {
         const payload = event.payload as { 
           elementId: string;
           componentType: string;
+          componentClass?: string;
           config?: any;
         };
-        facets.push(createEventFacet({
+        const facet = createEventFacet({
           content: `Request to add component '${payload.componentType}' to element '${payload.elementId}'`,
           source: 'element-tree',
           eventType: 'component-add-request',
           metadata: payload,
           streamId: 'system'
-        }));
+        });
+        // Mark as ephemeral - processed once then removed
+        (facet as any).ephemeral = true;
+        facets.push(facet);
         break;
       }
     }
@@ -153,8 +157,9 @@ export class ElementTreeMaintainer extends BaseMaintainer {
     this.elementCache.set(space.id, space);
   }
   
-  async process(frame: Frame, changes: FacetDelta[], state: ReadonlyVEILState): Promise<SpaceEvent[]> {
+  async process(frame: Frame, changes: FacetDelta[], state: ReadonlyVEILState): Promise<import('./receptor-effector-types').MaintainerResult> {
     const events: SpaceEvent[] = [];
+    const deltas: import('../veil/types').VEILDelta[] = [];
     
     // Collect all element operations from this frame
     this.collectOperations(state);
@@ -166,12 +171,12 @@ export class ElementTreeMaintainer extends BaseMaintainer {
     this.processCreations(events);
     
     // Process component additions
-    this.processComponentAdditions(state, events);
+    this.processComponentAdditions(state, events, deltas);
     
     // Clear pending operations
     this.pendingOperations = [];
     
-    return events;
+    return { events, deltas };
   }
   
   private collectOperations(state: ReadonlyVEILState) {
@@ -249,11 +254,11 @@ export class ElementTreeMaintainer extends BaseMaintainer {
     }
   }
   
-  private processComponentAdditions(state: ReadonlyVEILState, events: SpaceEvent[]) {
+  private processComponentAdditions(state: ReadonlyVEILState, events: SpaceEvent[], deltas: import('../veil/types').VEILDelta[]) {
     const additions = this.pendingOperations.filter(op => op.type === 'add-component');
     
     for (const addition of additions) {
-      this.addComponent(addition.facet!, state, events);
+      this.addComponent(addition.facet!, state, events, deltas);
     }
   }
   
@@ -410,8 +415,9 @@ export class ElementTreeMaintainer extends BaseMaintainer {
     });
   }
   
-  private addComponent(facet: Facet, state: ReadonlyVEILState, events: SpaceEvent[]): void {
-    const { elementId, componentType, config } = facet.state?.metadata || {};
+  private addComponent(facet: Facet, state: ReadonlyVEILState, events: SpaceEvent[], deltas: import('../veil/types').VEILDelta[]): void {
+    const { elementId, componentType, config, componentClass } = facet.state?.metadata || {};
+    
     if (!elementId || !componentType) return;
     
     const element = this.elementCache.get(elementId);
@@ -420,7 +426,54 @@ export class ElementTreeMaintainer extends BaseMaintainer {
     const component = ComponentRegistry.create(componentType, config);
     if (!component) return;
     
+    // Generate component ID before adding (so we know the index)
+    const componentIndex = element.components.length;
+    const componentId = `${elementId}:${componentType}:${componentIndex}`;
+    
+    // Create component-state facet BEFORE mounting component
+    // Use deltas (applied immediately) not events (next frame)
+    // This ensures the state exists when onMount() is called
+    const componentStateFacet = {
+      id: `component-state:${componentId}`,
+      type: 'component-state',
+      componentType,
+      componentClass: componentClass || 'effector', // Default to effector if not specified
+      componentId,
+      elementId,
+      state: config || {}
+    };
+    
+    deltas.push({
+      type: 'addFacet',
+      facet: componentStateFacet
+    });
+    
+    // Now add component to element
     element.addComponent(component);
+    
+    // Register RETM component with Space based on its class
+    const space = this.space as any;
+    
+    switch (componentClass) {
+      case 'modulator':
+        if (space.addModulator) space.addModulator(component);
+        break;
+      case 'receptor':
+        if (space.addReceptor) space.addReceptor(component);
+        break;
+      case 'transform':
+        if (space.addTransform) space.addTransform(component);
+        break;
+      case 'effector':
+        if (space.addEffector) space.addEffector(component);
+        break;
+      case 'maintainer':
+        if (space.addMaintainer) space.addMaintainer(component);
+        break;
+      case 'afferent':
+        // Afferents are attached to elements but don't register with Space
+        break;
+    }
     
     // Update element-tree facet
     const treeFacetId = `element-tree-${elementId}`;
@@ -429,7 +482,7 @@ export class ElementTreeMaintainer extends BaseMaintainer {
       const components = [...(treeFacet.state.components || [])];
       components.push({
         type: componentType,
-        index: element.components.length - 1,
+        index: componentIndex,
         config
       });
       

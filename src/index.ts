@@ -85,7 +85,13 @@ export { AgentElement } from './agent/agent-element';
 export { createBasicAgent, type CreateAgentOptions } from './agent/agent-factory';
 
 // Element exports
-export { ConsoleChatComponent } from './elements/console-chat';
+export { ConsoleChatComponent } from './elements/console-chat'; // Legacy - use console-chat-retm instead
+export { 
+  ConsoleAfferent, 
+  ConsoleMessageReceptor, 
+  ConsoleSpeechEffector,
+  createConsoleElement 
+} from './elements/console-chat-retm';
 
 // Component exports
 export { AxonLoaderComponent } from './components/axon-loader';

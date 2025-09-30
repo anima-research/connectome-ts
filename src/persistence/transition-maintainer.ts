@@ -27,10 +27,10 @@ export class TransitionMaintainer extends BaseMaintainer {
     this.initializeStorage();
   }
   
-  async process(frame: Frame, changes: FacetDelta[], state: ReadonlyVEILState): Promise<SpaceEvent[]> {
+  async process(frame: Frame, changes: FacetDelta[], state: ReadonlyVEILState): Promise<import('../spaces/receptor-effector-types').MaintainerResult> {
     // Get the transition from the frame
     if (!frame.transition) {
-      return [];
+      return { events: [] };
     }
     
     const transition = frame.transition;
@@ -58,7 +58,7 @@ export class TransitionMaintainer extends BaseMaintainer {
       });
     }
     
-    return []; // No events to emit
+    return { events: [] }; // No events to emit
   }
   
   private async initializeStorage(): Promise<void> {

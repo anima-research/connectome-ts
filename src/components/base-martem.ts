@@ -4,7 +4,7 @@
  */
 
 import { Element } from '../spaces/element';
-import { Component } from '../types/component';
+import { Component } from '../spaces/component';
 import { 
   Modulator,
   Receptor, 
@@ -19,59 +19,98 @@ import {
 import { Frame, Facet, VEILDelta } from '../veil/types';
 
 /**
- * Base class with no-op lifecycle methods
- * Allows existing RETM implementations to work without changes
+ * Base Modulator with default lifecycle
  */
-abstract class BaseComponent implements Component {
+export abstract class BaseModulator extends Component implements Modulator {
+  abstract process(events: SpaceEvent[]): SpaceEvent[];
+  
+  reset?(): void;
+  
+  // Implement Component interface requirements
   async mount(element: Element): Promise<void> {
-    // No-op by default
+    this.element = element;
   }
   
   async unmount(): Promise<void> {
     // No-op by default
   }
-  
-  async destroy(): Promise<void> {
-    // No-op by default
-  }
-}
-
-/**
- * Base Modulator with default lifecycle
- */
-export abstract class BaseModulator extends BaseComponent implements Modulator {
-  abstract process(events: SpaceEvent[]): SpaceEvent[];
-  
-  reset?(): void;
 }
 
 /**
  * Base Receptor with default lifecycle
  */
-export abstract class BaseReceptor extends BaseComponent implements Receptor {
+export abstract class BaseReceptor extends Component implements Receptor {
   abstract topics: string[];
   abstract transform(event: SpaceEvent, state: ReadonlyVEILState): Facet[];
+  
+  async mount(element: Element): Promise<void> {
+    this.element = element;
+  }
+  
+  async unmount(): Promise<void> {
+    // No-op by default
+  }
 }
 
 /**
  * Base Transform with default lifecycle
  */
-export abstract class BaseTransform extends BaseComponent implements Transform {
+export abstract class BaseTransform extends Component implements Transform {
   facetFilters?: import('../spaces/receptor-effector-types').FacetFilter[];
   abstract process(state: ReadonlyVEILState): VEILDelta[];
+  
+  async mount(element: Element): Promise<void> {
+    this.element = element;
+  }
+  
+  async unmount(): Promise<void> {
+    // No-op by default
+  }
 }
 
 /**
  * Base Effector with default lifecycle
  */
-export abstract class BaseEffector extends BaseComponent implements Effector {
+export abstract class BaseEffector extends Component implements Effector {
   facetFilters?: import('../spaces/receptor-effector-types').FacetFilter[];
   abstract process(changes: FacetDelta[], state: ReadonlyVEILState): Promise<EffectorResult>;
+  
+  async mount(element: Element): Promise<void> {
+    this.element = element;
+  }
+  
+  async unmount(): Promise<void> {
+    // No-op by default
+  }
+
+  /**
+   * Override emitFacet with validation for effectors
+   * Effectors should primarily emit event/activation facets, not domain state
+   */
+  protected emitFacet(facet: import('../veil/types').Facet): void {
+    // Validate effectors aren't creating state facets (should use Receptors/Transforms)
+    if (facet.type === 'state' && !facet.type.includes('component-state')) {
+      console.warn(
+        `[${this.constructor.name}] Effector creating state facet '${facet.id}'. ` +
+        `Consider using a Transform instead for domain state.`
+      );
+    }
+    
+    super.emitFacet(facet);
+  }
 }
 
 /**
  * Base Maintainer with default lifecycle
  */
-export abstract class BaseMaintainer extends BaseComponent implements Maintainer {
-  abstract process(frame: Frame, changes: FacetDelta[], state: ReadonlyVEILState): Promise<SpaceEvent[]>;
+export abstract class BaseMaintainer extends Component implements Maintainer {
+  abstract process(frame: Frame, changes: FacetDelta[], state: ReadonlyVEILState): Promise<import('../spaces/receptor-effector-types').MaintainerResult>;
+  
+  async mount(element: Element): Promise<void> {
+    this.element = element;
+  }
+  
+  async unmount(): Promise<void> {
+    // No-op by default
+  }
 }

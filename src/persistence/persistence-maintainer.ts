@@ -29,7 +29,7 @@ export class PersistenceMaintainer extends BaseMaintainer {
     this.storage = new FileStorageAdapter(config.storagePath);
   }
   
-  async process(frame: Frame, changes: FacetDelta[], state: ReadonlyVEILState): Promise<SpaceEvent[]> {
+  async process(frame: Frame, changes: FacetDelta[], state: ReadonlyVEILState): Promise<import('../spaces/receptor-effector-types').MaintainerResult> {
     // Save the frame delta
     this.saveDelta(frame, frame.sequence).catch(err => {
       console.error('[PersistenceMaintainer] Failed to save delta:', err);
@@ -49,7 +49,7 @@ export class PersistenceMaintainer extends BaseMaintainer {
       this.elementOperations = [];
     }
     
-    return []; // No events to emit
+    return { events: [] }; // No events to emit
   }
   
   private async saveDelta(frame: Frame, sequence: number): Promise<void> {

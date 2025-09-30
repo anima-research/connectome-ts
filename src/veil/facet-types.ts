@@ -149,10 +149,25 @@ export type ConfigFacet = BaseFacet & StateAspect & {
 
 /**
  * Internal component state (not visible to agents)
+ * Each component instance gets its own scoped state facet
+ */
+export type ComponentStateFacet = BaseFacet & StateAspect & {
+  type: 'component-state';
+  componentType: string;  // e.g., 'discord-afferent', 'rate-limit-effector'
+  componentClass: 'modulator' | 'afferent' | 'receptor' | 'transform' | 'effector' | 'maintainer';
+  componentId: string;    // Unique instance ID
+  elementId: string;      // Owning element
+};
+
+/**
+ * Internal state (legacy - use ComponentStateFacet instead)
+ * @deprecated Use ComponentStateFacet for component-specific state
  */
 export type InternalStateFacet = BaseFacet & StateAspect & {
   type: 'internal-state';
-  componentId: string;
+  componentId?: string;
+  entityType?: string;
+  entityId?: string;
 };
 
 // ============================================

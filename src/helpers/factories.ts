@@ -447,3 +447,24 @@ export function changeFacet(id: string, changes: Partial<Facet>): VEILDelta {
 
 export const changeState = changeFacet;
 export const updateState = changeFacet;
+
+/**
+ * Create a component state facet for VEIL-based component persistence
+ */
+export function createComponentStateFacet(init: {
+  componentId: string;
+  componentType: string;
+  componentClass: 'modulator' | 'afferent' | 'receptor' | 'transform' | 'effector' | 'maintainer';
+  elementId: string;
+  initialState?: Record<string, any>;
+}): Facet {
+  return {
+    id: `component-state:${init.componentId}`,
+    type: 'component-state',
+    componentType: init.componentType,
+    componentClass: init.componentClass,
+    componentId: init.componentId,
+    elementId: init.elementId,
+    state: init.initialState || {}
+  } as any;
+}

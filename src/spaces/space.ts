@@ -400,10 +400,17 @@ export class Space extends Element {
       const newEvents = await this.runPhase3(allChanges);
       
       // PHASE 4: Maintenance (Element tree, references, cleanup)
-      const maintenanceEvents = await this.runPhase4(this.currentFrame, allChanges);
+      const maintenanceResult = await this.runPhase4(this.currentFrame, allChanges);
+      
+      // Apply maintainer deltas immediately (for infrastructure like component-state facets)
+      if (maintenanceResult.deltas && maintenanceResult.deltas.length > 0) {
+        const maintenanceChanges = this.veilState.applyDeltasDirect(maintenanceResult.deltas);
+        allChanges.push(...maintenanceChanges);
+        frame.deltas.push(...maintenanceResult.deltas);
+      }
       
       // Queue all new events for next frame
-      [...newEvents, ...maintenanceEvents].forEach(event => this.queueEvent(event));
+      [...newEvents, ...(maintenanceResult.events || [])].forEach(event => this.queueEvent(event));
       
       // Clean up ephemeral facets now that all phases are complete
       const ephemeralCleanup = this.veilState.cleanupEphemeralFacets();
@@ -565,15 +572,26 @@ export class Space extends Element {
   
   /**
    * PHASE 4: Maintenance
+   * Maintainers can modify VEIL for infrastructure concerns
    */
-  private async runPhase4(frame: Frame, changes: FacetDelta[]): Promise<SpaceEvent[]> {
+  private async runPhase4(frame: Frame, changes: FacetDelta[]): Promise<{ events: SpaceEvent[]; deltas: VEILDelta[] }> {
     const events: SpaceEvent[] = [];
+    const deltas: VEILDelta[] = [];
     const readonlyState = this.getReadonlyState();
     
     for (const maintainer of this.maintainers) {
       try {
-        const maintenanceEvents = await maintainer.process(frame, changes, readonlyState);
-        events.push(...maintenanceEvents);
+        const result = await maintainer.process(frame, changes, readonlyState);
+        
+        // Collect events for next frame
+        if (result.events) {
+          events.push(...result.events);
+        }
+        
+        // Collect deltas to apply in current frame
+        if (result.deltas) {
+          deltas.push(...result.deltas);
+        }
       } catch (error) {
         console.error('Maintainer error:', error);
         // Create error event
@@ -590,9 +608,42 @@ export class Space extends Element {
       }
     }
     
-    return events;
+    return { events, deltas };
   }
   
+  /**
+   * Apply component-state delta with scoped write validation
+   * Called by Effectors/Maintainers during their phase to update their own state
+   * 
+   * @internal
+   */
+  _applyComponentStateDelta(delta: VEILDelta, componentId: string): void {
+    // Validate this is a component-state facet update
+    if (delta.type !== 'changeFacet' || !delta.id.startsWith('component-state:')) {
+      throw new Error(`_applyComponentStateDelta can only be used for component-state facets`);
+    }
+    
+    // Validate the component is modifying its own state
+    const expectedId = `component-state:${componentId}`;
+    if (delta.id !== expectedId) {
+      throw new Error(
+        `Component ${componentId} attempted to modify ${delta.id}. ` +
+        `Components can only modify their own state (${expectedId})`
+      );
+    }
+    
+    // Apply the delta immediately
+    const changes = this.veilState.applyDeltasDirect([delta]);
+    
+    // Add to current frame for history tracking
+    if (this.currentFrame) {
+      this.currentFrame.deltas.push(delta);
+    }
+    
+    // Note: We don't add to allChanges here because this happens during Phase 3/4
+    // after change tracking is done. The delta is in frame.deltas for persistence.
+  }
+
   /**
    * Helper to check if facet matches effector filters
    */

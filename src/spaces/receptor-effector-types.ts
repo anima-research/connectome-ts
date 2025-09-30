@@ -200,13 +200,25 @@ export interface ReadonlyVEILState {
 // by not being persisted and being ignored by systems that don't need them
 
 /**
+ * Result of maintainer processing
+ */
+export interface MaintainerResult {
+  events?: SpaceEvent[];
+  deltas?: VEILDelta[];
+}
+
+/**
  * Maintainer: Phase 4 - Handles maintenance operations
- * Runs after all other phases, can emit events for next frame
- * Cannot modify VEIL directly, only emit events
+ * Runs after all other phases
+ * Can modify VEIL for infrastructure concerns (element tree, component lifecycle, etc.)
+ * Can emit events for next frame
  */
 export interface Maintainer extends Component {
-  /** Perform maintenance operations, return events for next frame */
-  process(frame: Frame, changes: FacetDelta[], state: ReadonlyVEILState): Promise<SpaceEvent[]>;
+  /** 
+   * Perform maintenance operations
+   * @returns events for next frame and deltas to apply immediately
+   */
+  process(frame: Frame, changes: FacetDelta[], state: ReadonlyVEILState): Promise<MaintainerResult>;
 }
 
 // Re-export SpaceEvent for convenience

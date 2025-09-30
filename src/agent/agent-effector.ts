@@ -43,10 +43,11 @@ export class AgentEffector extends BaseEffector {
   private cachedAgentId?: string;
   
   constructor(
-    private element: Element,
+    element: Element,
     agent: AgentInterface
   ) {
     super();
+    this.element = element;
     this.agent = agent;
     this.tracer = getGlobalTracer();
   }
