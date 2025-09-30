@@ -335,20 +335,15 @@ export class Space extends Element {
       // PHASE 1: Events → VEIL (via Receptors)
       const phase1Facets = this.runPhase1(processedEvents);
       
-      // Apply Phase 1 facets to state first
-      const phase1Frame: Frame = {
-        sequence: frameId,
-        timestamp,
-        events: events, // Include the events that triggered this frame
-        deltas: phase1Facets.map(facet => ({
-          type: 'addFacet' as const,
-          facet
-        })),
-        transition: createDefaultTransition(frameId, timestamp)
-      };
-      const phase1Changes = this.veilState.applyFrame(phase1Frame, true); // Skip ephemeral cleanup
+      // Convert facets to deltas and apply directly to state
+      const phase1Deltas: VEILDelta[] = phase1Facets.map(facet => ({
+        type: 'addFacet' as const,
+        facet
+      }));
+      const phase1Changes = this.veilState.applyDeltasDirect(phase1Deltas);
       
       // PHASE 2: VEIL → VEIL (via Transforms) - loop until no more deltas
+      // Apply deltas directly to state (not creating intermediate frames)
       const allPhase2Deltas: VEILDelta[] = [];
       const allPhase2Changes: FacetDelta[] = [];
       let iteration = 0;
@@ -364,17 +359,9 @@ export class Space extends Element {
           break;
         }
         
-        
-        // Apply these deltas to state so next iteration can see them
-        const phase2Sequence = this.veilState.getNextSequence();
-        const phase2Frame: Frame = {
-          sequence: phase2Sequence,
-          timestamp,
-          events: [],
-          deltas: phase2Deltas,
-          transition: createDefaultTransition(phase2Sequence, timestamp)
-        };
-        const phase2Changes = this.veilState.applyFrame(phase2Frame, true); // Skip ephemeral cleanup
+        // Apply deltas directly to state (no frame creation, no listener notification)
+        // This allows next iteration to see the changes immediately
+        const phase2Changes = this.veilState.applyDeltasDirect(phase2Deltas);
         
         allPhase2Deltas.push(...phase2Deltas);
         allPhase2Changes.push(...phase2Changes);
@@ -385,16 +372,15 @@ export class Space extends Element {
         throw new Error(`Phase 2 exceeded maximum iterations (${maxIterations}). Possible infinite loop in transforms. Last ${lastPhase2Deltas.length} deltas were of types: ${lastPhase2Deltas.map(d => d.type).join(', ')}`);
       }
       
-      // Collect all operations for the complete frame
-      const phase1Deltas = phase1Facets.map(facet => ({
-        type: 'addFacet' as const,
-        facet
-      }));
+      // Collect all deltas for the complete frame
       frame.deltas = [...phase1Deltas, ...allPhase2Deltas];
       
-      
-      // Update currentFrame operations with all operations (including legacy)
+      // Update currentFrame with all deltas
       this.currentFrame.deltas = [...this.currentFrame.deltas, ...frame.deltas];
+      
+      // Finalize the frame: add to history, update sequence, notify listeners
+      // State already has the changes from applyDeltasDirect calls
+      this.veilState.finalizeFrame(frame, true); // Skip ephemeral cleanup for now
       
       // Check if frame has content
       const hasOperations = this.currentFrame.deltas.length > 0;

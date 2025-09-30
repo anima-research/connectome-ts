@@ -100,6 +100,69 @@ export class VEILStateManager {
   }
   
   /**
+   * Apply deltas directly to state without creating a frame
+   * Used for Phase 2 iterations where changes should be immediately visible
+   * but we don't want to create intermediate frames in history
+   */
+  applyDeltasDirect(deltas: VEILOperation[]): FacetDelta[] {
+    const changes: FacetDelta[] = [];
+    
+    for (const delta of deltas) {
+      const change = this.applyDelta(delta);
+      if (change) {
+        changes.push(change);
+      }
+    }
+    
+    // Do NOT notify listeners - that happens after full frame completes
+    // Do NOT update sequence or frame history
+    
+    return changes;
+  }
+  
+  /**
+   * Finalize a frame by adding it to history and updating sequence
+   * Used when deltas have already been applied via applyDeltasDirect
+   */
+  finalizeFrame(frame: Frame, skipEphemeralCleanup: boolean = false): void {
+    // Validate sequence - must be exactly the next number
+    const expectedSequence = this.state.currentSequence + 1;
+    if (frame.sequence !== expectedSequence) {
+      throw new Error(
+        `Frame sequence error: expected ${expectedSequence}, got ${frame.sequence} ` +
+        `(current: ${this.state.currentSequence})`
+      );
+    }
+    
+    // Update active stream if provided
+    if (frame.activeStream !== undefined) {
+      this.state.currentStream = frame.activeStream;
+    }
+    
+    // Update state
+    this.state.frameHistory.push(frame);
+    this.state.currentSequence = frame.sequence;
+    
+    // Remove ephemeral facets at end of frame (unless skipped)
+    if (!skipEphemeralCleanup) {
+      const ephemeralFacets: Array<[string, Facet]> = [];
+      for (const [id, facet] of this.state.facets) {
+        if ('ephemeral' in facet && facet.ephemeral === true) {
+          ephemeralFacets.push([id, facet]);
+        }
+      }
+      
+      // Remove ephemeral facets
+      for (const [id, facet] of ephemeralFacets) {
+        this.state.facets.delete(id);
+      }
+    }
+    
+    // Notify listeners
+    this.notifyListeners();
+  }
+  
+  /**
    * Clean up ephemeral facets - call this at the end of full frame processing
    */
   cleanupEphemeralFacets(): FacetDelta[] {
@@ -128,7 +191,7 @@ export class VEILStateManager {
     return changes;
   }
   
-  private applyDelta(operation: VEILOperation, frameSequence?: number, timestamp?: string): FacetDelta | null {
+  applyDelta(operation: VEILOperation, frameSequence?: number, timestamp?: string): FacetDelta | null {
     switch (operation.type) {
       case 'addFacet': {
         const cloned = this.cloneFacet(operation.facet);
