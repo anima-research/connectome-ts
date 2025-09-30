@@ -594,7 +594,7 @@ export class DebugServer {
         timestamp: frame.timestamp,
         kind: inferredKind,
         events: sanitizeFrameEvents(frame, uuid),
-        deltas: frame.deltas.map((op: any) => sanitizePayload(op)),
+        deltas: (frame.deltas || []).map((op: any) => sanitizePayload(op)),
         queueLength: 0,
         activeStream: frame.activeStream
       };

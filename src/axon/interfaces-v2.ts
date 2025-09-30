@@ -47,6 +47,9 @@ export interface IAxonRETMExports {
  * Extended AXON Environment with RETM support
  */
 export interface IAxonEnvironmentV2 extends IAxonEnvironment {
+  // Component base classes
+  BaseAfferent: any;
+  
   // RETM base classes/interfaces
   Receptor: any;
   Effector: any;

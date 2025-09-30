@@ -338,7 +338,8 @@ export class AxonLoaderComponent extends Component {
         (exports.receptors && exports.receptors.length > 0) ||
         (exports.effectors && exports.effectors.length > 0) ||
         (exports.transforms && exports.transforms.length > 0) ||
-        (exports.maintainers && exports.maintainers.length > 0)
+        (exports.maintainers && exports.maintainers.length > 0) ||
+        ((exports as any).afferents && (exports as any).afferents.length > 0)
       );
       
       // Create appropriate environment

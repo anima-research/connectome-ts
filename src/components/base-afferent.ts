@@ -12,6 +12,7 @@ import {
 } from '../spaces/receptor-effector-types';
 import { SpaceEvent } from '../spaces/types';
 import { Element } from '../spaces/element';
+import { Component } from '../spaces/component';
 
 /**
  * Async queue for command processing
@@ -58,16 +59,17 @@ class AsyncQueue<T> {
  * Base implementation for Afferent components
  */
 export abstract class BaseAfferent<TConfig = any, TCommand = any> 
+  extends Component
   implements Afferent<TConfig, TCommand> {
   
   protected context!: AfferentContext<TConfig>;
-  protected element?: Element;
   protected running = false;
   protected commandQueue: AsyncQueue<TCommand>;
   protected status: AfferentStatus;
   protected metrics: AfferentMetrics;
   
   constructor() {
+    super();
     this.commandQueue = new AsyncQueue<TCommand>();
     this.status = {
       state: 'stopped',
@@ -82,22 +84,32 @@ export abstract class BaseAfferent<TConfig = any, TCommand = any>
     };
   }
   
-  // Component lifecycle methods
+  // Afferent interface methods (required by Afferent<T>)
   
   async mount(element: Element): Promise<void> {
     this.element = element;
-    // Initialize will be called by the effector managing this afferent
+    // Initialize will be called separately by effector or onReferencesResolved
   }
   
   async unmount(): Promise<void> {
     await this.stop(true);
-    this.element = undefined;
+    // Note: element is marked with ! so we don't set it to undefined
   }
   
-  async destroy(): Promise<void> {
+  // Override Component lifecycle methods
+  
+  async onMount(): Promise<void> {
+    // No-op - mount() is called instead for afferents
+  }
+  
+  async onUnmount(): Promise<void> {
+    // No-op - unmount() is called instead for afferents
+  }
+  
+  async onDestroy(): Promise<void> {
     await this.stop(false);
     this.commandQueue.clear();
-    await this.onDestroy();
+    await this.onDestroyAfferent();
   }
   
   // Afferent lifecycle methods
@@ -185,7 +197,7 @@ export abstract class BaseAfferent<TConfig = any, TCommand = any>
   protected abstract onInitialize(): Promise<void>;
   protected abstract onStart(): Promise<void>;
   protected abstract onStop(): Promise<void>;
-  protected abstract onDestroy(): Promise<void>;
+  protected abstract onDestroyAfferent(): Promise<void>;
   protected abstract onCommand(command: TCommand): Promise<void>;
   
   // Helper methods

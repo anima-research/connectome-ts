@@ -6,6 +6,7 @@
 
 import { Component } from '../spaces/component';
 import { VEILComponent, InteractiveComponent } from '../components/base-components';
+import { BaseAfferent } from '../components/base-afferent';
 import { SpaceEvent } from '../spaces/types';
 import { persistent, persistable } from '../persistence/decorators';
 import { external } from '../host/decorators';
@@ -61,6 +62,7 @@ export function createAxonEnvironmentV2(): IAxonEnvironmentV2 {
     Component: Component as any,
     VEILComponent: VEILComponent as any,
     InteractiveComponent: InteractiveComponent as any,
+    BaseAfferent: BaseAfferent as any,
     
     // Decorators
     persistent,
