@@ -221,5 +221,5 @@ export interface Maintainer extends Component {
   process(frame: Frame, changes: FacetDelta[], state: ReadonlyVEILState): Promise<MaintainerResult>;
 }
 
-// Re-export SpaceEvent for convenience
-export { SpaceEvent };
+// Re-export SpaceEvent and Facet for convenience
+export { SpaceEvent, Facet };

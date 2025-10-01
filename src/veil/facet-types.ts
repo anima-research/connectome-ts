@@ -64,6 +64,7 @@ export interface TargetedAspect {
 export interface BaseFacet {
   id: string;
   type: string;
+  tags?: string[];  // Optional tags for continuations and other metadata
 }
 
 // ============================================
@@ -310,6 +311,33 @@ export type ComponentRequestFacet = BaseFacet & StateAspect<{
   type: 'component-request';
 };
 
+/**
+ * Indicates completion of an operation with continuation tag (ephemeral)
+ */
+export type ContinuationCompleteFacet = BaseFacet & StateAspect<{
+  continuationTag: string;
+  success: boolean;
+  result?: any;
+  error?: string;
+  continuations?: ContinuationSpec[];
+}> & EphemeralAspect & {
+  type: 'continuation:complete';
+};
+
+/**
+ * Specification for what should happen after an operation completes
+ */
+export interface ContinuationSpec {
+  /** Type of facet to create */
+  facetType: string;
+  
+  /** Facet content/state (can use template variables from result) */
+  facetSpec: any;
+  
+  /** Optional condition for this continuation */
+  condition?: 'success' | 'failure' | 'always';
+}
+
 // ============================================
 // UNION TYPES
 // ============================================
@@ -353,6 +381,7 @@ export type CoreFacet =
   | ElementTreeFacet
   | ElementRequestFacet
   | ComponentRequestFacet
+  | ContinuationCompleteFacet
   // Meta-Facets (Infrastructure)
   | StateChangeFacet
   | ScopeChangeFacet

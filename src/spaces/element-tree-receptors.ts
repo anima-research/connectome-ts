@@ -34,9 +34,11 @@ export class ElementRequestReceptor extends BaseReceptor {
           elementType?: string;
           name: string;
           components?: Array<{ type: string; config?: any }>;
+          continuations?: any[];
+          continuationTag?: string;
         };
         
-        // Create a request facet that the effector will process
+        // Create a request facet that the maintainer will process
         facets.push({
           id: `element-request-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
           type: 'element-request',
@@ -44,7 +46,9 @@ export class ElementRequestReceptor extends BaseReceptor {
             parentId: payload.parentId || 'root',
             elementType: payload.elementType || 'Element',
             name: payload.name,
-            components: payload.components
+            components: payload.components,
+            continuations: payload.continuations,  // Pass through continuations!
+            continuationTag: payload.continuationTag
           },
           ephemeral: true // Request is processed once
         });
@@ -168,7 +172,7 @@ export class ElementTreeMaintainer extends BaseMaintainer {
     this.processDeletions(events);
     
     // Process creations and restorations (top-down)
-    this.processCreations(events);
+    this.processCreations(events, deltas);
     
     // Process component additions
     this.processComponentAdditions(state, events, deltas);
@@ -235,7 +239,7 @@ export class ElementTreeMaintainer extends BaseMaintainer {
     }
   }
   
-  private processCreations(events: SpaceEvent[]) {
+  private processCreations(events: SpaceEvent[], deltas: import('../veil/types').VEILDelta[]) {
     // Process restorations first (they have existing IDs)
     const restorations = this.pendingOperations.filter(op => op.type === 'restore');
     
@@ -250,7 +254,7 @@ export class ElementTreeMaintainer extends BaseMaintainer {
     const creations = this.pendingOperations.filter(op => op.type === 'create');
     
     for (const creation of creations) {
-      this.createElement(creation.facet!, events);
+      this.createElement(creation.facet!, events, deltas);
     }
   }
   
@@ -262,13 +266,37 @@ export class ElementTreeMaintainer extends BaseMaintainer {
     }
   }
   
-  private createElement(facet: Facet, events: SpaceEvent[]): void {
-    const { parentId, elementType, name, components } = facet.state as any;
+  private createElement(facet: Facet, events: SpaceEvent[], deltas: import('../veil/types').VEILDelta[]): void {
+    const { parentId, elementType, name, components, continuationTag, continuations } = facet.state as any;
     
     // Find parent
     const parent = this.elementCache.get(parentId || 'root');
     if (!parent) {
       console.error(`Parent element ${parentId} not found`);
+      
+      // Emit failure continuation if tag exists
+      if (continuationTag) {
+        events.push({
+          topic: 'veil:operation',
+          source: this.space.getRef(),
+          timestamp: Date.now(),
+          payload: {
+            operation: {
+              type: 'addFacet',
+              facet: {
+                id: `continuation-complete-${Date.now()}`,
+                type: 'continuation:complete',
+                state: {
+                  continuationTag,
+                  success: false,
+                  error: `Parent element ${parentId} not found`
+                },
+                ephemeral: true
+              }
+            }
+          }
+        });
+      }
       return;
     }
     
@@ -317,16 +345,83 @@ export class ElementTreeMaintainer extends BaseMaintainer {
       }
     });
     
+    // Emit success continuation if tag exists
+    if (continuationTag || continuations) {
+      events.push({
+        topic: 'veil:operation',
+        source: element.getRef(),
+        timestamp: Date.now(),
+        payload: {
+          operation: {
+            type: 'addFacet',
+            facet: {
+              id: `continuation-complete-${Date.now()}`,
+              type: 'continuation:complete',
+              state: {
+                continuationTag: continuationTag || `element-create-${elementId}`,
+                success: true,
+                result: {
+                  elementId,
+                  elementType,
+                  name
+                },
+                continuations: continuations
+              },
+              ephemeral: true
+            }
+          }
+        }
+      });
+    }
+    
     // Add components if specified
     if (components) {
       const componentStates: any[] = [];
       for (const compDef of components) {
         const component = ComponentRegistry.create(compDef.type, compDef.config);
         if (component) {
+          // Create component-state BEFORE adding component (so onMount() can read it)
+          const componentIndex = element.components.length;
+          const componentId = `${elementId}:${compDef.type}:${componentIndex}`;
+          
+          const stateDelta = {
+            type: 'addFacet' as const,
+            facet: {
+              id: `component-state:${componentId}`,
+              type: 'component-state',
+              componentType: compDef.type,
+              componentClass: (compDef as any).componentClass || 'effector',
+              componentId,
+              elementId,
+              state: compDef.config || {}
+            }
+          };
+          
+          // Apply immediately using Space's VEIL state
+          const space = this.space as any;
+          if (space.getVEILState) {
+            space.getVEILState().applyDeltasDirect([stateDelta]);
+          }
+          
+          // Also add to deltas array for tracking
+          deltas.push(stateDelta);
+          
+          // Now add component (onMount() can read component-state)
           element.addComponent(component);
+          
+          // Register if it's a RETM component
+          const componentClass = (compDef as any).componentClass;
+          if (componentClass === 'effector' && space.addEffector) {
+            space.addEffector(component);
+          } else if (componentClass === 'receptor' && space.addReceptor) {
+            space.addReceptor(component);
+          } else if (componentClass === 'transform' && space.addTransform) {
+            space.addTransform(component);
+          }
+          
           componentStates.push({
             type: compDef.type,
-            index: element.components.length - 1,
+            index: componentIndex,
             config: compDef.config
           });
         }

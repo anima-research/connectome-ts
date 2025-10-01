@@ -21,3 +21,5 @@ discord-host-state/snapshots/*
 *.log
 *.tgz
 discord_config.yaml
+test-persistence/
+test-transitions/
