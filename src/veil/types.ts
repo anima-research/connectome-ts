@@ -139,4 +139,8 @@ export interface VEILState {
   frameHistory: Frame[];
   currentSequence: number;
   removals: Map<string, 'hide' | 'delete'>;  // Tracks removed facets
+  
+  // Cached current state for state facets (performance optimization)
+  // Maps state facet ID → current computed state after applying all state-changes
+  currentStateCache: Map<string, any>;
 }

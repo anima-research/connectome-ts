@@ -277,7 +277,7 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
     const currentState = this.getComponentState();
     
     const delta = {
-      type: 'changeFacet' as const,
+      type: 'rewriteFacet' as const,
       id: `component-state:${componentId}`,
       changes: {
         state: { ...currentState, ...updates }
@@ -302,7 +302,7 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
     const componentId = this.getComponentId();
     
     this.addOperation({
-      type: 'changeFacet',
+      type: 'rewriteFacet',
       id: `component-state:${componentId}`,
       changes: {
         state
@@ -439,7 +439,7 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
       delta.state = changes.attributes;
     }
     this.addOperation({
-      type: 'changeFacet',
+      type: 'rewriteFacet',
       id: facetId,
       changes: delta
     });

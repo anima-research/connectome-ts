@@ -35,7 +35,8 @@ export async function restoreVEILState(
     currentSequence: serialized.currentSequence,
     removals: new Map(serialized.removals || []),
     agents: new Map(),
-    currentAgent: undefined
+    currentAgent: undefined,
+    currentStateCache: new Map()  // Will be rebuilt from facets
   };
   
   // Restore facets
@@ -54,6 +55,9 @@ export async function restoreVEILState(
   
   // Apply the restored state
   veilManager.setState(newState);
+  
+  // Rebuild state cache from facets and state-changes
+  (veilManager as any).rebuildStateCache();
 }
 
 /**

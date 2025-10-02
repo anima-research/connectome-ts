@@ -52,7 +52,7 @@ export function createModule(env: any) {
       // Create or update counter state
       if (counterId) {
         deltas.push({
-          type: 'changeFacet',
+          type: 'rewriteFacet',
           id: counterId,
           changes: {
             state: { count: newCount },
@@ -143,7 +143,7 @@ export function createModule(env: any) {
           // Only update if metadata changed
           if (JSON.stringify(metadata) !== JSON.stringify(facet.metadata)) {
             deltas.push({
-              type: 'changeFacet',
+              type: 'rewriteFacet',
               id,
               changes: { metadata }
             });

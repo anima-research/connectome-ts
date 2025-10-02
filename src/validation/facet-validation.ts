@@ -133,9 +133,9 @@ const FACET_VALIDATORS: Record<string, FacetValidator> = {
   'ephemeral': validateEphemeralFacet,
   'agent-activation': validateAgentActivationFacet,
   'rendered-context': validateRenderedContextFacet,
-  'stream-change': validateStreamChangeFacet,
-  'scope-change': validateScopeChangeFacet,
-  'state-change': validateStateChangeFacet,
+  'stream-change': validateStreamRewriteFacet,
+  'scope-change': validateScopeRewriteFacet,
+  'state-change': validateStateRewriteFacet,
   'agent-lifecycle': validateAgentLifecycleFacet
 };
 
@@ -316,7 +316,7 @@ function validateRenderedContextFacet(facet: any, options: ValidationOptions): V
 }
 
 // Meta Facets
-function validateStreamChangeFacet(facet: any, options: ValidationOptions): ValidationResult {
+function validateStreamRewriteFacet(facet: any, options: ValidationOptions): ValidationResult {
   const errors: string[] = [];
 
   if (!hasStateAspect(facet) || !facet.state) {
@@ -336,12 +336,12 @@ function validateStreamChangeFacet(facet: any, options: ValidationOptions): Vali
   };
 }
 
-function validateScopeChangeFacet(facet: any, options: ValidationOptions): ValidationResult {
+function validateScopeRewriteFacet(facet: any, options: ValidationOptions): ValidationResult {
   // Similar to stream change
-  return validateStreamChangeFacet(facet, options);
+  return validateStreamRewriteFacet(facet, options);
 }
 
-function validateStateChangeFacet(facet: any, options: ValidationOptions): ValidationResult {
+function validateStateRewriteFacet(facet: any, options: ValidationOptions): ValidationResult {
   const errors: string[] = [];
 
   if (!hasStateAspect(facet) || !facet.state) {

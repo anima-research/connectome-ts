@@ -146,11 +146,14 @@ export {
   createEventFacet,
   createStateFacet,
   createAmbientFacet,
-  createStreamChangeFacet,
+  createStreamRewriteFacet,
+  updateStateFacets,  // Convenience for nested state updates
   // VEIL operation factories
   addFacet,
   removeFacet,
-  changeState,
-  updateState, // @deprecated - alias for changeState
-  changeFacet
+  rewriteFacet,
+  wrapFacetsAsDeltas,  // Helper for receptor migration
+  changeState,  // @deprecated - alias for rewriteFacet
+  updateState,  // @deprecated - alias for rewriteFacet
+  changeFacet   // @deprecated - alias for rewriteFacet
 } from './helpers/factories';

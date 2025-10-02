@@ -31,7 +31,7 @@ export class ComponentToReceptorAdapter extends BaseReceptor {
     this.topics = Array.isArray(topics) ? topics : [topics];
   }
   
-  transform(event: SpaceEvent, state: ReadonlyVEILState): Facet[] {
+  transform(event: SpaceEvent, state: ReadonlyVEILState): VEILDelta[] {
     // Capture operations by creating a fake frame
     const capturedOps: any[] = [];
     
@@ -53,10 +53,8 @@ export class ComponentToReceptorAdapter extends BaseReceptor {
       // Let component handle the event
       this.component.handleEvent(event);
       
-      // Extract facets from captured operations
-      return capturedOps
-        .filter(op => op.type === 'addFacet')
-        .map(op => op.facet);
+      // Return captured deltas directly
+      return capturedOps;
         
     } finally {
       // Restore original element
@@ -141,28 +139,16 @@ export function migrateComponent(
 
 /**
  * Built-in Receptor for VEIL operations (compatibility)
+ * Processes veil:operation events and returns the delta directly
  */
 export class VEILOperationReceptor extends BaseReceptor {
   topics = ['veil:operation'];
   
-  transform(event: SpaceEvent, state: ReadonlyVEILState): Facet[] {
+  transform(event: SpaceEvent, state: ReadonlyVEILState): VEILDelta[] {
     const payload = event.payload as { operation: VEILDelta };
     const { operation } = payload;
     
-    if (operation.type === 'addFacet') {
-      return [operation.facet];
-    }
-    
-    // For change/remove, create diagnostic event facets
-    const facet = createEventFacet({
-      id: `sys-op-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-      content: `Unsupported delta ${operation.type}`,
-      source: 'migration-adapter',
-      eventType: 'system-operation',
-      metadata: operation,
-      streamId: 'system',
-      streamType: 'system'
-    });
-    return [facet];
+    // Return the delta directly (supports all delta types now!)
+    return [operation];
   }
 }

@@ -30,7 +30,8 @@ export class VEILStateManager {
       currentAgent: undefined,
       frameHistory: [],
       currentSequence: 0,
-      removals: new Map()
+      removals: new Map(),
+      currentStateCache: new Map()
     };
   }
 
@@ -196,9 +197,20 @@ export class VEILStateManager {
       case 'addFacet': {
         const cloned = this.cloneFacet(operation.facet);
         this.state.facets.set(cloned.id, cloned);
+        
+        // Update cache for state facets (clone to avoid shared references)
+        if (cloned.type === 'state' && 'state' in cloned) {
+          this.state.currentStateCache.set(cloned.id, JSON.parse(JSON.stringify(cloned.state)));
+        }
+        
+        // Process state-change facets to update cache
+        if (cloned.type === 'state-change' && (cloned as any).targetFacetIds) {
+          this.applyStateChangesToCache(cloned as any);
+        }
+        
         return { type: 'added', facet: cloned };
       }
-      case 'changeFacet': {
+      case 'rewriteFacet': { // Exotemporal: rewrite existing facet
         const existing = this.state.facets.get(operation.id);
         if (!existing || !operation.changes) {
           return null;
@@ -244,6 +256,12 @@ export class VEILStateManager {
 
         // Don't clone again - we already preserved what we need
         this.state.facets.set(operation.id, updated);
+        
+        // Update cache if this is a state facet (clone to avoid shared references)
+        if (updated.type === 'state' && 'state' in updated) {
+          this.state.currentStateCache.set(operation.id, JSON.parse(JSON.stringify(updated.state)));
+        }
+        
         return { type: 'changed', facet: updated, oldFacet: existing };
       }
       case 'removeFacet': {
@@ -252,10 +270,89 @@ export class VEILStateManager {
           return null;
         }
         this.state.facets.delete(operation.id);
+        
+        // Remove from cache if it's a state facet
+        if (existing.type === 'state') {
+          this.state.currentStateCache.delete(operation.id);
+        }
+        
         return { type: 'removed', facet: existing };
       }
       default:
         return null;
+    }
+  }
+
+  /**
+   * Apply state-change facet to cache
+   * Handles both existing facets and creates new cache entries for missing facets
+   */
+  private applyStateChangesToCache(stateChangeFacet: any): void {
+    const { targetFacetIds, state: changeState } = stateChangeFacet;
+    
+    if (!targetFacetIds || !changeState?.changes) return;
+    
+    for (const targetId of targetFacetIds) {
+      // Get or create cached state
+      const existingCache = this.state.currentStateCache.get(targetId);
+      const targetFacet = this.state.facets.get(targetId);
+      
+      // Clone the cached state to avoid mutating original facets
+      const cachedState = JSON.parse(JSON.stringify(
+        existingCache || 
+        (targetFacet && 'state' in targetFacet ? targetFacet.state : {}) ||
+        {}
+      ));
+      
+      // Apply each change
+      for (const [key, change] of Object.entries(changeState.changes)) {
+        if (change && typeof change === 'object' && 'new' in change) {
+          cachedState[key] = (change as any).new;
+        }
+      }
+      
+      this.state.currentStateCache.set(targetId, cachedState);
+      
+      // If target facet doesn't exist, create it
+      // This enables "update-or-create" semantics
+      if (!targetFacet) {
+        this.state.facets.set(targetId, {
+          id: targetId,
+          type: 'internal-state',
+          state: cachedState
+        });
+      }
+    }
+  }
+
+  /**
+   * Get current state for a state facet (O(1) cached lookup)
+   */
+  getCurrentStateFor(facetId: string): any {
+    return this.state.currentStateCache.get(facetId) || {};
+  }
+
+  /**
+   * Rebuild state cache from all facets and state-changes
+   * Called after restoration to reconstruct the cache
+   */
+  rebuildStateCache(): void {
+    this.state.currentStateCache.clear();
+    
+    // First, cache all initial state facets (clone to avoid shared references)
+    for (const [id, facet] of this.state.facets) {
+      if (facet.type === 'state' && 'state' in facet) {
+        this.state.currentStateCache.set(id, JSON.parse(JSON.stringify(facet.state)));
+      }
+    }
+    
+    // Then apply all state-changes in order (by facet ID which includes timestamp)
+    const stateChanges = Array.from(this.state.facets.values())
+      .filter(f => f.type === 'state-change')
+      .sort((a, b) => a.id.localeCompare(b.id)); // Chronological order
+    
+    for (const stateChange of stateChanges) {
+      this.applyStateChangesToCache(stateChange as any);
     }
   }
 
@@ -272,7 +369,8 @@ export class VEILStateManager {
       currentAgent: this.state.currentAgent,
       frameHistory: [...this.state.frameHistory],
       currentSequence: this.state.currentSequence,
-      removals: new Map(this.state.removals)
+      removals: new Map(this.state.removals),
+      currentStateCache: new Map(this.state.currentStateCache)
     };
   }
 
@@ -355,7 +453,8 @@ export class VEILStateManager {
       currentAgent: newState.currentAgent,
       frameHistory: [...newState.frameHistory],
       currentSequence: newState.currentSequence,
-      removals: new Map(newState.removals || [])
+      removals: new Map(newState.removals || []),
+      currentStateCache: new Map(newState.currentStateCache || [])
     };
     this.notifyListeners();
   }
@@ -541,7 +640,7 @@ export class VEILStateManager {
             }
             break;
             
-          case 'changeFacet':
+          case 'rewriteFacet':
             if (!this.state.facets.has(op.id)) {
               warnings.push(
                 `Change operation on non-existent facet ${op.id} (might have been added in deleted frames)`

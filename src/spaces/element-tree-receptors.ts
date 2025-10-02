@@ -4,7 +4,7 @@ import { SpaceEvent, ElementRef } from './types';
 import { Facet, VEILDelta, ElementTreeFacet, ElementRequestFacet, Frame } from '../veil/types';
 import { Element } from './element';
 import { Component } from './component';
-import { createEventFacet, createInternalStateFacet, changeFacet } from '../helpers/factories';
+import { createEventFacet, createInternalStateFacet, rewriteFacet, wrapFacetsAsDeltas } from '../helpers/factories';
 import { ComponentRegistry } from '../persistence/component-registry';
 
 /**
@@ -24,7 +24,7 @@ export function registerComponent(typeName: string) {
 export class ElementRequestReceptor extends BaseReceptor {
   topics = ['element:create', 'element:destroy', 'component:add', 'component:remove'];
   
-  transform(event: SpaceEvent, state: ReadonlyVEILState): Facet[] {
+  transform(event: SpaceEvent, state: ReadonlyVEILState): VEILDelta[] {
     const facets: Facet[] = [];
     
     switch (event.topic) {
@@ -89,7 +89,7 @@ export class ElementRequestReceptor extends BaseReceptor {
       }
     }
     
-    return facets;
+    return wrapFacetsAsDeltas(facets);
   }
 }
 
@@ -108,7 +108,7 @@ export class ElementTreeTransform extends BaseTransform {
           const treeFacetId = `element-tree-${elementId}`;
           const treeFacet = state.facets.get(treeFacetId);
           if (treeFacet?.state?.active) {
-            deltas.push(changeFacet(treeFacetId, {
+            deltas.push(rewriteFacet(treeFacetId, {
               state: { active: false }
             }));
           }
@@ -127,7 +127,7 @@ export class ElementTreeTransform extends BaseTransform {
               index: components.length,
               config
             });
-            deltas.push(changeFacet(treeFacetId, {
+            deltas.push(rewriteFacet(treeFacetId, {
               state: { components }
             }));
           }
@@ -435,7 +435,7 @@ export class ElementTreeMaintainer extends BaseMaintainer {
           timestamp: Date.now(),
           payload: {
             operation: {
-              type: 'changeFacet',
+              type: 'rewriteFacet',
               id: `element-tree-${elementId}`,
               changes: {
                 state: { components: componentStates }
@@ -500,7 +500,7 @@ export class ElementTreeMaintainer extends BaseMaintainer {
       timestamp: Date.now(),
       payload: {
         operation: {
-          type: 'changeFacet',
+          type: 'rewriteFacet',
           id: `element-tree-${elementId}`,
           changes: {
             state: { active: false }
@@ -587,7 +587,7 @@ export class ElementTreeMaintainer extends BaseMaintainer {
         timestamp: Date.now(),
         payload: {
           operation: {
-            type: 'changeFacet',
+            type: 'rewriteFacet',
             id: treeFacetId,
             changes: {
               state: { components }

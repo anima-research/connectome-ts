@@ -3,8 +3,9 @@ import { BaseMaintainer } from '../components/base-martem';
 import { VEILStateManager } from '../veil/veil-state';
 import { FileStorageAdapter } from './file-storage';
 import { FrameDelta, PersistenceSnapshot, ElementOperation } from './types';
-import { serializeVEILState } from './serialization';
+import { serializeVEILState, serializeElement } from './serialization';
 import { Frame } from '../veil/types';
+import { Space } from '../spaces/space';
 
 export interface PersistenceMaintainerConfig {
   storagePath: string;
@@ -23,6 +24,7 @@ export class PersistenceMaintainer extends BaseMaintainer {
   
   constructor(
     private veilState: VEILStateManager,
+    private space: Space,
     private config: PersistenceMaintainerConfig
   ) {
     super();
@@ -68,13 +70,13 @@ export class PersistenceMaintainer extends BaseMaintainer {
     // Get the full state
     const state = this.veilState.getState();
     
-    // Create snapshot
-    const snapshot: PersistenceSnapshot = {
-      version: 1,
-      timestamp: new Date().toISOString(),
-      sequence,
-      veilState: serializeVEILState(state),
-      elementTree: {
+    // Serialize element tree if we have access to space
+    let elementTree;
+    if (this.space) {
+      elementTree = serializeElement(this.space);
+    } else {
+      // Fallback to empty tree
+      elementTree = {
         id: 'root',
         name: 'root',
         type: 'Space',
@@ -82,7 +84,16 @@ export class PersistenceMaintainer extends BaseMaintainer {
         subscriptions: [],
         components: [],
         children: []
-      }, // TODO: Serialize actual element tree when available
+      };
+    }
+    
+    // Create snapshot
+    const snapshot: PersistenceSnapshot = {
+      version: 1,
+      timestamp: new Date().toISOString(),
+      sequence,
+      veilState: serializeVEILState(state),
+      elementTree,
       metadata: {
         facetCount: state.facets.size,
         streamCount: state.streams.size,

@@ -194,7 +194,7 @@ The following ${pending.toFrame - pending.fromFrame + 1} frames (${pending.total
           if (op.type === 'addFacet' && op.facet?.type === 'state') {
             stateDelta.added.push(op.facet.id);
             stateDelta.changes.set(op.facet.id, op.facet);
-          } else if (op.type === 'changeFacet' && 'facetId' in op && 'updates' in op) {
+          } else if (op.type === 'rewriteFacet' && 'facetId' in op && 'updates' in op) {
             // Apply updates to tracked state
             const existing = stateDelta.changes.get(op.id);
             if (existing) {

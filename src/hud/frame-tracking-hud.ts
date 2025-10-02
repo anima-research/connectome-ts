@@ -294,7 +294,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
           break;
         }
 
-        case 'changeFacet': {
+        case 'rewriteFacet': {
           if (removals?.get(operation.id) === 'delete') {
             break;
           }
@@ -346,7 +346,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
           break;
         }
 
-        case 'changeFacet': {
+        case 'rewriteFacet': {
           if (removals?.has(operation.id)) {
             break;
           }
@@ -653,7 +653,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
     for (const op of frame.deltas) {
       if (op.type === 'addFacet') {
         ids.push(op.facet.id);
-      } else if (op.type === 'changeFacet' || op.type === 'removeFacet') {
+      } else if (op.type === 'rewriteFacet' || op.type === 'removeFacet') {
         ids.push(op.id);
       }
     }

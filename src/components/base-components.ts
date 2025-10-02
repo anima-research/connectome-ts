@@ -32,7 +32,7 @@ export abstract class VEILComponent extends Component {
    */
   protected addOperation(operation: VEILDelta): void {
     // Validate operation type
-    const validOperations = ['addFacet', 'changeFacet', 'removeFacet'];
+    const validOperations = ['addFacet', 'rewriteFacet', 'removeFacet'];
     if (!validOperations.includes(operation.type)) {
       console.warn(`[Component] Warning: Unsupported VEIL delta "${operation.type}". Expected one of: ${validOperations.join(', ')}`);
       return;
@@ -280,7 +280,7 @@ export abstract class VEILComponent extends Component {
     }
 
     this.addOperation({
-      type: 'changeFacet',
+      type: 'rewriteFacet',
       id,
       changes: delta
     });

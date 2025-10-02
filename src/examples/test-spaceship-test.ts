@@ -139,7 +139,7 @@ export const starshipScenarioFrames: (Frame | Frame)[] = [
         }
       },
       {
-        type: 'changeFacet',
+        type: 'rewriteFacet',
         id: 'ship-status-001',
         changes: {
           state: {

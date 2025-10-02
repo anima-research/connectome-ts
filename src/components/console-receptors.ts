@@ -11,8 +11,8 @@ import {
   EffectorResult
 } from '../spaces/receptor-effector-types';
 import { SpaceEvent } from '../spaces/types';
-import { Facet, hasContentAspect } from '../veil/types';
-import { createAgentActivation, createEventFacet } from '../helpers/factories';
+import { Facet, hasContentAspect, VEILDelta } from '../veil/types';
+import { createAgentActivation, createEventFacet, wrapFacetsAsDeltas } from '../helpers/factories';
 
 /**
  * Converts console input events into message AND activation facets
@@ -20,7 +20,7 @@ import { createAgentActivation, createEventFacet } from '../helpers/factories';
 export class ConsoleInputReceptor extends BaseReceptor {
   topics = ['console:input'];
   
-  transform(event: SpaceEvent, state: ReadonlyVEILState): Facet[] {
+  transform(event: SpaceEvent, state: ReadonlyVEILState): VEILDelta[] {
     const payload = event.payload as { input: string; timestamp?: number };
     const timestamp = payload.timestamp || Date.now();
     const messageId = `console-msg-${timestamp}-${Math.random().toString(36).substr(2, 9)}`;
@@ -46,7 +46,7 @@ export class ConsoleInputReceptor extends BaseReceptor {
       }
     });
     
-    return [messageFacet, activationFacet];
+    return wrapFacetsAsDeltas([messageFacet, activationFacet]);
   }
 }
 

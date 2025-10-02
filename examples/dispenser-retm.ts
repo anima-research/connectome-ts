@@ -37,8 +37,9 @@ import {
   ElementTreeMaintainer,
   createConsoleElement
 } from '../src';
-import { BaseReceptor, BaseEffector } from '../src/components/base-martem';
+import { BaseReceptor, BaseEffector, BaseTransform } from '../src/components/base-martem';
 import { SpaceEvent, Facet, ReadonlyVEILState, FacetDelta, EffectorResult } from '../src/spaces/receptor-effector-types';
+import { VEILDelta } from '../src/veil/types';
 import { ConnectomeApplication } from '../src/host/types';
 import { AfferentContext } from '../src/spaces/receptor-effector-types';
 
@@ -72,6 +73,7 @@ class BoxOpenReceptor extends BaseReceptor {
   
   transform(event: SpaceEvent, state: ReadonlyVEILState): Facet[] {
     const { boxId, method } = event.payload as any;
+    console.log(`[BoxOpenReceptor] Processing box:open for box ${boxId}, method: ${method}`);
     
     const facets: Facet[] = [];
     
@@ -167,6 +169,7 @@ class DispenserCommandEffector extends BaseEffector {
       
       if (eventType === 'command-box-open') {
         const boxId = (change.facet as any).attributes?.boxId;
+        console.log(`[DispenserCommandEffector] Emitting box:open for box ${boxId}`);
         if (boxId) {
           // Emit box open event
           events.push({
@@ -180,6 +183,64 @@ class DispenserCommandEffector extends BaseEffector {
     }
     
     return { events };
+  }
+}
+
+// ============================================
+// TRANSFORMS
+// ============================================
+
+/**
+ * Applies StateChangeFacets to actual state facets
+ * This is the proper RETM pattern: Effectors emit state-change facets,
+ * Transforms apply them to actual state
+ */
+class BoxStateTransform extends BaseTransform {
+  process(state: ReadonlyVEILState): VEILDelta[] {
+    const deltas: VEILDelta[] = [];
+    
+    for (const [id, facet] of state.facets) {
+      if (facet.type === 'state-change' && (facet as any).targetFacetIds) {
+        const stateChange = facet as any;
+        console.log(`[BoxStateTransform] Processing state-change for targets:`, stateChange.targetFacetIds);
+        
+        // Apply changes to each target facet
+        for (const targetId of stateChange.targetFacetIds) {
+          const targetFacet = state.facets.get(targetId);
+          if (!targetFacet) continue;
+          
+          // Build the changes to apply
+          const changes: any = {};
+          
+          if (stateChange.state?.changes?.content?.new) {
+            changes.content = stateChange.state.changes.content.new;
+          }
+          
+          if (stateChange.state?.changes?.isOpen?.new !== undefined) {
+            changes.state = {
+              ...(targetFacet as any).state,
+              isOpen: stateChange.state.changes.isOpen.new
+            };
+          }
+          
+          if (Object.keys(changes).length > 0) {
+            deltas.push({
+              type: 'rewriteFacet',  // Exotemporal: applying the state change
+              id: targetId,
+              changes
+            });
+          }
+        }
+        
+        // Remove the state-change facet after processing (it's ephemeral)
+        deltas.push({
+          type: 'removeFacet',
+          id
+        });
+      }
+    }
+    
+    return deltas;
   }
 }
 
@@ -323,44 +384,31 @@ class BoxComponent extends BaseEffector {
       const myBoxId = this.getComponentState().boxId;
       
       if (eventType === 'box-opened' && boxId == myBoxId) {
-        // Update our state to mark as open
+        // Update our component-state to mark as open (scoped write, immediate)
         const config = this.getComponentState();
         this.updateComponentState({ isOpen: true });
         
-        // Update state facet to reflect open state
+        // Emit StateChangeFacet for the endotemporal evolution
+        // This records that the state changed at this moment in time
         const openEffect = this.getOpeningEffect(config.color);
-        events.push({
-          topic: 'veil:operation',
-          source: this.element.getRef(),
-          timestamp: Date.now(),
-          payload: {
-            operation: {
-              type: 'changeFacet',
-              id: `${this.element.id}-state`,
-              changes: {
-                content: `The ${config.size} ${config.color} box is open, revealing ${config.contents}!`,
-                state: { attributes: { ...config, isOpen: true } }
+        this.emitFacet({
+          id: `${this.element.id}-state-change-${Date.now()}`,
+          type: 'state-change',
+          targetFacetIds: [`${this.element.id}-state`],
+          state: {
+            changes: {
+              isOpen: { old: false, new: true },
+              content: { 
+                old: `A ${config.size} ${config.color} box sits here, closed and mysterious.`,
+                new: `The ${config.size} ${config.color} box is open, revealing ${config.contents}!`
               }
             }
-          }
+          },
+          ephemeral: true
         });
         
-        // Add event for the opening effect
-        events.push({
-          topic: 'veil:operation',
-          source: this.element.getRef(),
-          timestamp: Date.now(),
-          payload: {
-            operation: {
-              type: 'addFacet',
-              facet: {
-                id: `${this.element.id}-open-effect-${Date.now()}`,
-                type: 'event',
-                content: `The box opens with a ${openEffect}!`
-              }
-            }
-          }
-        });
+        // Emit event for the opening effect (using helper!)
+        this.emitEventFacet(`The box opens with a ${openEffect}!`);
       }
     }
     
@@ -421,6 +469,7 @@ class DispenserApplication implements ConnectomeApplication {
     // Add infrastructure
     space.addReceptor(new ElementRequestReceptor());
     space.addTransform(new ContinuationTransform());
+    space.addTransform(new BoxStateTransform());  // Handles state-change facets
     space.addMaintainer(new ElementTreeMaintainer(space));
     
     // Add console

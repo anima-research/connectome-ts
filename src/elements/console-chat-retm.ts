@@ -12,8 +12,9 @@ import { BaseAfferent } from '../components/base-afferent';
 import { BaseReceptor, BaseEffector } from '../components/base-martem';
 import { SpaceEvent, StreamRef } from '../spaces/types';
 import { ReadonlyVEILState, FacetDelta, EffectorResult } from '../spaces/receptor-effector-types';
-import { Facet } from '../veil/types';
+import { Facet, VEILDelta } from '../veil/types';
 import { persistable, persistent } from '../persistence/decorators';
+import { wrapFacetsAsDeltas } from '../helpers/factories';
 
 // ============================================
 // AFFERENT: Console Input Handler
@@ -237,7 +238,7 @@ export class ConsoleAfferent extends BaseAfferent<ConsoleConfig, ConsoleCommand>
 export class ConsoleMessageReceptor extends BaseReceptor {
   topics = ['console:message'];
   
-  transform(event: SpaceEvent, state: ReadonlyVEILState): Facet[] {
+  transform(event: SpaceEvent, state: ReadonlyVEILState): VEILDelta[] {
     const payload = event.payload as any;
     const { messageId, content, streamId, streamType } = payload;
     
@@ -279,7 +280,7 @@ export class ConsoleMessageReceptor extends BaseReceptor {
       ephemeral: true
     });
     
-    return facets;
+    return wrapFacetsAsDeltas(facets);
   }
 }
 

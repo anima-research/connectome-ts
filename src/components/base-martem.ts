@@ -41,7 +41,7 @@ export abstract class BaseModulator extends Component implements Modulator {
  */
 export abstract class BaseReceptor extends Component implements Receptor {
   abstract topics: string[];
-  abstract transform(event: SpaceEvent, state: ReadonlyVEILState): Facet[];
+  abstract transform(event: SpaceEvent, state: ReadonlyVEILState): VEILDelta[];
   
   async mount(element: Element): Promise<void> {
     this.element = element;

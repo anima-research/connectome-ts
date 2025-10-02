@@ -100,15 +100,16 @@ export interface AfferentError {
 }
 
 /**
- * Receptor: Phase 1 - Converts events into facets
+ * Receptor: Phase 1 - Converts events into VEIL deltas
  * MUST be stateless - same input always produces same output
+ * Can add facets, rewrite existing facets (e.g., offline edits), or remove facets
  */
 export interface Receptor extends Component {
   /** Which event topics this receptor handles */
   topics: string[];
   
-  /** Transform an event into facets */
-  transform(event: SpaceEvent, state: ReadonlyVEILState): Facet[];
+  /** Transform an event into VEIL deltas */
+  transform(event: SpaceEvent, state: ReadonlyVEILState): VEILDelta[];
 }
 
 /**

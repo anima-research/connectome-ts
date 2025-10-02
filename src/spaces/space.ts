@@ -333,13 +333,8 @@ export class Space extends Element {
       frame.events = processedEvents;
       
       // PHASE 1: Events → VEIL (via Receptors)
-      const phase1Facets = this.runPhase1(processedEvents);
-      
-      // Convert facets to deltas and apply directly to state
-      const phase1Deltas: VEILDelta[] = phase1Facets.map(facet => ({
-        type: 'addFacet' as const,
-        facet
-      }));
+      // Receptors return deltas directly (can add, rewrite, or remove facets)
+      const phase1Deltas = this.runPhase1(processedEvents);
       const phase1Changes = this.veilState.applyDeltasDirect(phase1Deltas);
       
       // PHASE 2: VEIL → VEIL (via Transforms) - loop until no more deltas
@@ -459,10 +454,11 @@ export class Space extends Element {
   }
   
   /**
-   * PHASE 1: Events → Facets (Receptors)
+   * PHASE 1: Events → VEIL Deltas (Receptors)
+   * Receptors can add facets, rewrite existing facets, or remove facets
    */
-  private runPhase1(events: SpaceEvent[]): Facet[] {
-    const facets: Facet[] = [];
+  private runPhase1(events: SpaceEvent[]): VEILDelta[] {
+    const deltas: VEILDelta[] = [];
     const readonlyState = this.getReadonlyState();
     
     for (const event of events) {
@@ -470,12 +466,13 @@ export class Space extends Element {
       
       for (const receptor of receptors) {
         try {
-          const newFacets = receptor.transform(event, readonlyState);
-          facets.push(...newFacets);
+          const newDeltas = receptor.transform(event, readonlyState);
+          deltas.push(...newDeltas);
         } catch (error) {
           console.error(`Receptor error for ${event.topic}:`, error);
-          facets.push(
-            createEventFacet({
+          deltas.push({
+            type: 'addFacet',
+            facet: createEventFacet({
               id: `error-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
               content: `Receptor error: ${String(error)}`,
               source: 'space',
@@ -487,12 +484,12 @@ export class Space extends Element {
               streamId: 'system',
               streamType: 'system'
             })
-          );
+          });
         }
       }
     }
     
-    return facets;
+    return deltas;
   }
   
   /**
@@ -619,7 +616,7 @@ export class Space extends Element {
    */
   _applyComponentStateDelta(delta: VEILDelta, componentId: string): void {
     // Validate this is a component-state facet update
-    if (delta.type !== 'changeFacet' || !delta.id.startsWith('component-state:')) {
+    if (delta.type !== 'rewriteFacet' || !delta.id.startsWith('component-state:')) {
       throw new Error(`_applyComponentStateDelta can only be used for component-state facets`);
     }
     

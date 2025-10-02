@@ -17,7 +17,7 @@ import type {
   EventFacet,
   StateFacet,
   AmbientFacet,
-  StreamChangeFacet,
+  StreamRewriteFacet,
   InternalStateFacet
 } from '../veil/types';
 import { Element } from '../spaces/element';
@@ -250,16 +250,16 @@ export function createAmbientFacet(init: AmbientFacetInit): AmbientFacet {
   return facet;
 }
 
-export interface StreamChangeFacetInit {
-  operation: StreamChangeFacet['state']['operation'];
+export interface StreamRewriteFacetInit {
+  operation: StreamRewriteFacet['state']['operation'];
   streamId: string;
   streamType?: string;
   id?: string;
 }
 
-export function createStreamChangeFacet(init: StreamChangeFacetInit): StreamChangeFacet {
+export function createStreamRewriteFacet(init: StreamRewriteFacetInit): StreamRewriteFacet {
   const { operation, streamId, streamType, id } = init;
-  const facet: StreamChangeFacet = {
+  const facet: StreamRewriteFacet = {
     id: id ?? friendlyId('stream-change'),
     type: 'stream-change',
     state: {
@@ -271,7 +271,7 @@ export function createStreamChangeFacet(init: StreamChangeFacetInit): StreamChan
   };
   
   // Validate before returning
-  validateFacet(facet, 'stream-change', { context: 'createStreamChangeFacet' });
+  validateFacet(facet, 'stream-change', { context: 'createStreamRewriteFacet' });
   
   return facet;
 }
@@ -437,16 +437,29 @@ export function removeFacet(id: string): VEILDelta {
   };
 }
 
-export function changeFacet(id: string, changes: Partial<Facet>): VEILDelta {
+/**
+ * Helper to wrap facets in addFacet deltas
+ * For migrating receptors to return VEILDelta[]
+ */
+export function wrapFacetsAsDeltas(facets: Facet[]): VEILDelta[] {
+  return facets.map(facet => ({
+    type: 'addFacet' as const,
+    facet
+  }));
+}
+
+export function rewriteFacet(id: string, changes: Partial<Facet>): VEILDelta {
   return {
-    type: 'changeFacet',
+    type: 'rewriteFacet',
     id,
     changes
   };
 }
 
-export const changeState = changeFacet;
-export const updateState = changeFacet;
+// Deprecated aliases - use rewriteFacet for clarity
+export const changeState = rewriteFacet;
+export const updateState = rewriteFacet;
+export const changeFacet = rewriteFacet;  // Backward compat
 
 /**
  * Create a component state facet for VEIL-based component persistence
@@ -467,4 +480,54 @@ export function createComponentStateFacet(init: {
     elementId: init.elementId,
     state: init.initialState || {}
   } as any;
+}
+
+/**
+ * Create or update state facets from a key-value dictionary
+ * Returns state-change facets that will be applied by VEILStateManager
+ * 
+ * @param baseId - Base ID for facets (e.g., 'discord-lastread')
+ * @param updates - Dictionary of key → value updates
+ * @param currentState - Optional ReadonlyVEILState to read old values
+ * @returns Array of state-change facets
+ * 
+ * @example
+ * // In a Receptor
+ * return [
+ *   messageFacet,
+ *   ...updateStateFacets('discord-lastread', { 
+ *     'channel-123': 'msg-456',
+ *     'channel-789': 'msg-012'
+ *   }, state)
+ * ];
+ */
+export function updateStateFacets(
+  baseId: string,
+  updates: Record<string, any>,
+  currentState?: any
+): Facet[] {
+  const facets: Facet[] = [];
+  
+  for (const [key, newValue] of Object.entries(updates)) {
+    const facetId = `${baseId}-${key}`;
+    
+    // Get old value if state provided
+    const oldFacet = currentState?.facets?.get(facetId);
+    const oldValue = oldFacet?.state?.value;
+    
+    // Create state-change facet
+    facets.push({
+      id: `state-update-${facetId}-${Date.now()}`,
+      type: 'state-change',
+      targetFacetIds: [facetId],
+      state: {
+        changes: {
+          value: { old: oldValue, new: newValue }
+        }
+      },
+      ephemeral: true
+    });
+  }
+  
+  return facets;
 }

@@ -18,7 +18,7 @@ import {
   hasAgentGeneratedAspect,
   hasStateAspect
 } from '../veil/types';
-import { createAgentActivation, createEventFacet, createStreamChangeFacet } from '../helpers/factories';
+import { createAgentActivation, createEventFacet, createStreamRewriteFacet } from '../helpers/factories';
 import { 
   TraceStorage, 
   TraceCategory, 
@@ -251,7 +251,7 @@ export class ConsoleChatComponent extends Component {
       if (!this.hasStreamFacet(frame)) {
         deltas.push({
           type: 'addFacet',
-          facet: createStreamChangeFacet({
+          facet: createStreamRewriteFacet({
             operation: 'add',
             streamId: this.consoleStream.streamId,
             streamType: this.consoleStream.streamType
