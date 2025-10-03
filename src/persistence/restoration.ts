@@ -56,6 +56,8 @@ export async function restoreVEILState(
   // Apply the restored state
   veilManager.setState(newState);
   
+  console.log(`[Restoration] Restored ${newState.facets.size} facets, ${newState.frameHistory.length} frames`);
+  
   // Rebuild state cache from facets and state-changes
   (veilManager as any).rebuildStateCache();
 }
@@ -107,6 +109,23 @@ function deserializeFacet(data: any): Facet | null {
         if (data.actionName) base.actionName = data.actionName;
         if (data.parameters) base.parameters = deserializeValue(data.parameters);
         break;
+    }
+    
+    // Restore state aspect (for all facets that have it, not just type='state')
+    if (data.state) {
+      base.state = deserializeValue(data.state);
+    }
+    
+    // Restore stream aspect
+    if (data.streamId) {
+      base.streamId = data.streamId;
+      if (data.streamType) base.streamType = data.streamType;
+    }
+    
+    // Restore agent aspect
+    if (data.agentId) {
+      base.agentId = data.agentId;
+      if (data.agentName) base.agentName = data.agentName;
     }
     
     return base as Facet;

@@ -315,6 +315,10 @@ function serializeFacet(facet: Facet): any {
 
   if (hasStateAspect(facet)) {
     serialized.state = serializeValue(facet.state);
+  } else if ((facet as any).state) {
+    // Fallback: some facets have state but don't pass hasStateAspect check
+    console.warn(`[Serialization] Facet ${facet.id} has state but not StateAspect, saving anyway`);
+    serialized.state = serializeValue((facet as any).state);
   }
 
   if (hasAgentGeneratedAspect(facet)) {

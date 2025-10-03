@@ -195,6 +195,9 @@ export class VEILStateManager {
   applyDelta(operation: VEILOperation, frameSequence?: number, timestamp?: string): FacetDelta | null {
     switch (operation.type) {
       case 'addFacet': {
+        // Validate facet structure
+        this.validateFacetStructure(operation.facet);
+        
         const cloned = this.cloneFacet(operation.facet);
         this.state.facets.set(cloned.id, cloned);
         
@@ -280,6 +283,38 @@ export class VEILStateManager {
       }
       default:
         return null;
+    }
+  }
+
+  /**
+   * Validate facet structure matches type definition
+   */
+  private validateFacetStructure(facet: Facet): void {
+    switch (facet.type) {
+      case 'event':
+        if (!(facet as any).state?.eventType) {
+          console.error(`[VEIL] Invalid EventFacet structure for ${facet.id}:`, facet);
+          throw new Error(
+            `EventFacet must have state.eventType, got: ${JSON.stringify(facet)}. ` +
+            `Use createEventFacet() helper or set state: { source, eventType, metadata }`
+          );
+        }
+        break;
+      
+      case 'state':
+        if (!('state' in facet)) {
+          throw new Error(`StateFacet ${facet.id} must have state field`);
+        }
+        break;
+        
+      case 'speech':
+      case 'thought':
+      case 'action':
+        // Agent-generated facets should have agentId
+        if (!(facet as any).agentId) {
+          console.warn(`[VEIL] ${facet.type} facet ${facet.id} missing agentId`);
+        }
+        break;
     }
   }
 

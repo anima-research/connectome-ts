@@ -38,8 +38,8 @@ import {
   createConsoleElement
 } from '../src';
 import { BaseReceptor, BaseEffector, BaseTransform } from '../src/components/base-martem';
-import { SpaceEvent, Facet, ReadonlyVEILState, FacetDelta, EffectorResult } from '../src/spaces/receptor-effector-types';
-import { VEILDelta } from '../src/veil/types';
+import { SpaceEvent, ReadonlyVEILState, FacetDelta, EffectorResult } from '../src/spaces/receptor-effector-types';
+import { VEILDelta, Facet } from '../src/veil/types';
 import { ConnectomeApplication } from '../src/host/types';
 import { AfferentContext } from '../src/spaces/receptor-effector-types';
 
@@ -53,14 +53,20 @@ import { AfferentContext } from '../src/spaces/receptor-effector-types';
 class DispenseButtonReceptor extends BaseReceptor {
   topics = ['button:press'];
   
-  transform(event: SpaceEvent, state: ReadonlyVEILState): Facet[] {
+  transform(event: SpaceEvent, state: ReadonlyVEILState): VEILDelta[] {
     console.log('[DispenseButton] Button pressed!');
     
     return [{
-      id: `button-press-${Date.now()}`,
-      type: 'event',
-      content: '*CLICK* The button depresses with a satisfying mechanical sound.',
-      eventType: 'button-press'
+      type: 'addFacet',
+      facet: {
+        id: `button-press-${Date.now()}`,
+        type: 'event',
+        content: '*CLICK* The button depresses with a satisfying mechanical sound.',
+        state: {
+          source: 'button',
+          eventType: 'button-press'
+        }
+      }
     }];
   }
 }
@@ -71,36 +77,45 @@ class DispenseButtonReceptor extends BaseReceptor {
 class BoxOpenReceptor extends BaseReceptor {
   topics = ['box:open'];
   
-  transform(event: SpaceEvent, state: ReadonlyVEILState): Facet[] {
+  transform(event: SpaceEvent, state: ReadonlyVEILState): VEILDelta[] {
     const { boxId, method } = event.payload as any;
     console.log(`[BoxOpenReceptor] Processing box:open for box ${boxId}, method: ${method}`);
     
-    const facets: Facet[] = [];
+    const deltas: VEILDelta[] = [];
     
     // Create open event facet
-    facets.push({
-      id: `box-${boxId}-opened-${Date.now()}`,
-      type: 'event',
-      content: `💥 The box opens ${method}!`,
-      eventType: 'box-opened',
-      attributes: { boxId, method }
+    deltas.push({
+      type: 'addFacet',
+      facet: {
+        id: `box-${boxId}-opened-${Date.now()}`,
+        type: 'event',
+        content: `💥 The box opens ${method}!`,
+        state: {
+          source: 'box',
+          eventType: 'box-opened'
+        },
+        attributes: { boxId, method }
+      }
     });
     
     // Create activation for agent to react
-    facets.push({
-      id: `activation-box-open-${Date.now()}`,
-      type: 'agent-activation',
-      content: `Box opened ${method}`,
-      state: {
-        source: 'box',
-        reason: `box_opened_${method}`,
-        priority: 'high',
-        boxId
-      },
-      ephemeral: true
+    deltas.push({
+      type: 'addFacet',
+      facet: {
+        id: `activation-box-open-${Date.now()}`,
+        type: 'agent-activation',
+        content: `Box opened ${method}`,
+        state: {
+          source: 'box',
+          reason: `box_opened_${method}`,
+          priority: 'high',
+          boxId
+        },
+        ephemeral: true
+      }
     });
     
-    return facets;
+    return deltas;
   }
 }
 
@@ -110,7 +125,7 @@ class BoxOpenReceptor extends BaseReceptor {
 class DispenserCommandReceptor extends BaseReceptor {
   topics = ['console:message'];
   
-  transform(event: SpaceEvent, state: ReadonlyVEILState): Facet[] {
+  transform(event: SpaceEvent, state: ReadonlyVEILState): VEILDelta[] {
     const payload = event.payload as any;
     const content = payload.content?.toLowerCase() || '';
     
@@ -119,10 +134,16 @@ class DispenserCommandReceptor extends BaseReceptor {
     if (content.includes('press') && content.includes('button')) {
       console.log('[DispenserCommand] Detected button press command');
       return [{
-        id: `command-press-${Date.now()}`,
-        type: 'event',
-        content: 'User wants to press the button',
-        eventType: 'command-button-press'
+        type: 'addFacet',
+        facet: {
+          id: `command-press-${Date.now()}`,
+          type: 'event',
+          content: 'User wants to press the button',
+          state: {
+            source: 'console',
+            eventType: 'command-button-press'
+          }
+        }
       }];
     }
     
@@ -131,11 +152,17 @@ class DispenserCommandReceptor extends BaseReceptor {
       const boxNum = openMatch[1];
       console.log(`[DispenserCommand] Detected open box-${boxNum} command`);
       return [{
-        id: `command-open-${Date.now()}`,
-        type: 'event',
-        content: `User wants to open box-${boxNum}`,
-        eventType: 'command-box-open',
-        attributes: { boxId: boxNum }
+        type: 'addFacet',
+        facet: {
+          id: `command-open-${Date.now()}`,
+          type: 'event',
+          content: `User wants to open box-${boxNum}`,
+          state: {
+            source: 'console',
+            eventType: 'command-box-open'
+          },
+          attributes: { boxId: boxNum }
+        }
       }];
     }
     
