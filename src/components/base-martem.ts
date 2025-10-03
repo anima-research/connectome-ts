@@ -56,6 +56,7 @@ export abstract class BaseReceptor extends Component implements Receptor {
  * Base Transform with default lifecycle
  */
 export abstract class BaseTransform extends Component implements Transform {
+  priority?: number;
   facetFilters?: import('../spaces/receptor-effector-types').FacetFilter[];
   abstract process(state: ReadonlyVEILState): VEILDelta[];
   
