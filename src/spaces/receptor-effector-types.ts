@@ -103,12 +103,17 @@ export interface AfferentError {
  * Receptor: Phase 1 - Converts events into VEIL deltas
  * MUST be stateless - same input always produces same output
  * Can add facets, rewrite existing facets (e.g., offline edits), or remove facets
+ * 
+ * TIMING: Returned deltas are applied IMMEDIATELY before Phase 2 begins
  */
 export interface Receptor extends Component {
   /** Which event topics this receptor handles */
   topics: string[];
   
-  /** Transform an event into VEIL deltas */
+  /** 
+   * Transform an event into VEIL deltas
+   * NOTE: Deltas are applied immediately - visible to subsequent phases
+   */
   transform(event: SpaceEvent, state: ReadonlyVEILState): VEILDelta[];
 }
 
@@ -116,12 +121,19 @@ export interface Receptor extends Component {
  * Transform: Phase 2 - Transforms VEIL state
  * Used for derived state, cleanup, indexes, etc.
  * Can add, change, or remove facets - just like Receptors
+ * 
+ * TIMING: Phase 2 runs iteratively. Each transform's deltas are applied
+ * IMMEDIATELY, visible to subsequent iterations. Stops when no deltas produced.
  */
 export interface Transform extends Component {
   /** Optional filters to limit which facets trigger this transform */
   facetFilters?: FacetFilter[];
   
-  /** Process current state to produce VEIL operations */
+  /** 
+   * Process current state to produce VEIL operations
+   * NOTE: May be called multiple times per frame due to Phase 2 iteration
+   * IMPORTANT: Deltas applied immediately - design transforms to be idempotent
+   */
   process(state: ReadonlyVEILState): VEILDelta[];
 }
 
@@ -213,14 +225,20 @@ export interface MaintainerResult {
  * Runs after all other phases
  * Can modify VEIL for infrastructure concerns (element tree, component lifecycle, etc.)
  * Can emit events for next frame
+ * 
+ * TIMING: Deltas in MaintainerResult are applied IMMEDIATELY within current frame.
+ * Events in MaintainerResult are queued for next frame.
  */
 export interface Maintainer extends Component {
   /** 
    * Perform maintenance operations
    * @returns events for next frame and deltas to apply immediately
+   * 
+   * IMPORTANT: Deltas are applied before frame finalization, making them
+   * visible to components initialized in the same frame (e.g., for component-state)
    */
   process(frame: Frame, changes: FacetDelta[], state: ReadonlyVEILState): Promise<MaintainerResult>;
 }
 
-// Re-export SpaceEvent and Facet for convenience
-export { SpaceEvent, Facet };
+// Re-export common types for convenience
+export { SpaceEvent, Facet, Frame, VEILDelta };

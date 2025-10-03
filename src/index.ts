@@ -60,6 +60,19 @@ export {
   ComponentToEffectorAdapter
 } from './spaces/migration-adapters';
 
+// Export RETM type detection utilities
+export {
+  RETM_TYPE,
+  RETM_TYPES,
+  isModulator,
+  isReceptor,
+  isTransform,
+  isEffector,
+  isMaintainer,
+  isRETMComponent,
+  getRETMInterfaces
+} from './utils/retm-type-guards';
+
 // Note: EphemeralCleanupTransform removed - ephemeral facets naturally fade away
 
 // Transform exports

@@ -17,11 +17,14 @@ import {
   EffectorResult
 } from '../spaces/receptor-effector-types';
 import { Frame, Facet, VEILDelta } from '../veil/types';
+import { RETM_TYPE, RETM_TYPES } from '../utils/retm-type-guards';
 
 /**
  * Base Modulator with default lifecycle
  */
 export abstract class BaseModulator extends Component implements Modulator {
+  readonly [RETM_TYPE] = RETM_TYPES.MODULATOR;
+  
   abstract process(events: SpaceEvent[]): SpaceEvent[];
   
   reset?(): void;
@@ -40,6 +43,8 @@ export abstract class BaseModulator extends Component implements Modulator {
  * Base Receptor with default lifecycle
  */
 export abstract class BaseReceptor extends Component implements Receptor {
+  readonly [RETM_TYPE] = RETM_TYPES.RECEPTOR;
+  
   abstract topics: string[];
   abstract transform(event: SpaceEvent, state: ReadonlyVEILState): VEILDelta[];
   
@@ -56,6 +61,8 @@ export abstract class BaseReceptor extends Component implements Receptor {
  * Base Transform with default lifecycle
  */
 export abstract class BaseTransform extends Component implements Transform {
+  readonly [RETM_TYPE] = RETM_TYPES.TRANSFORM;
+  
   facetFilters?: import('../spaces/receptor-effector-types').FacetFilter[];
   abstract process(state: ReadonlyVEILState): VEILDelta[];
   
@@ -72,6 +79,8 @@ export abstract class BaseTransform extends Component implements Transform {
  * Base Effector with default lifecycle
  */
 export abstract class BaseEffector extends Component implements Effector {
+  readonly [RETM_TYPE] = RETM_TYPES.EFFECTOR;
+  
   facetFilters?: import('../spaces/receptor-effector-types').FacetFilter[];
   abstract process(changes: FacetDelta[], state: ReadonlyVEILState): Promise<EffectorResult>;
   
@@ -104,6 +113,8 @@ export abstract class BaseEffector extends Component implements Effector {
  * Base Maintainer with default lifecycle
  */
 export abstract class BaseMaintainer extends Component implements Maintainer {
+  readonly [RETM_TYPE] = RETM_TYPES.MAINTAINER;
+  
   abstract process(frame: Frame, changes: FacetDelta[], state: ReadonlyVEILState): Promise<import('../spaces/receptor-effector-types').MaintainerResult>;
   
   async mount(element: Element): Promise<void> {
