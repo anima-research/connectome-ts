@@ -6,7 +6,6 @@ import { BasicAgent } from './basic-agent';
 import { AgentConfig } from './types';
 import { LLMProvider } from '../llm/llm-interface';
 import { VEILStateManager } from '../veil/veil-state';
-import { CompressionEngine } from '../compression/types-v2';
 
 /**
  * Options for creating a BasicAgent
@@ -26,7 +25,7 @@ export interface CreateAgentOptions {
   
   // Optional infrastructure
   veilStateManager?: VEILStateManager;
-  compressionEngine?: CompressionEngine;
+  // Note: compressionEngine removed - use CompressionTransform + ContextTransform for compression
 }
 
 /**
@@ -48,8 +47,7 @@ export function createBasicAgent(options: CreateAgentOptions): BasicAgent {
     maxTokens,
     contextTokenBudget,
     tools,
-    veilStateManager,
-    compressionEngine
+    veilStateManager
   } = options;
   
   // Build config from options
@@ -65,8 +63,7 @@ export function createBasicAgent(options: CreateAgentOptions): BasicAgent {
   return new BasicAgent(
     config,
     provider,
-    veilStateManager,
-    compressionEngine
+    veilStateManager
   );
 }
 
@@ -76,7 +73,7 @@ export function createBasicAgent(options: CreateAgentOptions): BasicAgent {
  * 
  * @example
  * // Old way still works
- * new BasicAgent(config, provider, veilState, compression);
+ * new BasicAgent(config, provider, veilState);
  * 
  * // New way with options
  * new BasicAgent({
@@ -89,7 +86,7 @@ export type BasicAgentConstructorOptions = {
   config: AgentConfig;
   provider: LLMProvider;
   veilStateManager?: VEILStateManager;
-  compressionEngine?: CompressionEngine;
+  // Note: compressionEngine removed - use CompressionTransform + ContextTransform for compression
 };
 
 /**

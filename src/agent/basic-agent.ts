@@ -22,7 +22,6 @@ import {
 } from '../veil/types';
 import { RenderedContext } from '../hud/types-v2';
 import { FrameTrackingHUD } from '../hud/frame-tracking-hud';
-import { CompressionEngine } from '../compression/types-v2';
 import { LLMProvider } from '../llm/llm-interface';
 import { VEILStateManager } from '../veil/veil-state';
 import { Element } from '../spaces/element';
@@ -46,7 +45,6 @@ export class BasicAgent implements AgentInterface {
   private hud: FrameTrackingHUD;
   private llmProvider: LLMProvider;
   private veilStateManager: VEILStateManager;
-  private compressionEngine?: CompressionEngine;
   private tools: Map<string, ToolDefinition> = new Map();
   private tracer: TraceStorage | undefined;
   private agentId: string;
@@ -54,8 +52,7 @@ export class BasicAgent implements AgentInterface {
   constructor(
     configOrOptions: AgentConfig | BasicAgentConstructorOptions,
     llmProvider?: LLMProvider,
-    veilStateManager?: VEILStateManager,
-    compressionEngine?: CompressionEngine
+    veilStateManager?: VEILStateManager
   ) {
     // Support both old and new constructor patterns
     if (isAgentOptions(configOrOptions)) {
@@ -63,13 +60,11 @@ export class BasicAgent implements AgentInterface {
       this.config = configOrOptions.config;
       this.llmProvider = configOrOptions.provider;
       this.veilStateManager = configOrOptions.veilStateManager!;
-      this.compressionEngine = configOrOptions.compressionEngine;
     } else {
       // Old pattern for backward compatibility
       this.config = configOrOptions;
       this.llmProvider = llmProvider!;
       this.veilStateManager = veilStateManager!;
-    this.compressionEngine = compressionEngine;
     }
     
     this.hud = new FrameTrackingHUD();
@@ -606,12 +601,13 @@ export class BasicAgent implements AgentInterface {
   
   private buildContext(state: VEILState, streamRef?: StreamRef): RenderedContext {
     // Note: Pending activations removed - activation facets remain in state
+    // Note: No compression engine - compression is handled by CompressionTransform + ContextTransform in RETM architecture
     
-    // Render using HUD
+    // Render using HUD (without compression)
     return this.hud.render(
       state.frameHistory,
       new Map(state.facets),
-      this.compressionEngine,
+      undefined, // No compression - use RETM transforms for compression support
       {
         systemPrompt: this.config.systemPrompt,
         maxTokens: this.config.contextTokenBudget || 4000,  // Context window budget, not generation limit

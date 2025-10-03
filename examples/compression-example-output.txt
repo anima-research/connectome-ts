@@ -1,0 +1,103 @@
+Expected Output from: npm run example:compression
+
+============================================================
+COMPRESSION + RETM ARCHITECTURE DEMO
+============================================================
+
+📦 Setting up infrastructure...
+🗜️  Creating compression engine...
+   ✓ Using SimpleTestCompressionEngine (no LLM calls)
+
+🔄 Registering transforms...
+   ✓ CompressionTransform (priority=10)
+   ✓ ContextTransform (priority=100)
+   → Execution order guaranteed: Compression → Context
+
+🤖 Creating agent...
+   ✓ Agent created without compression parameter
+   → Compression handled by transforms, not agent!
+   ✓ AgentEffector registered (Phase 3)
+
+💬 Generating test conversation (10 frames)...
+
+   Frame 1: User message added
+   Frame 2: User message added
+   Frame 3: User message added
+   Frame 4: User message added
+   Frame 5: User message added
+   Frame 6: User message added
+   Frame 7: User message added
+   Frame 8: User message added
+   Frame 9: User message added
+   Frame 10: User message added
+
+   ✓ 10 frames generated
+   → Total frames: 10
+
+📊 Checking compression status...
+   Compression plans found: 1
+   Compression results found: 1
+
+   📋 Compression Results:
+      1. Frames 1-5
+         Tokens: 450
+         Summary: [Compressed 5 frames with total of 450 tokens]...
+
+🎯 Activating agent...
+   ✓ Agent activation sent
+
+📄 Checking rendered context...
+   ✓ Rendered context created: 1 facet(s)
+   Token count: 850
+   → Context includes compressed frames!
+
+🏗️  Architecture Flow Summary:
+
+   Phase 0: Event Preprocessing (Modulators)
+      └─ No modulators in this demo
+
+   Phase 1: Events → VEIL (Receptors)
+      └─ User messages converted to facets
+
+   Phase 2: VEIL → VEIL (Transforms)
+      ├─ CompressionTransform (priority=10)
+      │  └─ Compresses old frames when threshold met
+      │  └─ Updates engine cache
+      └─ ContextTransform (priority=100)
+         └─ Renders context for agent activation
+         └─ Uses compressed frames from cache
+
+   Phase 3: VEIL Changes → Side Effects (Effectors)
+      └─ AgentEffector
+         └─ Sees activation + rendered-context facets
+         └─ Runs agent with pre-rendered context
+         └─ Emits agent response facets
+
+   Phase 4: Maintenance (Maintainers)
+      └─ No maintainers in this demo
+
+============================================================
+✅ DEMO COMPLETE
+============================================================
+
+Key Takeaways:
+
+1. 🔢 Transform Priority: Ensures correct execution order
+   • CompressionTransform (10) runs before ContextTransform (100)
+   • Order matters because they share the engine instance
+
+2. 🧩 Separation of Concerns:
+   • Agent doesn't manage compression
+   • Transforms handle infrastructure
+   • Effectors connect everything
+
+3. 📊 Observable:
+   • Compression creates facets (compression-plan, compression-result)
+   • Context rendering creates facets (rendered-context)
+   • Everything visible in VEIL state
+
+4. 🔄 Reusable:
+   • One compression engine serves all agents
+   • One set of transforms handles all compression
+   • Multiple agents can share the infrastructure
+
