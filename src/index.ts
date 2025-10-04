@@ -42,6 +42,7 @@ export {
 export { Space } from './spaces/space';
 export { Element } from './spaces/element';
 export { Component as SpaceComponent } from './spaces/component';
+export { SpaceAutoDiscovery } from './spaces/space-auto-discovery';
 
 // Component base type export
 export * from './types/component';

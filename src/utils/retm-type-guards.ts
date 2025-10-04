@@ -72,10 +72,16 @@ export function isTransform(component: any): component is Transform {
     return true;
   }
   
-  // Fallback to duck typing
+  // If explicitly marked as something else, not a transform
+  if (component?.[RETM_TYPE] && component[RETM_TYPE] !== RETM_TYPES.TRANSFORM) {
+    return false;
+  }
+  
+  // Fallback to duck typing (sync process method, not effector/maintainer)
   return component &&
     typeof component.process === 'function' &&
-    component.process !== component.mount; // Not the Component.process method
+    component.process.constructor.name !== 'AsyncFunction' &&  // Not effector
+    component.process.length < 3; // Not maintainer (which takes 3 params)
 }
 
 /**
@@ -87,11 +93,16 @@ export function isEffector(component: any): component is Effector {
     return true;
   }
   
-  // Fallback to duck typing
+  // If explicitly marked as something else, not an effector
+  if (component?.[RETM_TYPE] && component[RETM_TYPE] !== RETM_TYPES.EFFECTOR) {
+    return false;
+  }
+  
+  // Fallback to duck typing (async process method with 2 params)
   return component &&
     typeof component.process === 'function' &&
-    // Simple check for async function
-    component.process.constructor.name === 'AsyncFunction';
+    component.process.constructor.name === 'AsyncFunction' &&
+    component.process.length === 2; // Takes changes and state
 }
 
 /**
@@ -103,10 +114,15 @@ export function isMaintainer(component: any): component is Maintainer {
     return true;
   }
   
-  // Fallback to duck typing
+  // If explicitly marked as something else, not a maintainer
+  if (component?.[RETM_TYPE] && component[RETM_TYPE] !== RETM_TYPES.MAINTAINER) {
+    return false;
+  }
+  
+  // Fallback to duck typing (process with 3 params: frame, changes, state)
   return component &&
     typeof component.process === 'function' &&
-    component.process.length >= 3; // Takes frame, changes, and state
+    component.process.length >= 3;
 }
 
 /**

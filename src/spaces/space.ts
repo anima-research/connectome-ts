@@ -35,6 +35,14 @@ import {
   Maintainer
 } from './receptor-effector-types';
 import { VEILOperationReceptor } from './migration-adapters';
+import { SpaceAutoDiscovery } from './space-auto-discovery';
+import { 
+  isReceptor, 
+  isTransform, 
+  isEffector, 
+  isMaintainer,
+  isModulator 
+} from '../utils/retm-type-guards';
 
 interface RenderedContextRecord {
   context: RenderedContext;
@@ -107,6 +115,16 @@ export class Space extends Element {
   private effectors: Effector[] = [];
   private maintainers: Maintainer[] = [];
   
+  // Auto-discovery
+  private discovery = new SpaceAutoDiscovery();
+  private useAutoDiscovery = true;  // Enabled by default
+  private discoveryCache?: {
+    receptors: Map<string, Receptor[]>;
+    transforms: Transform[];
+    effectors: Effector[];
+    maintainers: Maintainer[];
+  };
+  
   constructor(veilState: VEILStateManager, hostRegistry?: Map<string, any>) {
     super('root');
     this.veilState = veilState;
@@ -118,6 +136,57 @@ export class Space extends Element {
     
     // Add built-in VEIL operation receptor for compatibility
     this.addReceptor(new VEILOperationReceptor());
+  }
+  
+  /**
+   * Enable or disable auto-discovery of RETM components
+   */
+  setAutoDiscovery(enabled: boolean): void {
+    this.useAutoDiscovery = enabled;
+    this.discoveryCache = undefined;
+  }
+  
+  /**
+   * Discover RETM components in the element tree
+   * Caches results per frame for performance
+   */
+  private getDiscoveredComponents(): {
+    receptors: Map<string, Receptor[]>;
+    transforms: Transform[];
+    effectors: Effector[];
+    maintainers: Maintainer[];
+  } {
+    if (!this.useAutoDiscovery) {
+      return {
+        receptors: new Map(),
+        transforms: [],
+        effectors: [],
+        maintainers: []
+      };
+    }
+    
+    // Use cache if available
+    if (this.discoveryCache) {
+      return this.discoveryCache;
+    }
+    
+    // Discover components
+    const discovered = {
+      receptors: this.discovery.discoverReceptors(this),
+      transforms: this.discovery.discoverTransforms(this),
+      effectors: this.discovery.discoverEffectors(this),
+      maintainers: this.discovery.discoverMaintainers(this)
+    };
+    
+    this.discoveryCache = discovered;
+    return discovered;
+  }
+  
+  /**
+   * Clear discovery cache at start of frame
+   */
+  private clearDiscoveryCache(): void {
+    this.discoveryCache = undefined;
   }
   
   // MARTEM registration methods
@@ -313,6 +382,10 @@ export class Space extends Element {
       
       // Keep currentFrame for compatibility
       this.currentFrame = frame;
+      
+      // Clear discovery cache at start of frame
+      this.clearDiscoveryCache();
+      
       this.notifyDebugFrameStart(this.currentFrame, {
         queuedEvents: this.eventQueue.length
       });
@@ -456,13 +529,23 @@ export class Space extends Element {
   /**
    * PHASE 1: Events → VEIL Deltas (Receptors)
    * Receptors can add facets, rewrite existing facets, or remove facets
+   * Uses auto-discovery + manual registrations
    */
   private runPhase1(events: SpaceEvent[]): VEILDelta[] {
     const deltas: VEILDelta[] = [];
     const readonlyState = this.getReadonlyState();
     
+    // Merge discovered + manual receptors
+    const discovered = this.getDiscoveredComponents();
+    const allReceptors = new Map(this.receptors);
+    
+    for (const [topic, discoveredList] of discovered.receptors) {
+      const manual = allReceptors.get(topic) || [];
+      allReceptors.set(topic, [...manual, ...discoveredList]);
+    }
+    
     for (const event of events) {
-      const receptors = this.receptors.get(event.topic) || [];
+      const receptors = allReceptors.get(event.topic) || [];
       
       for (const receptor of receptors) {
         try {
@@ -494,12 +577,17 @@ export class Space extends Element {
   
   /**
    * PHASE 2: VEIL → VEIL
+   * Uses auto-discovery + manual registrations
    */
   private runPhase2(): VEILDelta[] {
     const deltas: VEILDelta[] = [];
     const readonlyState = this.getReadonlyState();
     
-    for (const transform of this.transforms) {
+    // Merge discovered + manual transforms
+    const discovered = this.getDiscoveredComponents();
+    const allTransforms = [...this.transforms, ...discovered.transforms];
+    
+    for (const transform of allTransforms) {
       try {
         const newDeltas = transform.process(readonlyState);
         deltas.push(...newDeltas);
@@ -528,12 +616,21 @@ export class Space extends Element {
   
   /**
    * PHASE 3: VEIL changes → Events
+   * Uses auto-discovery + manual registrations
    */
   private async runPhase3(changes: FacetDelta[]): Promise<SpaceEvent[]> {
     const events: SpaceEvent[] = [];
     const readonlyState = this.getReadonlyState();
     
-    for (const effector of this.effectors) {
+    // Merge discovered + manual effectors
+    const discovered = this.getDiscoveredComponents();
+    const allEffectors = [...this.effectors, ...discovered.effectors];
+    
+    if (discovered.effectors.length > 0 && events.length === 0) {
+      console.log(`[Phase3] Discovered ${discovered.effectors.length} effectors, ${allEffectors.length} total`);
+    }
+    
+    for (const effector of allEffectors) {
       // Filter changes this effector cares about
       const relevantChanges = changes.filter(change => 
         this.matchesEffectorFilters(change.facet, effector.facetFilters || [])
@@ -570,13 +667,18 @@ export class Space extends Element {
   /**
    * PHASE 4: Maintenance
    * Maintainers can modify VEIL for infrastructure concerns
+   * Uses auto-discovery + manual registrations
    */
   private async runPhase4(frame: Frame, changes: FacetDelta[]): Promise<{ events: SpaceEvent[]; deltas: VEILDelta[] }> {
     const events: SpaceEvent[] = [];
     const deltas: VEILDelta[] = [];
     const readonlyState = this.getReadonlyState();
     
-    for (const maintainer of this.maintainers) {
+    // Merge discovered + manual maintainers
+    const discovered = this.getDiscoveredComponents();
+    const allMaintainers = [...this.maintainers, ...discovered.maintainers];
+    
+    for (const maintainer of allMaintainers) {
       try {
         const result = await maintainer.process(frame, changes, readonlyState);
         

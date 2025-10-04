@@ -182,7 +182,7 @@ class DispenserCommandEffector extends BaseEffector {
     for (const change of changes) {
       if (change.type !== 'added') continue;
       
-      const eventType = (change.facet as any).eventType;
+      const eventType = (change.facet as any).state?.eventType;
       
       if (eventType === 'command-button-press') {
         // Emit button press event
@@ -287,7 +287,7 @@ class DispenseEffector extends BaseEffector {
     for (const change of changes) {
       if (change.type !== 'added') continue;
       
-      const eventType = (change.facet as any).eventType;
+      const eventType = (change.facet as any).state?.eventType;
       if (eventType !== 'button-press') continue;
       
       // Get dispenser state
@@ -406,7 +406,7 @@ class BoxComponent extends BaseEffector {
     for (const change of changes) {
       if (change.type !== 'added') continue;
       
-      const eventType = (change.facet as any).eventType;
+      const eventType = (change.facet as any).state?.eventType;
       const boxId = (change.facet as any).attributes?.boxId;
       const myBoxId = this.getComponentState().boxId;
       

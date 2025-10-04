@@ -244,17 +244,21 @@ export class ConsoleMessageReceptor extends BaseReceptor {
     
     const facets: Facet[] = [];
     
-    // Create message event facet
+    // Create message event facet (eventType must be in state!)
     facets.push({
       id: messageId,
       type: 'event',
       content: content,
-      eventType: 'console-message',
+      state: {
+        source: 'console',
+        eventType: 'console-message',
+        metadata: { messageId }
+      },
+      streamId,
+      streamType,
       attributes: {
         messageId,
-        source: 'user',
-        streamId,
-        streamType
+        source: 'user'
       }
     });
     
