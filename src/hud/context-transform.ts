@@ -15,6 +15,9 @@ import { HUDConfig } from './types-v2';
 import { VEILStateManager } from '../veil/veil-state';
 
 export class ContextTransform extends BaseTransform {
+  // Priority: Run after compression (which has priority 10)
+  priority = 100;
+  
   private hud: FrameTrackingHUD;
   
   constructor(

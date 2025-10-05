@@ -124,8 +124,28 @@ export interface Receptor extends Component {
  * 
  * TIMING: Phase 2 runs iteratively. Each transform's deltas are applied
  * IMMEDIATELY, visible to subsequent iterations. Stops when no deltas produced.
+ * 
+ * Execution Order:
+ * - Transforms with explicit priority execute first (lower number = earlier)
+ * - Transforms without priority execute in registration order
+ * - This matters if transforms share mutable state (e.g., compression engine)
  */
 export interface Transform extends Component {
+  /** 
+   * Optional priority for execution order (lower = runs earlier).
+   * - Transforms with priority execute before those without
+   * - Among prioritized transforms: sorted by priority value
+   * - Among non-prioritized transforms: registration order preserved
+   * 
+   * Example priorities:
+   * - 10: Infrastructure (compression, indexing)
+   * - 50: Derivation (calculated state)
+   * - 100: Rendering (context generation)
+   * 
+   * If unspecified, uses registration order.
+   */
+  priority?: number;
+  
   /** Optional filters to limit which facets trigger this transform */
   facetFilters?: FacetFilter[];
   

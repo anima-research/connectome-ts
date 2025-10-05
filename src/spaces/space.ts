@@ -203,8 +203,54 @@ export class Space extends Element {
     }
   }
   
+  /**
+   * Register a transform for Phase 2 processing.
+   * 
+   * EXECUTION ORDER:
+   * 1. Transforms with explicit priority execute first (lower number = earlier)
+   * 2. Transforms without priority execute in registration order
+   * 
+   * IMPORTANT: Order matters if transforms share mutable state!
+   * Example: CompressionTransform should run before ContextTransform
+   * 
+   * @example
+   * // Option 1: Use priority (explicit, recommended for critical ordering)
+   * compressionTransform.priority = 10;
+   * space.addTransform(compressionTransform);  // Runs first due to priority
+   * space.addTransform(contextTransform);      // Runs after (no priority)
+   * 
+   * @example
+   * // Option 2: Use registration order (simple, works for most cases)
+   * space.addTransform(compressionTransform);  // Register first = runs first
+   * space.addTransform(contextTransform);      // Register second = runs second
+   * 
+   * @param transform - The transform to register
+   */
   addTransform(transform: Transform): void {
     this.transforms.push(transform);
+    // Sort: prioritized transforms first (by priority), then unprioritized (maintain order)
+    this.transforms.sort((a, b) => {
+      const aPriority = a.priority;
+      const bPriority = b.priority;
+      
+      // Both have priority: sort by priority value
+      if (aPriority !== undefined && bPriority !== undefined) {
+        return aPriority - bPriority;
+      }
+      
+      // Only a has priority: a comes first
+      if (aPriority !== undefined) {
+        return -1;
+      }
+      
+      // Only b has priority: b comes first
+      if (bPriority !== undefined) {
+        return 1;
+      }
+      
+      // Neither has priority: maintain registration order (stable sort)
+      return 0;
+    });
   }
   
   addEffector(effector: Effector): void {

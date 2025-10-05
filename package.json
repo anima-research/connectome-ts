@@ -20,6 +20,7 @@
     "example:dispenser": "ts-node examples/dispenser-with-host.ts",
     "example:dispenser:reset": "ts-node examples/dispenser-with-host.ts --reset",
     "example:dispenser:debug": "ts-node examples/dispenser-with-host.ts --debug-llm",
+    "example:compression": "ts-node examples/compression-retm-demo.ts",
     "axon:server": "ts-node examples/axon-test/server.ts",
     "test:axon": "ts-node examples/test-axon.ts",
     "test:notes": "ts-node examples/test-shared-notes.ts",

@@ -97,7 +97,11 @@ lightweight-connectome/
 ```bash
 npm install
 npm run build
-npm run example  # Run basic usage example
+
+# Run examples
+npm run example                # Basic usage example
+npm run example:compression    # Compression + RETM architecture demo
+npm run example:dispenser      # Box dispenser demo with persistence
 ```
 
 ## Usage

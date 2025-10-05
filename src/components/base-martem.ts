@@ -63,6 +63,7 @@ export abstract class BaseReceptor extends Component implements Receptor {
 export abstract class BaseTransform extends Component implements Transform {
   readonly [RETM_TYPE] = RETM_TYPES.TRANSFORM;
   
+  priority?: number;
   facetFilters?: import('../spaces/receptor-effector-types').FacetFilter[];
   abstract process(state: ReadonlyVEILState): VEILDelta[];
   
