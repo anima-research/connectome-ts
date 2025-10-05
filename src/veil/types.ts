@@ -1,5 +1,8 @@
 // VEIL (Virtual Environment Interface Language) Type Definitions
 
+// Frame snapshot types
+export * from './frame-snapshot-types';
+
 // FacetType is now just a string - no restrictions!
 export type FacetType = string;
 
@@ -89,14 +92,11 @@ export interface Frame {
   deltas: VEILDelta[];     // Exotemporal changes
   transition: FrameTransition;
   
-  // Snapshot of rendered content captured at frame creation
-  // Used for compression to preserve original subjective experience
-  renderedSnapshot?: {
-    content: string;           // Rendered text for this frame
-    tokens: number;            // Estimated token count
-    role: 'user' | 'assistant' | 'system';  // Message role
-    facetIds: string[];        // Which facets were rendered
-  };
+  /**
+   * Rendered snapshot captured at frame creation time
+   * Preserves the original subjective experience for compression/replay
+   */
+  renderedSnapshot?: import('./frame-snapshot-types').FrameRenderedSnapshot;
 }
 
 

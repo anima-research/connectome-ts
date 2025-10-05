@@ -8,7 +8,8 @@ import {
   Frame,
   OutgoingVEILOperation,
   hasContentAspect,
-  hasStateAspect
+  hasStateAspect,
+  FrameSnapshotBuilder
 } from '../veil/types';
 import { CompressibleHUD, RenderedContext, HUDConfig } from './types-v2';
 import { CompressionEngine, RenderedFrame, StateDelta } from '../compression/types-v2';
@@ -103,8 +104,16 @@ export class FrameTrackingHUD implements CompressibleHUD {
 
       const source = this.getFrameSource(frame);
 
-      const { content, facetIds } = this.renderFrameContent(frame, source, replayedState, removals);
+      // Create snapshot builder for this frame
+      const snapshotBuilder = new FrameSnapshotBuilder();
+      
+      const { content, facetIds } = this.renderFrameContent(frame, source, replayedState, removals, snapshotBuilder);
       const tokens = this.estimateTokens(content);
+
+      // Build and attach snapshot to frame
+      if (!frame.renderedSnapshot) {
+        frame.renderedSnapshot = snapshotBuilder.build();
+      }
 
       // Trace each frame rendering
       tracer?.record({
@@ -123,7 +132,8 @@ export class FrameTrackingHUD implements CompressibleHUD {
           contentPreview: content.substring(0, 200) + (content.length > 200 ? '...' : ''),
           tokens,
           facetIds,
-          isEmpty: !content.trim()
+          isEmpty: !content.trim(),
+          snapshotChunks: frame.renderedSnapshot?.chunks.length || 0
         },
         parentId: traceId
       });
@@ -172,8 +182,12 @@ export class FrameTrackingHUD implements CompressibleHUD {
     };
   }
   
-  private renderAgentFrame(frame: Frame): string {
+  private renderAgentFrame(frame: Frame, snapshotBuilder?: FrameSnapshotBuilder): string {
     const parts: string[] = [];
+    
+    // Opening turn marker
+    const openingMarker = '<my_turn>\n\n';
+    const closingMarker = '\n\n</my_turn>';
 
     for (const operation of frame.deltas) {
       if (operation.type === 'addFacet') {
@@ -182,6 +196,12 @@ export class FrameTrackingHUD implements CompressibleHUD {
           case 'speech':
             if (hasContentAspect(facet)) {
               parts.push(facet.content);
+              // Capture speech chunk with facet attribution
+              snapshotBuilder?.addContent(facet.content, {
+                facetIds: [facet.id],
+                type: 'speech',
+                role: 'assistant'
+              });
             }
             break;
 
@@ -192,14 +212,28 @@ export class FrameTrackingHUD implements CompressibleHUD {
                 parameters?: Record<string, unknown>;
               };
               if (toolName) {
-                parts.push(this.renderToolCall(toolName, parameters ?? {}));
+                const rendered = this.renderToolCall(toolName, parameters ?? {});
+                parts.push(rendered);
+                // Capture action chunk with facet attribution
+                snapshotBuilder?.addContent(rendered, {
+                  facetIds: [facet.id],
+                  type: 'action',
+                  role: 'assistant'
+                });
               }
             }
             break;
 
           case 'thought':
             if (hasContentAspect(facet)) {
-              parts.push(`<thought>${facet.content}</thought>`);
+              const rendered = `<thought>${facet.content}</thought>`;
+              parts.push(rendered);
+              // Capture thought chunk with facet attribution
+              snapshotBuilder?.addContent(rendered, {
+                facetIds: [facet.id],
+                type: 'thought',
+                role: 'assistant'
+              });
             }
             break;
         }
@@ -208,7 +242,20 @@ export class FrameTrackingHUD implements CompressibleHUD {
 
     // Wrap agent operations in turn marker
     if (parts.length > 0) {
-      return `<my_turn>\n\n${parts.join('\n\n')}\n\n</my_turn>`;
+      // Capture turn markers as unattributed formatting chunks
+      snapshotBuilder?.addContent(openingMarker, {
+        type: 'formatting',
+        role: 'assistant'
+      });
+      
+      const result = `${openingMarker}${parts.join('\n\n')}${closingMarker}`;
+      
+      snapshotBuilder?.addContent(closingMarker, {
+        type: 'formatting',
+        role: 'assistant'
+      });
+      
+      return result;
     }
 
     return '';
@@ -250,16 +297,18 @@ export class FrameTrackingHUD implements CompressibleHUD {
     frame: Frame,
     source: 'user' | 'agent' | 'system',
     replayedState: Map<string, Facet>,
-    removals?: Map<string, 'hide' | 'delete'>
+    removals?: Map<string, 'hide' | 'delete'>,
+    snapshotBuilder?: FrameSnapshotBuilder
   ): { content: string; facetIds: string[] } {
     if (source === 'agent') {
+      const content = this.renderAgentFrame(frame, snapshotBuilder);
       return {
-        content: this.renderAgentFrame(frame),
+        content,
         facetIds: []
       };
     }
 
-    const content = this.renderEnvironmentFrame(frame, replayedState, removals);
+    const content = this.renderEnvironmentFrame(frame, replayedState, removals, snapshotBuilder);
     return {
       content,
       facetIds: this.extractFacetIds(frame)
@@ -269,7 +318,8 @@ export class FrameTrackingHUD implements CompressibleHUD {
   private renderEnvironmentFrame(
     frame: Frame,
     replayedState: Map<string, Facet>,
-    removals?: Map<string, 'hide' | 'delete'>
+    removals?: Map<string, 'hide' | 'delete'>,
+    snapshotBuilder?: FrameSnapshotBuilder
   ): string {
     const parts: string[] = [];
     const renderedStates = new Map<string, string>();
@@ -335,6 +385,12 @@ export class FrameTrackingHUD implements CompressibleHUD {
             const finalRendering = renderedStates.get(facet.id);
             if (finalRendering) {
               parts.push(finalRendering);
+              // Capture chunk with facet attribution
+              snapshotBuilder?.addContent(finalRendering, {
+                facetIds: [facet.id],
+                type: facet.type,
+                role: 'user'  // Environment frames are typically user-attributed
+              });
             }
             renderedStates.delete(facet.id);
             break;
@@ -343,6 +399,12 @@ export class FrameTrackingHUD implements CompressibleHUD {
           const rendered = this.renderFacet(facet);
           if (rendered) {
             parts.push(rendered);
+            // Capture chunk with facet attribution
+            snapshotBuilder?.addContent(rendered, {
+              facetIds: [facet.id],
+              type: facet.type,
+              role: 'user'
+            });
           }
           break;
         }
@@ -355,6 +417,13 @@ export class FrameTrackingHUD implements CompressibleHUD {
           const finalRendering = renderedStates.get(operation.id);
           if (finalRendering) {
             parts.push(finalRendering);
+            // Capture chunk with facet attribution
+            const facet = replayedState.get(operation.id);
+            snapshotBuilder?.addContent(finalRendering, {
+              facetIds: [operation.id],
+              type: facet?.type,
+              role: 'user'
+            });
             renderedStates.delete(operation.id);
           }
           break;

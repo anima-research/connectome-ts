@@ -127,12 +127,15 @@ export class CompressionTransform extends BaseTransform {
     const hasSnapshots = frameHistory.every(f => f.renderedSnapshot);
     
     if (hasSnapshots) {
-      // Use pre-captured snapshots
+      // Use pre-captured snapshots - faster and preserves original rendering
       return frameHistory.map(frame => ({
         frameSequence: frame.sequence,
-        content: frame.renderedSnapshot!.content,
-        tokens: frame.renderedSnapshot!.tokens,
-        facetIds: frame.renderedSnapshot!.facetIds
+        content: frame.renderedSnapshot!.totalContent,
+        tokens: frame.renderedSnapshot!.totalTokens,
+        facetIds: Array.from(new Set(
+          frame.renderedSnapshot!.chunks
+            .flatMap(c => c.facetIds || [])
+        ))
       }));
     }
     
