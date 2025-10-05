@@ -67,6 +67,19 @@ interface DebugFrameRecord {
   };
   activeStream?: StreamRef;
   renderedContext?: RenderedContext;
+  renderedSnapshot?: {
+    chunks: Array<{
+      content: string;
+      tokens: number;
+      facetIds?: string[];
+      type?: string;
+      role?: 'user' | 'assistant' | 'system';
+    }>;
+    totalContent: string;
+    totalTokens: number;
+    capturedAt: number;
+    hasContent: boolean;
+  };
 }
 
 interface DebugMetrics {
@@ -220,6 +233,11 @@ class DebugStateTracker extends EventEmitter implements DebugObserver {
     record.activeStream = frame.activeStream;
     record.events = sanitizeFrameEvents(frame, record.uuid);
     record.kind = inferFrameKind(frame, record.kind);
+    
+    // Include rendered snapshot if present
+    if (frame.renderedSnapshot) {
+      record.renderedSnapshot = sanitizePayload(frame.renderedSnapshot);
+    }
 
     if (context.durationMs > 0) {
       this.completedFrames += 1;
@@ -248,6 +266,11 @@ class DebugStateTracker extends EventEmitter implements DebugObserver {
 
     if ((frame as any).renderedContext) {
       record.renderedContext = sanitizePayload((frame as any).renderedContext) as RenderedContext;
+    }
+    
+    // Include rendered snapshot if present
+    if (frame.renderedSnapshot) {
+      record.renderedSnapshot = sanitizePayload(frame.renderedSnapshot);
     }
 
     this.insertFrame(record);
