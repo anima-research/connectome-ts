@@ -1,65 +1,54 @@
 /**
  * Utilities for extracting specific frame ranges from rendered context
+ * 
+ * Works at the frame-rendering level (not message level) since messages
+ * can contain multiple frames or frames can be split across messages.
  */
 
 import { RenderedContext } from './types-v2';
+import { RenderedFrame } from '../compression/types-v2';
 
 export interface ExtractedFrameRange {
   content: string;
   tokens: number;
-  messages: RenderedContext['messages'];
+  frames: RenderedFrame[];
   sourceFrames: { from: number; to: number };
-}
-
-/**
- * Estimate token count (simple heuristic: ~4 chars per token)
- */
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
 }
 
 /**
  * Extract a specific frame range from rendered context
  * 
- * This uses the sourceFrames attribution to find messages that overlap
- * with the requested range [fromFrame, toFrame] (inclusive).
+ * Works at the frame-rendering level, not message level, since the
+ * relationship between frames and messages is many-to-many.
  * 
- * @param context - The full rendered context with frame attribution
+ * @param context - The full rendered context
  * @param fromFrame - Starting frame sequence (inclusive)
  * @param toFrame - Ending frame sequence (inclusive)
- * @returns Extracted content, messages, and metadata
+ * @returns Extracted frame renderings and concatenated content
  */
 export function extractFrameRange(
   context: RenderedContext,
   fromFrame: number,
   toFrame: number
 ): ExtractedFrameRange {
-  const messages: RenderedContext['messages'] = [];
+  const frames: RenderedFrame[] = [];
   const contentParts: string[] = [];
   let tokens = 0;
   
-  for (const message of context.messages) {
-    if (!message.sourceFrames) {
-      // System messages without frames - skip them for compression
-      // They're floating context, not part of frame history
-      continue;
-    }
-    
-    const { from, to } = message.sourceFrames;
-    
-    // Include messages that overlap with our range
-    // A message overlaps if: message.from <= toFrame && message.to >= fromFrame
-    if (from <= toFrame && to >= fromFrame) {
-      messages.push(message);
-      contentParts.push(message.content);
-      tokens += estimateTokens(message.content);
+  // Extract from frameRenderings metadata (the ground truth)
+  for (const frameRendering of context.metadata.renderedFrames) {
+    if (frameRendering.frameSequence >= fromFrame && 
+        frameRendering.frameSequence <= toFrame) {
+      frames.push(frameRendering);
+      contentParts.push(frameRendering.content);
+      tokens += frameRendering.tokens;
     }
   }
   
   return {
     content: contentParts.join('\n\n'),
     tokens,
-    messages,
+    frames,
     sourceFrames: { from: fromFrame, to: toFrame }
   };
 }
@@ -72,15 +61,12 @@ export function hasFramesInRange(
   fromFrame: number,
   toFrame: number
 ): boolean {
-  for (const message of context.messages) {
-    if (!message.sourceFrames) continue;
-    
-    const { from, to } = message.sourceFrames;
-    if (from <= toFrame && to >= fromFrame) {
+  for (const frameRendering of context.metadata.renderedFrames) {
+    if (frameRendering.frameSequence >= fromFrame && 
+        frameRendering.frameSequence <= toFrame) {
       return true;
     }
   }
-  
   return false;
 }
 
@@ -88,18 +74,9 @@ export function hasFramesInRange(
  * Get all frame sequences present in the rendered context
  */
 export function getRenderedFrameSequences(context: RenderedContext): number[] {
-  const sequences = new Set<number>();
-  
-  for (const message of context.messages) {
-    if (message.sourceFrames) {
-      // Add all frames in this message's range
-      for (let seq = message.sourceFrames.from; seq <= message.sourceFrames.to; seq++) {
-        sequences.add(seq);
-      }
-    }
-  }
-  
-  return Array.from(sequences).sort((a, b) => a - b);
+  return context.metadata.renderedFrames
+    .map(f => f.frameSequence)
+    .sort((a, b) => a - b);
 }
 
 /**

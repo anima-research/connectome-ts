@@ -206,13 +206,81 @@ space.addTransform(context);
 
 5. **Consider architectural isolation** - communicate through facets instead of shared mutable state
 
-## Future Considerations
+## Evolution Path: From Priorities to Constraint Solver
 
-If transform ordering becomes more complex, consider:
-- Named execution phases (compression, derivation, rendering)
-- Dependency declarations (`dependsOn: [CompressionTransform]`)
-- Automatic topological sorting
-- Warning when critical transforms are mis-ordered
+**Current (Phase 1): Numeric Priorities**
+
+Priorities work today but have limitations:
+- Magic numbers (what does `priority = 50` mean?)
+- Fragile in open ecosystems (number collisions)
+- No automatic dependency detection
+
+```typescript
+class CompressionTransform extends BaseTransform {
+  priority = 10;  // Infrastructure
+}
+```
+
+**Future (Phase 2): Declarative Constraints**
+
+Replace priorities with semantic dependencies:
+
+```typescript
+class CompressionTransform extends BaseTransform {
+  provides = ['compressed-frames'];
+  requires = ['state-changes-finalized']; // optional
+}
+
+class ContextTransform extends BaseTransform {
+  requires = ['compressed-frames'];  // Auto-orders after CompressionTransform
+}
+
+class MyCustomTransform extends BaseTransform {
+  // No constraints = flexible placement
+}
+```
+
+**Constraint Solver Benefits:**
+
+1. **Open Ecosystem Friendly**: New transforms declare needs, system figures out order
+2. **Error Detection**: Catches circular dependencies and impossible constraints
+3. **Self-Documenting**: `requires = ['compression']` is clearer than `priority = 50`
+4. **Automatic Ordering**: Topological sort handles complex dependency graphs
+
+**Implementation Strategy:**
+
+The constraint solver will use topological sort to determine execution order:
+
+```typescript
+// In Space.runPhase2()
+const sortedTransforms = this.solveTransformOrder(this.transforms);
+// Returns transforms in dependency order
+
+// Errors:
+// - Circular dependency: A requires B, B requires A
+// - Missing provider: Transform requires something no one provides
+// - Ambiguous ordering: Multiple valid orders (use registration order as tiebreaker)
+```
+
+**Migration Path:**
+
+For now, document intent alongside priorities:
+
+```typescript
+class CompressionTransform extends BaseTransform {
+  priority = 10;
+  // TODO [constraint-solver]: Replace with provides = ['compressed-frames']
+  
+  // Infrastructure: runs early to populate cache
+  // Used by: ContextTransform
+}
+```
+
+This allows:
+- ✅ Priorities work today
+- ✅ Intent is documented
+- ✅ Future migration is clear
+- ✅ Backwards compatibility when constraint solver is implemented
 
 For now, optional priority + registration order provides good balance of:
 - Simplicity (most transforms don't need priority)

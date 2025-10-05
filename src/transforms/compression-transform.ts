@@ -52,6 +52,7 @@ interface CompressionTask {
 
 export class CompressionTransform extends BaseTransform {
   // Priority: Run early in Phase 2, before transforms that consume compression
+  // TODO [constraint-solver]: Replace with provides = ['compressed-frames']
   priority = 10;
   
   private readonly engine: CompressionEngine;

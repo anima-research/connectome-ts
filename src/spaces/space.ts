@@ -213,6 +213,13 @@ export class Space extends Element {
    * IMPORTANT: Order matters if transforms share mutable state!
    * Example: CompressionTransform should run before ContextTransform
    * 
+   * TODO [constraint-solver]: Replace numeric priorities with declarative constraints
+   * Future API:
+   *   transform.provides = ['compressed-frames'];
+   *   transform.requires = ['state-changes'];
+   * Then use topological sort to determine execution order automatically.
+   * See docs/transform-ordering.md for migration path.
+   * 
    * @example
    * // Option 1: Use priority (explicit, recommended for critical ordering)
    * compressionTransform.priority = 10;
@@ -228,6 +235,9 @@ export class Space extends Element {
    */
   addTransform(transform: Transform): void {
     this.transforms.push(transform);
+    
+    // TODO [constraint-solver]: Replace this priority-based sort with topological sort
+    // based on transform.provides/requires declarations
     // Sort: prioritized transforms first (by priority), then unprioritized (maintain order)
     this.transforms.sort((a, b) => {
       const aPriority = a.priority;
