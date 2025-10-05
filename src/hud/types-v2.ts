@@ -15,6 +15,11 @@ export interface RenderedContext {
   messages: Array<{
     role: 'system' | 'user' | 'assistant';
     content: string;
+    // Track which frames contributed to this message
+    sourceFrames?: {
+      from: number;
+      to: number;
+    };
   }>;
   
   // Metadata about rendering
@@ -22,6 +27,8 @@ export interface RenderedContext {
     totalTokens: number;
     renderedFrames: RenderedFrame[];
     droppedFrames?: number[];
+    // Quick lookup for frame->message mapping
+    frameToMessageIndex?: Map<number, number>;
   };
 }
 

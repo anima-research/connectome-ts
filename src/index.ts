@@ -16,6 +16,13 @@ export { SimpleTestCompressionEngine } from './compression/simple-test-engine';
 export * from './hud/types-v2';
 export { FrameTrackingHUD } from './hud/frame-tracking-hud';
 export { ContextTransform } from './hud/context-transform';
+export { 
+  extractFrameRange, 
+  hasFramesInRange, 
+  getRenderedFrameSequences, 
+  findFrameGaps 
+} from './hud/frame-extraction';
+export type { ExtractedFrameRange } from './hud/frame-extraction';
 
 // LLM exports
 export * from './llm/llm-interface';

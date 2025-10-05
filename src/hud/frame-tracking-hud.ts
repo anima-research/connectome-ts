@@ -154,7 +154,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
     }
     
     // Build messages directly from frame contents
-    const messages = this.buildFrameBasedMessages(frameContents, currentFacets, config);
+    const { messages, frameToMessageIndex } = this.buildFrameBasedMessages(frameContents, currentFacets, config);
     
     // Calculate total tokens from messages
     totalTokens = messages.reduce((sum, msg) => sum + this.estimateTokens(msg.content), 0);
@@ -164,7 +164,8 @@ export class FrameTrackingHUD implements CompressibleHUD {
         messages,
         metadata: {
           totalTokens,
-          renderedFrames: frameRenderings
+          renderedFrames: frameRenderings,
+          frameToMessageIndex
         }
       },
       frameRenderings
@@ -528,8 +529,9 @@ export class FrameTrackingHUD implements CompressibleHUD {
     frameContents: Array<{ type: 'user' | 'agent' | 'system' | 'compressed'; content: string; sequence: number }>,
     currentFacets: Map<string, Facet>,
     config: HUDConfig
-  ): RenderedContext['messages'] {
+  ): { messages: RenderedContext['messages']; frameToMessageIndex: Map<number, number> } {
     const messages: RenderedContext['messages'] = [];
+    const frameToMessageIndex = new Map<number, number>();
     
     // Each frame becomes its own message
     for (const frame of frameContents) {
@@ -549,9 +551,16 @@ export class FrameTrackingHUD implements CompressibleHUD {
           break;
       }
 
+      const messageIndex = messages.length;
+      frameToMessageIndex.set(frame.sequence, messageIndex);
+
       messages.push({
         role,
-        content: frame.content
+        content: frame.content,
+        sourceFrames: {
+          from: frame.sequence,
+          to: frame.sequence
+        }
       });
     }
     
@@ -606,7 +615,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
       }
     }
     
-    return messages;
+    return { messages, frameToMessageIndex };
   }
   
   private getAmbientFacets(facets: Map<string, Facet>): Array<[string, Facet]> {

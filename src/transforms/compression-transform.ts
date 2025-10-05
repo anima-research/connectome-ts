@@ -16,6 +16,7 @@ import { ReadonlyVEILState } from '../spaces/receptor-effector-types';
 import { Facet, VEILDelta } from '../veil/types';
 import { FrameTrackingHUD } from '../hud/frame-tracking-hud';
 import { CompressionEngine, CompressibleRange, CompressionConfig, RenderedFrame, StateDelta } from '../compression/types-v2';
+import { extractFrameRange } from '../hud/frame-extraction';
 
 interface CompressionTransformOptions {
   engine: CompressionEngine;
