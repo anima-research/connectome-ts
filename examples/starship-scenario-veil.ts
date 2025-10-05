@@ -118,7 +118,7 @@ export const starshipScenarioFrames: (Frame | Frame)[] = [
         }
       },
       {
-        type: "changeFacet",
+        type: "RewriteFacet",
         id: "ship-status-001",
         changes: {
           attributes: {
@@ -376,7 +376,7 @@ export const starshipScenarioFrames: (Frame | Frame)[] = [
         }
       },
       {
-        type: "changeFacet",
+        type: "RewriteFacet",
         id: "available-channels",
         changes: {
           content: "Active channels: Bridge, Captain's Log"
