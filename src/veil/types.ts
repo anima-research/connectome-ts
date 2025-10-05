@@ -88,6 +88,15 @@ export interface Frame {
   events: SpaceEvent[];    // Events processed in this frame
   deltas: VEILDelta[];     // Exotemporal changes
   transition: FrameTransition;
+  
+  // Snapshot of rendered content captured at frame creation
+  // Used for compression to preserve original subjective experience
+  renderedSnapshot?: {
+    content: string;           // Rendered text for this frame
+    tokens: number;            // Estimated token count
+    role: 'user' | 'assistant' | 'system';  // Message role
+    facetIds: string[];        // Which facets were rendered
+  };
 }
 
 

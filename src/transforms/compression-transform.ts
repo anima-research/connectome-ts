@@ -122,6 +122,21 @@ export class CompressionTransform extends BaseTransform {
 
   private getRenderedFrames(state: ReadonlyVEILState): RenderedFrame[] {
     const frameHistory = state.frameHistory;
+    
+    // Try to use frame snapshots first (captures original subjective experience)
+    const hasSnapshots = frameHistory.every(f => f.renderedSnapshot);
+    
+    if (hasSnapshots) {
+      // Use pre-captured snapshots
+      return frameHistory.map(frame => ({
+        frameSequence: frame.sequence,
+        content: frame.renderedSnapshot!.content,
+        tokens: frame.renderedSnapshot!.tokens,
+        facetIds: frame.renderedSnapshot!.facetIds
+      }));
+    }
+    
+    // Fallback: re-render (for backwards compatibility or if snapshots missing)
     const key = `${frameHistory.length}:${frameHistory[frameHistory.length - 1]?.sequence}`;
 
     if (this.cachedRenderingsKey === key && this.cachedRenderings) {
