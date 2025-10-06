@@ -7,6 +7,7 @@
 import { Component } from '../spaces/component';
 import { VEILComponent, InteractiveComponent } from '../components/base-components';
 import { SpaceEvent } from '../spaces/types';
+import { Element } from '../spaces/element';
 import { persistent, persistable } from '../persistence/decorators';
 import { external } from '../host/decorators';
 import { IAxonEnvironment } from './interfaces';
@@ -26,23 +27,29 @@ try {
 /**
  * Create the AXON environment with all necessary dependencies
  */
-export function createAxonEnvironment(): IAxonEnvironment {
+export function createAxonEnvironment(element: Element): IAxonEnvironment {
   return {
     // Component base classes
     Component: Component as any,
     VEILComponent: VEILComponent as any,
     InteractiveComponent: InteractiveComponent as any,
-    
+
+    // Element class constructor
+    Element: Element as any,
+
+    // Parent element reference
+    element: element as any,
+
     // Decorators
     persistent,
     persistable,
     external,
-    
+
     // Type references - SpaceEvent is created as a plain object
     SpaceEvent: class SpaceEvent {
       constructor(public topic: string, public source: any, public payload?: any, public broadcast?: boolean) {}
     } as any,
-    
+
     // WebSocket
     WebSocket: WebSocketImpl
   };
