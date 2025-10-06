@@ -14,19 +14,19 @@ class DebugClient {
   
   async getFrames(limit?: number): Promise<any> {
     const url = limit 
-      ? `${this.baseUrl}/frames?limit=${limit}`
-      : `${this.baseUrl}/frames`;
+      ? `${this.baseUrl}/api/frames?limit=${limit}`
+      : `${this.baseUrl}/api/frames`;
     const response = await fetch(url);
     return response.json();
   }
   
   async getFrame(frameId: string): Promise<any> {
-    const response = await fetch(`${this.baseUrl}/frame/${frameId}`);
+    const response = await fetch(`${this.baseUrl}/api/frames/${frameId}`);
     return response.json();
   }
   
   async getState(): Promise<any> {
-    const response = await fetch(`${this.baseUrl}/state`);
+    const response = await fetch(`${this.baseUrl}/api/state`);
     return response.json();
   }
 }
