@@ -51,9 +51,10 @@ interface CompressionTask {
 }
 
 export class CompressionTransform extends BaseTransform {
-  // Priority: Run early in Phase 2, before transforms that consume compression
-  // TODO [constraint-solver]: Replace with provides = ['compressed-frames']
-  priority = 10;
+  // Priority: Run late in Phase 2, AFTER frame snapshots are captured (priority 200)
+  // This allows compression to use pre-captured snapshots instead of re-rendering
+  // TODO [constraint-solver]: Replace with requires = ['frame-snapshots'], provides = ['compressed-frames']
+  priority = 250;
   
   private readonly engine: CompressionEngine;
   private readonly engineName: string;
@@ -122,13 +123,20 @@ export class CompressionTransform extends BaseTransform {
 
   private getRenderedFrames(state: ReadonlyVEILState): RenderedFrame[] {
     const frameHistory = state.frameHistory;
-    
+    const key = `${frameHistory.length}:${frameHistory[frameHistory.length - 1]?.sequence}`;
+
+    if (this.cachedRenderingsKey === key && this.cachedRenderings) {
+      return this.cachedRenderings;
+    }
+
     // Try to use frame snapshots first (captures original subjective experience)
     const hasSnapshots = frameHistory.every(f => f.renderedSnapshot);
     
     if (hasSnapshots) {
       // Use pre-captured snapshots - faster and preserves original rendering
-      return frameHistory.map(frame => ({
+      console.log(`[CompressionTransform] Using frame snapshots (${frameHistory.length} frames)`);
+      
+      const frameRenderings = frameHistory.map(frame => ({
         frameSequence: frame.sequence,
         content: frame.renderedSnapshot!.totalContent,
         tokens: frame.renderedSnapshot!.totalTokens,
@@ -137,15 +145,15 @@ export class CompressionTransform extends BaseTransform {
             .flatMap(c => c.facetIds || [])
         ))
       }));
+      
+      this.cachedRenderingsKey = key;
+      this.cachedRenderings = frameRenderings;
+      return frameRenderings;
     }
     
     // Fallback: re-render (for backwards compatibility or if snapshots missing)
-    const key = `${frameHistory.length}:${frameHistory[frameHistory.length - 1]?.sequence}`;
-
-    if (this.cachedRenderingsKey === key && this.cachedRenderings) {
-      return this.cachedRenderings;
-    }
-
+    console.log(`[CompressionTransform] Snapshots not available, re-rendering ${frameHistory.length} frames`);
+    
     const { frameRenderings } = this.hud.renderWithFrameTracking(
       [...frameHistory],
       new Map(state.facets),

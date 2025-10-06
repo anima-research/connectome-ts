@@ -573,8 +573,8 @@ export class DebugServer {
     this.setupMiddleware();
     this.setupRoutes();
     this.setupWebSocket();
-    this.setupStaticAssets();
     this.setupDebugLLMBridge();
+    this.setupStaticAssets();  // Move to end so 404 handler comes last
   }
 
   private loadHistoricalFrames(): void {
@@ -684,7 +684,16 @@ export class DebugServer {
   }
 
   private setupMiddleware(): void {
+    console.log('[DebugServer] Setting up middleware...');
+    
     this.app.use(express.json({ limit: '1mb' }));
+    
+    // Request logging middleware
+    this.app.use((req, res, next) => {
+      console.log(`[DebugServer] Request: ${req.method} ${req.path}`);
+      next();
+    });
+    
     this.app.use((req, res, next) => {
       if (this.config.corsOrigins.includes('*')) {
         res.setHeader('Access-Control-Allow-Origin', '*');
@@ -699,10 +708,15 @@ export class DebugServer {
       res.setHeader('Cache-Control', 'no-store');
       next();
     });
+    
+    console.log('[DebugServer] Middleware setup complete');
   }
 
   private setupRoutes(): void {
+    console.log('[DebugServer] Setting up API routes...');
+    
     this.app.get('/api/frames', (req, res) => {
+      console.log('[DebugServer] /api/frames requested');
       const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : undefined;
       const offset = req.query.offset ? parseInt(String(req.query.offset), 10) : 0;
       const frames = this.tracker.getFrames(limit, offset);
@@ -710,6 +724,8 @@ export class DebugServer {
       const response: FrameListResponse = { frames, metrics };
       res.json(response);
     });
+    
+    console.log('[DebugServer] Registered /api/frames route');
 
     this.app.get('/api/frames/:uuid', (req, res) => {
       const frame = this.tracker.getFrame(req.params.uuid);
@@ -960,18 +976,21 @@ export class DebugServer {
       return;
     }
 
-    // Serve static files ONLY for root and non-API routes
-    // Don't let this catch /api/* routes
-    this.app.use((req, res, next) => {
-      if (req.path.startsWith('/api/')) {
-        next(); // Skip static file handler for API routes
+    // Serve UI static files from /ui/* to avoid catching API routes
+    this.app.use('/ui', express.static(uiPath));
+    
+    this.app.get('/', (_req, res) => {
+      const indexPath = path.join(uiPath, 'index.html');
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
       } else {
-        express.static(uiPath)(req, res, next);
+        res.send('<html><body><h1>Connectome Debug Server</h1><p>API available at /api/*</p><p>UI files not found</p></body></html>');
       }
     });
     
-    this.app.get('/', (_req, res) => {
-      res.sendFile(path.join(uiPath, 'index.html'));
+    // Add 404 handler for unmatched routes (after all other routes)
+    this.app.use((req, res) => {
+      res.status(404).json({ error: 'Not found', path: req.path });
     });
   }
 
