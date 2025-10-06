@@ -99,75 +99,110 @@ export class AgentEffector implements Effector {
         const streamRef = activationState.streamRef as StreamRef | undefined;
         const streamId = streamRef?.streamId ?? (activationState.streamId as string | undefined) ?? 'default';
 
-        try {
-          // Get the context from the state
-          const contextState = contextFacet.state as { context: RenderedContext };
-          const context = contextState.context;
-          
-          // Run the agent cycle
-          const response = await this.runAgentCycle(
-            context,
-            streamRef,
-            activationId
-          );
-          
-          // Create events to add response facets
-          for (const facet of response.facets) {
-            events.push({
-              topic: 'veil:operation',
-              source: this.element.getRef(),
-              timestamp: Date.now(),
-              payload: {
-                operation: {
-                  type: 'addFacet',
-                  facet
-                }
-              }
-            });
-          }
-          
-          // Activation facet is ephemeral and will naturally fade away
-          // No need to explicitly remove it
+        // Emit typing indicator immediately for Discord if we have channelId
+        const metadata = activationState.metadata as Record<string, any> | undefined;
+        const channelId = metadata?.channelId;
+        if (channelId) {
+          this.element.emit({
+            topic: 'discord:action',
+            source: this.element.getRef(),
+            timestamp: Date.now(),
+            payload: {
+              action: 'discord:sendTyping',
+              params: { channelId }
+            }
+          });
+        }
 
-        } catch (error) {
-          console.error('Agent cycle error:', error);
+        // Get the context from the state
+        const contextState = contextFacet.state as { context: RenderedContext };
+        const context = contextState.context;
 
-          // Create error event
-          events.push({
+        // Start agent cycle in background (fire-and-forget)
+        // This allows the frame to complete immediately after sending typing
+        this.runAgentCycleBackground(
+          context,
+          streamRef,
+          activationId,
+          streamId
+        );
+      }
+    }
+    
+    return {
+      events,
+      externalActions
+    };
+  }
+
+  /**
+   * Runs the agent cycle in the background (fire-and-forget).
+   * Emits response events when complete, allowing the current frame to finish immediately.
+   */
+  private runAgentCycleBackground(
+    context: RenderedContext,
+    streamRef: StreamRef | undefined,
+    activationId: string,
+    streamId: string
+  ): void {
+    // Run asynchronously, don't await
+    (async () => {
+      try {
+        // Run the agent cycle
+        const response = await this.runAgentCycle(
+          context,
+          streamRef,
+          activationId
+        );
+
+        // Emit events for response facets
+        for (const facet of response.facets) {
+          this.element.emit({
             topic: 'veil:operation',
-            source: { elementId: 'agent-effector', elementPath: [] },
+            source: this.element.getRef(),
             timestamp: Date.now(),
             payload: {
               operation: {
                 type: 'addFacet',
-                facet: {
-                  id: `agent-error-${Date.now()}`,
-                  type: 'event',
-                  content: String(error),
-                  state: {
-                    source: this.getAgentId(),
-                    eventType: 'agent-cycle-error',
-                    metadata: {
-                      activationId
-                    }
-                  },
-                  streamId: streamId
-                }
+                facet
               }
             }
           });
-        } finally {
-          this.processingActivations.delete(activationId);
         }
+
+      } catch (error) {
+        console.error('Agent cycle error:', error);
+
+        // Emit error event
+        this.element.emit({
+          topic: 'veil:operation',
+          source: this.element.getRef(),
+          timestamp: Date.now(),
+          payload: {
+            operation: {
+              type: 'addFacet',
+              facet: {
+                id: `agent-error-${Date.now()}`,
+                type: 'event',
+                content: String(error),
+                state: {
+                  source: this.getAgentId(),
+                  eventType: 'agent-cycle-error',
+                  metadata: {
+                    activationId
+                  }
+                },
+                streamId: streamId
+              }
+            }
+          }
+        });
+      } finally {
+        this.processingActivations.delete(activationId);
       }
-    }
-    
-    return { 
-      events,
-      externalActions 
-    };
+    })();
   }
-  
+
   private async runAgentCycle(
     context: RenderedContext,
     streamRef?: StreamRef,

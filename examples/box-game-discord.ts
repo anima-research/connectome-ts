@@ -639,7 +639,7 @@ class DiscordActionEffector implements Effector {
 
   facetFilters = [
     { type: 'state', scopeMatch: ['discord-rendered-context'] },
-    { type: 'agentActivation' },
+    { type: 'agent-activation' },
     { type: 'event', typeMatch: ['box-created', 'box-opened', 'box-not-found', 'box-already-open'] }
   ];
 
@@ -648,8 +648,8 @@ class DiscordActionEffector implements Effector {
 
     for (const change of changes) {
       // Send typing when agent activates
-      if (change.facet.type === 'agentActivation' && change.type === 'added') {
-        const channelId = change.facet.state?.channelId || this.channelId;
+      if (change.facet.type === 'agent-activation' && change.type === 'added') {
+        const channelId = change.facet.state?.metadata?.channelId || this.channelId;
         events.push({
           topic: 'discord:action',
           source: this.space.getRef(),
