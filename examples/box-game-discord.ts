@@ -395,38 +395,46 @@ class AgentContextTransform implements Transform {
 }
 
 /**
- * AgentSpeechRoutingTransform: Route agent speech to proper Discord channels
+ * AgentSpeechToDiscordTransform: Route agent speech to Discord and create send actions
  */
-class AgentSpeechRoutingTransform implements Transform {
+class AgentSpeechToDiscordTransform implements Transform {
+  private processedSpeech = new Set<string>();
+
   constructor(private defaultChannelId: string) {}
 
   process(state: ReadonlyVEILState): VEILDelta[] {
     const deltas: VEILDelta[] = [];
 
-    // Find agent speech facets that need routing
+    // Find agent speech facets that haven't been processed yet
     const agentSpeech = state.getFacetsByType('speech').filter(f => {
       const agentId = (f as any).agentId;
-      const hasRouting = f.state?.metadata?.channelId;
-      return agentId && !hasRouting; // Agent speech without channel routing
+      return agentId && !this.processedSpeech.has(f.id);
     });
 
     for (const speech of agentSpeech) {
-      // Try to find the activation that triggered this response
+      this.processedSpeech.add(speech.id);
+
+      // Determine channel ID from activation context or use default
       const activations = state.getFacetsByType('activation');
       const recentActivation = activations
         .filter(a => a.state?.metadata?.channelId)
         .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))[0];
 
       const channelId = recentActivation?.state?.metadata?.channelId || this.defaultChannelId;
+      const message = speech.content || '';
 
-      // Add channelId to speech metadata and update streamId
-      deltas.push(changeFacet(speech.id, {
-        streamId: `discord:channel-${channelId}`,
+      // Create a discord:send action facet
+      deltas.push(addFacet({
+        id: `discord-send-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: 'action',
+        scopes: ['ephemeral'],
         state: {
-          ...speech.state,
           metadata: {
-            ...speech.state?.metadata,
-            channelId
+            action: 'discord:send',
+            params: {
+              channelId,
+              message
+            }
           }
         }
       }));
@@ -726,7 +734,7 @@ class DiscordActionEffector implements Effector {
               style: 'primary'
             }));
 
-          events.push({
+          /*events.push({
             topic: 'discord:action',
             source: this.space.getRef(),
             payload: {
@@ -738,7 +746,7 @@ class DiscordActionEffector implements Effector {
               }
             },
             timestamp: Date.now()
-          });
+          });*/
         }
       }
 
@@ -950,7 +958,7 @@ async function runDiscordBoxGame() {
   space.addTransform(new DiscordStatusTransform());
   space.addTransform(new AgentContextTransform());
   space.addTransform(new AgentActivationTransform());
-  space.addTransform(new AgentSpeechRoutingTransform(CHANNEL_ID)); // Route agent speech to Discord channels
+  space.addTransform(new AgentSpeechToDiscordTransform(CHANNEL_ID)); // Route agent speech to Discord and create send actions
   space.addTransform(new ContextTransform(veilState));
 
   // Effectors
