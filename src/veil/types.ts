@@ -1,7 +1,6 @@
 // VEIL (Virtual Environment Interface Language) Type Definitions
 
-// Frame snapshot types
-export * from './frame-snapshot-types';
+import type { FrameRenderedSnapshot } from './rendered-snapshot-types';
 
 // FacetType is now just a string - no restrictions!
 export type FacetType = string;
@@ -25,6 +24,9 @@ export interface SaliencyHints {
 
 // Import all facet types and aspects from the new file
 export * from './facet-types';
+
+// Export rendered snapshot types
+export * from './rendered-snapshot-types';
 
 // Legacy fields that aren't part of the clean aspect model
 interface LegacyFacetFields {
@@ -93,10 +95,15 @@ export interface Frame {
   transition: FrameTransition;
   
   /**
-   * Rendered snapshot captured at frame creation time
-   * Preserves the original subjective experience for compression/replay
+   * Optional: Snapshot of how this frame rendered at creation time
+   * 
+   * Captures the original subjective experience as chunked rendered content.
+   * Preserves what this frame looked like when it was created, even if later
+   * transforms modify earlier frames.
+   * 
+   * May not be present on older frames or if snapshot capture is disabled.
    */
-  renderedSnapshot?: import('./frame-snapshot-types').FrameRenderedSnapshot;
+  renderedSnapshot?: FrameRenderedSnapshot;
 }
 
 

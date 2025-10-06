@@ -1,146 +1,108 @@
 /**
- * FrameSnapshotTransform - Captures rendered snapshots of frames at creation time
+ * FrameSnapshotTransform
  * 
- * This transform runs late in Phase 2 (after state stabilizes) and captures
- * how each frame renders. These snapshots are used by compression to preserve
- * the original subjective experience rather than re-rendering with current state.
+ * Captures rendered snapshots of frames at creation time.
+ * Runs late in Phase 2 (after state stabilizes) to capture the frame's
+ * final rendered appearance with facet attribution.
+ * 
+ * This preserves the original subjective experience for compression,
+ * even if later transforms modify earlier frames.
  */
 
 import { BaseTransform } from '../components/base-martem';
 import { ReadonlyVEILState } from '../spaces/receptor-effector-types';
-import { VEILDelta, Frame, Facet } from '../veil/types';
-import { hasContentAspect } from '../veil/facet-types';
+import { VEILDelta } from '../veil/types';
+import { FrameTrackingHUD } from '../hud/frame-tracking-hud';
+
+export interface FrameSnapshotTransformOptions {
+  /**
+   * The HUD to use for rendering frames
+   */
+  hud?: FrameTrackingHUD;
+  
+  /**
+   * Whether to capture snapshots (can be disabled for testing/debugging)
+   */
+  enabled?: boolean;
+  
+  /**
+   * Whether to log snapshot captures
+   */
+  verbose?: boolean;
+}
 
 export class FrameSnapshotTransform extends BaseTransform {
-  // Run late in Phase 2, after other transforms stabilize state
+  // Run late in Phase 2, after other transforms have stabilized state
   // TODO [constraint-solver]: Replace with provides = ['frame-snapshots']
   priority = 200;
   
+  private hud: FrameTrackingHUD;
+  private captureEnabled: boolean;
+  private verbose: boolean;
+  
+  constructor(options: FrameSnapshotTransformOptions = {}) {
+    super();
+    this.hud = options.hud || new FrameTrackingHUD();
+    this.captureEnabled = options.enabled !== false;  // Default: true
+    this.verbose = options.verbose || false;
+  }
+  
   process(state: ReadonlyVEILState): VEILDelta[] {
-    // Only process the most recent frame (current frame being finalized)
-    const latestFrame = state.frameHistory[state.frameHistory.length - 1];
-    
-    if (!latestFrame || latestFrame.renderedSnapshot) {
-      // Already captured or no frame to process
+    if (!this.captureEnabled) {
       return [];
     }
     
-    // Capture snapshot of this frame
-    this.captureSnapshot(latestFrame, state.facets);
+    // Get the most recent frame
+    const frameHistory = state.frameHistory;
+    if (frameHistory.length === 0) {
+      return [];
+    }
     
-    return []; // No VEIL deltas, just side effect on frame
+    const latestFrame = frameHistory[frameHistory.length - 1];
+    
+    // Skip if already has a snapshot
+    if (latestFrame.renderedSnapshot) {
+      return [];
+    }
+    
+    // Capture snapshot
+    try {
+      const snapshot = this.hud.captureFrameSnapshot(
+        latestFrame,
+        new Map(state.facets)
+      );
+      
+      // Store snapshot directly on the frame object
+      latestFrame.renderedSnapshot = snapshot;
+      
+      if (this.verbose) {
+        console.log(
+          `[FrameSnapshotTransform] Captured snapshot for frame ${latestFrame.sequence}: ` +
+          `${snapshot.chunks.length} chunks, ${snapshot.totalTokens} tokens`
+        );
+      }
+    } catch (error) {
+      console.error(
+        `[FrameSnapshotTransform] Failed to capture snapshot for frame ${latestFrame.sequence}:`,
+        error
+      );
+    }
+    
+    // No deltas - this is a side effect on the frame object
+    return [];
   }
   
-  private captureSnapshot(frame: Frame, currentFacets: ReadonlyMap<string, Facet>): void {
-    const parts: string[] = [];
-    const facetIds: string[] = [];
-    
-    // Determine role based on frame source
-    const role = this.determineRole(frame);
-    
-    // Render this frame's deltas
-    for (const delta of frame.deltas) {
-      if (delta.type === 'addFacet') {
-        const facet = (delta as any).facet as Facet;
-        const rendered = this.renderFacet(facet);
-        if (rendered) {
-          parts.push(rendered);
-          facetIds.push(facet.id);
-        }
-      }
-    }
-    
-    const content = parts.join('\n\n');
-    const tokens = this.estimateTokens(content);
-    
-    // Store snapshot on the frame
-    frame.renderedSnapshot = {
-      content,
-      tokens,
-      role,
-      facetIds
-    };
+  /**
+   * Enable or disable snapshot capture
+   */
+  setEnabled(enabled: boolean): void {
+    this.captureEnabled = enabled;
   }
   
-  private determineRole(frame: Frame): 'user' | 'assistant' | 'system' {
-    if (!frame.events || frame.events.length === 0) {
-      return 'system';
-    }
-    
-    // Check if any event indicates agent generation
-    for (const event of frame.events) {
-      if (event.topic.startsWith('agent:')) {
-        return 'assistant';
-      }
-      if (event.source.elementId.includes('agent')) {
-        return 'assistant';
-      }
-    }
-    
-    // Check frame deltas for agent-generated facets
-    for (const delta of frame.deltas) {
-      if (delta.type === 'addFacet') {
-        const facet = (delta as any).facet as Facet;
-        if (facet.type === 'speech' || facet.type === 'action' || facet.type === 'thought') {
-          return 'assistant';
-        }
-      }
-    }
-    
-    return 'user';
-  }
-  
-  private renderFacet(facet: Facet): string | null {
-    // Only render content-bearing facets
-    if (!hasContentAspect(facet)) {
-      return null;
-    }
-    
-    const content = (facet as any).content as string;
-    if (!content || !content.trim()) {
-      return null;
-    }
-    
-    // Add special formatting for certain types
-    switch (facet.type) {
-      case 'thought':
-        return `<thought>${content}</thought>`;
-      case 'action':
-        // Extract tool call if present
-        if ('state' in facet && facet.state) {
-          const state = facet.state as Record<string, any>;
-          if (state.toolName) {
-            return this.renderToolCall(state.toolName, state.parameters || {});
-          }
-        }
-        return content;
-      case 'event':
-      case 'speech':
-      default:
-        return content;
-    }
-  }
-  
-  private renderToolCall(toolName: string, parameters: Record<string, unknown>): string {
-    const parts: string[] = [`<tool_call>${toolName}`];
-    
-    if (Object.keys(parameters).length > 0) {
-      const paramStrs: string[] = [];
-      for (const [key, value] of Object.entries(parameters)) {
-        const valueStr = typeof value === 'string' 
-          ? value 
-          : JSON.stringify(value);
-        paramStrs.push(`${key}=${valueStr}`);
-      }
-      parts.push(paramStrs.join(' '));
-    }
-    
-    parts.push('</tool_call>');
-    return parts.join('\n');
-  }
-  
-  private estimateTokens(text: string): number {
-    // Simple heuristic: ~4 characters per token
-    return Math.ceil(text.length / 4);
+  /**
+   * Check if snapshot capture is enabled
+   */
+  isEnabled(): boolean {
+    return this.captureEnabled;
   }
 }
