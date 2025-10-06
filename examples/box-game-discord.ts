@@ -1207,12 +1207,12 @@ Examples:
   // Send welcome message
   await executeDiscordAction('send', {
     channelId: CHANNEL_ID,
-    message: '🎮 **Box Game is now active!**\n\nUse `/create-box` to create a mystery box, or click the buttons below to open existing boxes!'
+    message: '🎮 **Box Game is now active!**\n\nUse `/create-box` to create a mystery box and `/open-box` to reveal its contents!\nUse `/box-status` to see all boxes and recent activity.'
   });
 
   console.log('\n✅ Discord Box Game is running!');
-  console.log('   Use /create-box and /open-box in Discord');
-  console.log('   Click buttons to open boxes');
+  console.log('   Use /create-box and /open-box to play');
+  console.log('   Use /box-status or /box-start to view game state');
   if (debugEnabled) {
     console.log(`   Debug UI: http://localhost:3015`);
   }
