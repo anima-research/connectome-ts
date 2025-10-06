@@ -639,11 +639,51 @@ class DiscordActionReceptor implements Receptor {
 }
 
 /**
+ * StatusMessageTracker: Captures message IDs for status embeds
+ */
+class StatusMessageTracker implements Receptor {
+  topics = ['discord:message-sent'];
+
+  constructor(private effector: DiscordActionEffector) {}
+
+  transform(event: SpaceEvent, state: ReadonlyVEILState): Facet[] {
+    if (this.effector.isPendingStatusEmbed()) {
+      const { messageId } = event.payload as { messageId: string; channelId: string };
+      this.effector.setStatusMessageId(messageId);
+      this.effector.clearPendingStatusEmbed();
+    }
+    return [];
+  }
+}
+
+/**
  * DiscordActionEffector: Monitors game state and emits discord:action events
  * This bridges game logic → Discord by creating events for the receptor
  */
 class DiscordActionEffector implements Effector {
+  private statusMessageId?: string;
+  private pendingStatusEmbed = false;
+
   constructor(private space: Space, private channelId: string) {}
+
+  setStatusMessageId(messageId: string) {
+    if (!this.statusMessageId) {
+      this.statusMessageId = messageId;
+      console.log(`[DiscordActionEffector] Captured status message ID: ${messageId}`);
+    }
+  }
+
+  markPendingStatusEmbed() {
+    this.pendingStatusEmbed = true;
+  }
+
+  isPendingStatusEmbed(): boolean {
+    return this.pendingStatusEmbed;
+  }
+
+  clearPendingStatusEmbed() {
+    this.pendingStatusEmbed = false;
+  }
 
   facetFilters = [
     { type: 'state', scopeMatch: ['discord-rendered-context'] },
@@ -734,19 +774,38 @@ class DiscordActionEffector implements Effector {
               style: 'primary'
             }));
 
-          /*events.push({
-            topic: 'discord:action',
-            source: this.space.getRef(),
-            payload: {
-              action: 'discord:sendEmbed',
-              params: {
-                channelId: this.channelId,
-                embed,
-                buttons
-              }
-            },
-            timestamp: Date.now()
-          });*/
+          // Use edit if we have a messageId, otherwise send new
+          if (this.statusMessageId) {
+            events.push({
+              topic: 'discord:action',
+              source: this.space.getRef(),
+              payload: {
+                action: 'discord:editMessage',
+                params: {
+                  channelId: this.channelId,
+                  messageId: this.statusMessageId,
+                  embed,
+                  buttons
+                }
+              },
+              timestamp: Date.now()
+            });
+          } else {
+            this.markPendingStatusEmbed();
+            events.push({
+              topic: 'discord:action',
+              source: this.space.getRef(),
+              payload: {
+                action: 'discord:sendEmbed',
+                params: {
+                  channelId: this.channelId,
+                  embed,
+                  buttons
+                }
+              },
+              timestamp: Date.now()
+            });
+          }
         }
       }
 
@@ -948,11 +1007,15 @@ async function runDiscordBoxGame() {
   // Set up RETM pipeline BEFORE emitting actions
   console.log('🔧 Setting up RETM architecture...');
 
+  // Create effectors first (needed by receptors)
+  const discordActionEffector = new DiscordActionEffector(space, CHANNEL_ID);
+
   // Receptors
   space.addReceptor(new DiscordSlashReceptor());
   space.addReceptor(new DiscordButtonReceptor());
   space.addReceptor(new BoxGameReceptor());
   space.addReceptor(new DiscordActionReceptor()); // Converts discord:action events to action facets
+  space.addReceptor(new StatusMessageTracker(discordActionEffector)); // Track status message IDs for editing
 
   // Transforms
   space.addTransform(new DiscordStatusTransform());
@@ -963,7 +1026,7 @@ async function runDiscordBoxGame() {
 
   // Effectors
   space.addEffector(new BoxGameEffector());
-  space.addEffector(new DiscordActionEffector(space, CHANNEL_ID)); // Emits discord:action events from game state
+  space.addEffector(discordActionEffector); // Emits discord:action events from game state
   // Note: DiscordEffector (from discord-axon-retm) will consume action facets created by DiscordActionReceptor
 
   // Create AI agent
