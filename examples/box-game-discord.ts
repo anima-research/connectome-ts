@@ -383,7 +383,8 @@ class AgentContextTransform implements Transform {
       lines.push('Current boxes:');
       boxes.forEach(box => {
         const status = box.isOpen ? 'OPEN' : 'closed';
-        lines.push(`- Box ${box.boxId} (${status}): ${box.contents.join(', ')} [created by ${box.creator}]`);
+        const contentsDisplay = box.isOpen ? box.contents.join(', ') : '???';
+        lines.push(`- Box ${box.boxId} (${status}): ${contentsDisplay} [created by ${box.creator}]`);
       });
       lines.push('');
     } else {
@@ -701,6 +702,9 @@ class DiscordActionEffector implements Effector {
         const interactionId = change.facet.state?.interactionId;
 
         if ((action === 'show-status' || action === 'start-game') && interactionId) {
+          // Get who requested the status
+          const requestingUser = change.facet.state?.params?.actor;
+
           // Get current game status from state
           const statusFacet = Array.from(state.facets.values()).find(f =>
             f.id === 'discord-game-status'
@@ -731,9 +735,12 @@ class DiscordActionEffector implements Effector {
             if (closedBoxes.length > 0) {
               embed.fields.push({
                 name: '📦 Closed Boxes',
-                value: closedBoxes.map((b: BoxState) =>
-                  `\`${b.boxId}\` by ${b.creator}`
-                ).join('\n') || 'None',
+                value: closedBoxes.map((b: BoxState) => {
+                  // Show contents to creator, ??? to others
+                  const canSeeContents = b.creator === requestingUser;
+                  const contentsDisplay = canSeeContents ? b.contents.join(', ') : '???';
+                  return `\`${b.boxId}\` by ${b.creator}: ${contentsDisplay}`;
+                }).join('\n') || 'None',
                 inline: false
               });
             }
