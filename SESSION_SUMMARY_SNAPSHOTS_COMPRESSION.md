@@ -194,11 +194,39 @@ The tension between objective frame time and subjective rendering time isn't jus
 
 Avoiding enums (`chunkType?: string`), making everything optional, and planning for constraint-based ordering shows you're thinking about this as infrastructure others will build on.
 
+### 8. Verified End-to-End Compression Pipeline
+
+Created comprehensive test (`examples/test-compression-e2e.ts`) with instrumented engine:
+
+**Test results:**
+```
+[CompressionTransform] Using frame snapshots (3 frames)
+[Engine] Content received for compression:
+  Length: 454 chars, Tokens: 114
+  Preview: Message 1: Testing compression...
+  
+✅ Compression received content FROM SNAPSHOTS
+
+Messages in rendered context: 2
+✅ Found compressed content in message 0:
+   "[Compressed: Frames 1-4, 152 tokens]"
+
+Token reduction: 114 tokens → 47 tokens
+```
+
+**Verified:**
+- ✅ Snapshots captured at creation time (4 chunks per frame)
+- ✅ CompressionTransform reads from snapshots (no re-rendering)
+- ✅ Engine receives exact snapshot content
+- ✅ HUD replaces compressed frames in rendered context
+- ✅ Final context uses compressed version, not original
+
 ## What's Next
 
 ### Immediate
 - ✅ Snapshots working
 - ✅ Compression using snapshots
+- ✅ End-to-end pipeline verified
 - ❌ Debug server API (separate issue to fix)
 
 ### Future
