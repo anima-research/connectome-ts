@@ -67,19 +67,6 @@ interface DebugFrameRecord {
   };
   activeStream?: StreamRef;
   renderedContext?: RenderedContext;
-  renderedSnapshot?: {
-    chunks: Array<{
-      content: string;
-      tokens: number;
-      facetIds?: string[];
-      type?: string;
-      role?: 'user' | 'assistant' | 'system';
-    }>;
-    totalContent: string;
-    totalTokens: number;
-    capturedAt: number;
-    hasContent: boolean;
-  };
 }
 
 interface DebugMetrics {
@@ -233,11 +220,6 @@ class DebugStateTracker extends EventEmitter implements DebugObserver {
     record.activeStream = frame.activeStream;
     record.events = sanitizeFrameEvents(frame, record.uuid);
     record.kind = inferFrameKind(frame, record.kind);
-    
-    // Include rendered snapshot if present
-    if (frame.renderedSnapshot) {
-      record.renderedSnapshot = sanitizePayload(frame.renderedSnapshot);
-    }
 
     if (context.durationMs > 0) {
       this.completedFrames += 1;
@@ -266,11 +248,6 @@ class DebugStateTracker extends EventEmitter implements DebugObserver {
 
     if ((frame as any).renderedContext) {
       record.renderedContext = sanitizePayload((frame as any).renderedContext) as RenderedContext;
-    }
-    
-    // Include rendered snapshot if present
-    if (frame.renderedSnapshot) {
-      record.renderedSnapshot = sanitizePayload(frame.renderedSnapshot);
     }
 
     this.insertFrame(record);
@@ -983,7 +960,16 @@ export class DebugServer {
       return;
     }
 
-    this.app.use(express.static(uiPath));
+    // Serve static files ONLY for root and non-API routes
+    // Don't let this catch /api/* routes
+    this.app.use((req, res, next) => {
+      if (req.path.startsWith('/api/')) {
+        next(); // Skip static file handler for API routes
+      } else {
+        express.static(uiPath)(req, res, next);
+      }
+    });
+    
     this.app.get('/', (_req, res) => {
       res.sendFile(path.join(uiPath, 'index.html'));
     });
