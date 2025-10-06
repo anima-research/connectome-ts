@@ -186,6 +186,49 @@ class DiscordButtonReceptor implements Receptor {
 }
 
 /**
+ * AgentGameActionReceptor: Handle agent tool use for game actions
+ */
+class AgentGameActionReceptor implements Receptor {
+  topics = ['agent:game-action'];
+
+  transform(event: SpaceEvent, state: ReadonlyVEILState): Facet[] {
+    const facets: Facet[] = [];
+    const payload = event.payload as any;
+
+    const { action, args, user, channelId } = payload;
+
+    if (action === 'create-box' && args.length > 0) {
+      const contents = args[0].split(',').map((item: string) => item.trim());
+      facets.push({
+        id: `game-action-create-${Date.now()}`,
+        type: 'game-action',
+        content: `${user} is creating a box with ${contents.length} items`,
+        state: {
+          action: 'create-box',
+          params: { contents, actor: user },
+          channelId
+        },
+        ephemeral: true
+      } as Facet);
+    } else if (action === 'open-box' && args.length > 0) {
+      facets.push({
+        id: `game-action-open-${args[0]}-${Date.now()}`,
+        type: 'game-action',
+        content: `${user} is opening box ${args[0]}`,
+        state: {
+          action: 'open-box',
+          params: { boxId: args[0], actor: user },
+          channelId
+        },
+        ephemeral: true
+      } as Facet);
+    }
+
+    return facets;
+  }
+}
+
+/**
  * BoxGameReceptor: Handle game events (box created/opened/errors)
  */
 class BoxGameReceptor implements Receptor {
@@ -561,9 +604,10 @@ class AgentActivationTransform implements Transform {
 
 /**
  * BoxGameEffector: Game world simulation with internal state
+ * Processes both game-action facets (from users/Discord) and action facets (from agent tools)
  */
 class BoxGameEffector implements Effector {
-  facetFilters = [{ type: 'game-action' }];
+  facetFilters = [{ type: 'game-action' }, { type: 'action' }];
 
   private boxes = new Map<string, BoxState>();
 
@@ -574,6 +618,7 @@ class BoxGameEffector implements Effector {
       if (change.type === 'added') {
         const facet = change.facet;
 
+        // Handle game-action facets (from Discord slash commands, buttons, etc.)
         if (facet.type === 'game-action') {
           const action = facet.state?.action;
           const params = facet.state?.params || {};
@@ -584,6 +629,22 @@ class BoxGameEffector implements Effector {
             events.push(...this.handleCreateBox(params.contents!, params.actor, interactionId, channelId));
           } else if (action === 'open-box') {
             events.push(...this.handleOpenBox(params.boxId!, params.actor, interactionId, channelId));
+          }
+        }
+        // Handle action facets (from agent tool use - @box.create/@box.open)
+        else if (facet.type === 'action') {
+          const toolName = facet.state?.toolName;
+          const params = facet.state?.parameters || {};
+          const channelId = facet.state?.channelId;
+
+          if (toolName === 'box.create') {
+            const itemsString = params.value || params.items || '';
+            const contents = itemsString.split(',').map((item: string) => item.trim()).filter((item: string) => item);
+            events.push(...this.handleCreateBox(contents, 'agent', undefined, channelId));
+          }
+          else if (toolName === 'box.open') {
+            const boxId = params.value || params.boxId || '';
+            events.push(...this.handleOpenBox(boxId, 'agent', undefined, channelId));
           }
         }
       }
@@ -855,6 +916,9 @@ Game Rules:
 - Anyone can open any box to reveal contents to everyone
 - Players can also click "Open" buttons in Discord to open boxes
 
+You can also create and open boxes yourself using the tools available to you!
+Use @box.create to make a box with items, and @box.open to open any box.
+
 You can engage with players naturally - react to boxes being created and opened,
 express curiosity about mystery boxes, celebrate discoveries, and have fun conversations
 about the game. Be playful, creative, and encouraging!`,
@@ -863,7 +927,48 @@ about the game. Be playful, creative, and encouraging!`,
       name: 'box-game-ai'
     }, llmProvider, veilState);
 
-    // channelId stored for potential future use, but routing is handled by AgentSpeechRoutingTransform
+    // Register tools for agent to create and open boxes
+    this.registerTool({
+      name: 'box.create',
+      description: 'Create a new mystery box with items',
+      parameters: {
+        items: {
+          type: 'string',
+          description: 'Comma-separated list of items to put in the box (e.g., "sword,potion,treasure")'
+        }
+      },
+      elementPath: [],  // Emit from agent element itself
+      emitEvent: {
+        topic: 'agent:game-action',
+        payloadTemplate: {
+          action: 'create-box',
+          args: ['{{items}}'],
+          user: 'agent',
+          channelId
+        }
+      }
+    });
+
+    this.registerTool({
+      name: 'box.open',
+      description: 'Open an existing box to reveal its contents',
+      parameters: {
+        boxId: {
+          type: 'string',
+          description: 'The ID of the box to open (e.g., "box1234567890")'
+        }
+      },
+      elementPath: [],  // Emit from agent element itself
+      emitEvent: {
+        topic: 'agent:game-action',
+        payloadTemplate: {
+          action: 'open-box',
+          args: ['{{boxId}}'],
+          user: 'agent',
+          channelId
+        }
+      }
+    });
   }
 }
 
@@ -993,6 +1098,7 @@ async function runDiscordBoxGame() {
   // Receptors
   space.addReceptor(new DiscordSlashReceptor());
   space.addReceptor(new DiscordButtonReceptor());
+  space.addReceptor(new AgentGameActionReceptor()); // Handle agent tool use for creating/opening boxes
   space.addReceptor(new BoxGameReceptor());
   space.addReceptor(new DiscordActionReceptor()); // Converts discord:action events to action facets
 
@@ -1019,6 +1125,32 @@ async function runDiscordBoxGame() {
   // Add agent effector
   const agentEffector = new AgentEffector(agentElement, agent);
   space.addEffector(agentEffector);
+
+  // Add tool instructions as ambient facet for agent
+  await space.emit({
+    topic: 'veil:operation',
+    source: space.getRef(),
+    payload: {
+      operation: {
+        type: 'addFacet',
+        facet: {
+          id: 'box-game-tool-instructions',
+          type: 'ambient',
+          scopes: ['agent-rendered-context'],
+          content: `<tool_instructions>
+Available Actions:
+- @box.create("item1,item2,item3") - Create a box with items
+- @box.open("boxId") - Open an existing box
+
+Examples:
+"Let me create that! @box.create("stars,magic,dreams")"
+"I'll open it! @box.open("box1234567890")"
+</tool_instructions>`
+        }
+      }
+    },
+    timestamp: Date.now()
+  });
 
   // Helper function to trigger Discord actions via events
   // Receptor will convert these to action facets for DiscordEffector
