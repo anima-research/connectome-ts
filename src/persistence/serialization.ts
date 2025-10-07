@@ -133,8 +133,11 @@ export function serializeValue(value: any): SerializableValue {
     return result;
   }
   
-  // Other objects - try to extract meaningful data
+  // Other objects - check for toJSON method first
   if (typeof value === 'object') {
+    if (typeof value.toJSON === 'function') {
+      return serializeValue(value.toJSON());
+    }
     console.warn(`Cannot serialize object of type ${value.constructor.name}, using toString()`);
     return value.toString();
   }
