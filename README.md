@@ -83,9 +83,45 @@ Tag-based system for maintaining intent across asynchronous operations:
 - Completed operations emit continuation facets
 - Transforms process continuations to trigger follow-up actions
 
+## Repository Setup
+
+⚠️ **Important**: The Connectome ecosystem temporarily uses npm file links between repositories . All repos must be cloned into the same parent directory with their default names. This is a temporary limitation that will be resolved when packages are published to npm.
+
+```bash
+# Required directory structure:
+parent-directory/
+├── connectome-ts/              # This repository
+├── connectome-axon-interfaces/ # Shared interfaces
+├── axon-server/               # AXON HTTP server
+├── discord-axon/              # Discord adapter
+└── [other AXON modules]/      # Additional adapters
+```
+
+Clone all repositories:
+```bash
+git clone https://github.com/yourusername/connectome-ts.git
+git clone https://github.com/yourusername/connectome-axon-interfaces.git
+git clone https://github.com/yourusername/axon-server.git
+git clone https://github.com/yourusername/discord-axon.git
+```
+
+Build dependencies in order:
+```bash
+# 1. Build shared interfaces first
+cd connectome-axon-interfaces && npm install && npm run build && cd ..
+
+# 2. Build core framework
+cd connectome-ts && npm install && npm run build && cd ..
+
+# 3. Build AXON modules as needed
+cd axon-server && npm install && npm run build && cd ..
+cd discord-axon && npm install && npm run build && cd ..
+```
+
 ## Quick Start
 
 ```bash
+# From connectome-ts directory
 npm install
 npm run build
 
