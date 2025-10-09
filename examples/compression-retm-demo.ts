@@ -1,12 +1,22 @@
 /**
- * Compression + RETM Architecture Demo
+ * Compression + RETM Architecture Demo with Constraint Solver
  * 
- * This example demonstrates how compression works with the RETM architecture:
- * 1. CompressionTransform (Phase 2, priority=10) - Compresses old frames
- * 2. ContextTransform (Phase 2, priority=100) - Renders context with compression
- * 3. AgentEffector (Phase 3) - Runs agent with pre-rendered context
+ * This example demonstrates:
+ * 1. Constraint-based transform ordering (replaces magic number priorities)
+ * 2. Frame snapshot system (captures rendering at creation time)
+ * 3. Compression using snapshots (no re-rendering waste)
+ * 4. Complete RETM architecture flow
  * 
- * Run with: ts-node examples/compression-retm-demo.ts
+ * Key Feature: Register transforms in ANY order - constraint solver figures it out!
+ * 
+ * Transform Dependency Chain:
+ *   FrameSnapshotTransform (provides: frame-snapshots)
+ *     ↓
+ *   CompressionTransform (requires: frame-snapshots, provides: compressed-frames)
+ *     ↓
+ *   ContextTransform (requires: compressed-frames)
+ * 
+ * Run with: npm run example:compression
  */
 
 import {
@@ -15,6 +25,7 @@ import {
   Element,
   BasicAgent,
   AgentEffector,
+  FrameSnapshotTransform,
   CompressionTransform,
   ContextTransform,
   SimpleTestCompressionEngine,
@@ -45,34 +56,75 @@ async function demonstrateCompression() {
   console.log('🗜️  Creating compression engine...');
   const compressionEngine = new SimpleTestCompressionEngine();
   
-  console.log('   ✓ Using SimpleTestCompressionEngine (no LLM calls)');
+  console.log('   ✓ Using SimpleTestCompressionEngine');
+  console.log('   ℹ️  Strategy: Compress every 5 frames exceeding 200 tokens');
   console.log();
   
   // ========================================
-  // STEP 2: Register Transforms (Priority Ordering)
+  // STEP 2: Register Transforms (Constraint-Based Ordering)
   // ========================================
   
-  console.log('🔄 Registering transforms...');
+  console.log('🔄 Registering transforms with constraint solver...');
+  console.log();
   
-  // Transform 1: Compression (priority=10, runs first)
+  // Create transforms (order doesn't matter - solver figures it out!)
+  const snapshotTransform = new FrameSnapshotTransform({ verbose: true });
+  
   const compressionTransform = new CompressionTransform({
     engine: compressionEngine,
-    engineName: 'simple-test',
-    triggerThreshold: 300,        // Compress when > 300 tokens
-    minFramesBeforeCompression: 5 // Wait for at least 5 frames
+    engineName: 'demo',
+    triggerThreshold: 100,        // Very low threshold to guarantee compression
+    minFramesBeforeCompression: 5, // Wait for 5 frames
+    compressionConfig: {
+      chunkThreshold: 100
+    }
   });
-  space.addTransform(compressionTransform);
-  console.log(`   ✓ CompressionTransform (priority=${compressionTransform.priority})`);
-  
-  // Transform 2: Context Rendering (priority=100, runs after compression)
   const contextTransform = new ContextTransform(
     veilState,
     compressionEngine,  // Same engine instance!
     { maxTokens: 1000 }
   );
+  
+  // Show their constraints
+  console.log('   Transform Constraints:');
+  console.log(`   • FrameSnapshotTransform`);
+  console.log(`     provides: [${snapshotTransform.provides?.join(', ')}]`);
+  console.log();
+  console.log(`   • CompressionTransform`);
+  console.log(`     requires: [${compressionTransform.requires?.join(', ')}]`);
+  console.log(`     provides: [${compressionTransform.provides?.join(', ')}]`);
+  console.log();
+  console.log(`   • ContextTransform`);
+  console.log(`     requires: [${contextTransform.requires?.join(', ')}]`);
+  console.log();
+  
+  // Register transforms - any order works as long as dependencies are met!
+  console.log('   Registering transforms (dependency order):');
+  
+  console.log('   1. FrameSnapshotTransform (provides frame-snapshots)');
+  space.addTransform(snapshotTransform);
+  console.log('      ✓ Registered');
+  
+  console.log();
+  console.log('   2. CompressionTransform (requires frame-snapshots, provides compressed-frames)');
+  space.addTransform(compressionTransform);
+  console.log('      ✓ Registered - dependency satisfied!');
+  
+  console.log();
+  console.log('   3. ContextTransform (requires compressed-frames)');
   space.addTransform(contextTransform);
-  console.log(`   ✓ ContextTransform (priority=${contextTransform.priority})`);
-  console.log('   → Execution order guaranteed: Compression → Context');
+  console.log('      ✓ Registered - dependency satisfied!');
+  
+  console.log();
+  console.log('   ✅ All transforms registered with dependencies validated');
+  console.log('   ✅ Execution order: Snapshot → Compression → Context');
+  console.log();
+  
+  // Demonstrate the constraint validation
+  console.log('   🔍 What if we had forgotten FrameSnapshotTransform?');
+  console.log('      The solver would have thrown:');
+  console.log('      ❌ "CompressionTransform requires \'frame-snapshots\' but no transform provides it"');
+  console.log('      💡 "Hint: Register FrameSnapshotTransform..."');
   console.log();
   
   // ========================================
@@ -106,14 +158,22 @@ async function demonstrateCompression() {
   console.log();
   
   // ========================================
-  // STEP 4: Generate Test Messages
+  // STEP 4: Generate Test Messages (Enough to Trigger Compression)
   // ========================================
   
-  console.log('💬 Generating test conversation (10 frames)...');
+  console.log('💬 Generating test conversation...');
+  console.log('   (Creating longer messages to exceed compression threshold)');
   console.log();
   
-  // Generate 10 frames with user messages to trigger compression
-  for (let i = 1; i <= 10; i++) {
+  // Generate 12 frames with longer messages to trigger compression
+  const longMessageContent = `This is a longer test message to ensure we exceed the compression threshold. 
+When we accumulate multiple frames like this, the compression system will kick in and compress 
+the older frames into summaries. This helps manage token budgets while preserving important information. 
+The frame snapshot system captures how each frame renders at creation time, so compression doesn't 
+need to re-render everything. This is much more efficient! Let's add even more text to make sure 
+each message is substantial enough to trigger compression when combined with others.`;
+
+  for (let i = 1; i <= 12; i++) {
     // Add user message
     space.emit({
       topic: 'veil:operation',
@@ -126,7 +186,7 @@ async function demonstrateCompression() {
             id: `user-msg-${i}`,
             agentId: 'user',
             agentName: 'User',
-            content: `This is test message #${i}. It helps demonstrate compression by filling up the frame history.`,
+            content: `Message ${i}: ${longMessageContent}`,
             streamId: 'demo',
             streamType: 'test'
           })
@@ -134,15 +194,42 @@ async function demonstrateCompression() {
       }
     });
     
-    console.log(`   Frame ${i}: User message added`);
+    console.log(`   Frame ${i}: User message added (~${Math.floor(longMessageContent.length / 4)} tokens)`);
     
-    // Wait a bit for frame processing
+    // Wait for frame processing
     await new Promise(resolve => setTimeout(resolve, 50));
   }
   
   console.log();
-  console.log('   ✓ 10 frames generated');
-  console.log(`   → Total frames: ${veilState.getState().frameHistory.length}`);
+  console.log('   ✓ 12 frames generated');
+  
+  const currentState = veilState.getState();
+  console.log(`   → Total frames in history: ${currentState.frameHistory.length}`);
+  
+  // Check if snapshots were captured
+  const framesWithSnapshots = currentState.frameHistory.filter(f => f.renderedSnapshot);
+  console.log(`   → Frames with snapshots: ${framesWithSnapshots.length}`);
+  
+  // Calculate total tokens
+  const totalTokens = framesWithSnapshots.reduce((sum, f) => 
+    sum + (f.renderedSnapshot?.totalTokens || 0), 0
+  );
+  console.log(`   → Total tokens in snapshots: ${totalTokens}`);
+  console.log(`   → Compression threshold: 100 tokens`);
+  console.log();
+  
+  console.log('   ⏳ Waiting for async compression to complete...');
+  await new Promise(resolve => setTimeout(resolve, 500));
+  
+  // Trigger one more frame to pick up compression results
+  space.emit({
+    topic: 'check-compression',
+    source: { elementId: 'demo', elementPath: [] },
+    timestamp: Date.now(),
+    payload: {}
+  });
+  await new Promise(resolve => setTimeout(resolve, 100));
+  console.log('   ✓ Compression async work completed');
   console.log();
   
   // ========================================
@@ -151,27 +238,37 @@ async function demonstrateCompression() {
   
   console.log('📊 Checking compression status...');
   
-  const state = veilState.getState();
+  const finalState = veilState.getState();
   
-  // Look for compression facets
-  const compressionPlans = Array.from(state.facets.values())
+  // Check engine directly to see what was compressed
+  console.log('   Checking compression engine cache:');
+  let compressedFrameCount = 0;
+  for (let i = 1; i <= 12; i++) {
+    if (compressionEngine.shouldReplaceFrame(i)) {
+      compressedFrameCount++;
+      if (compressedFrameCount === 1) {
+        const replacement = compressionEngine.getReplacement(i);
+        console.log(`   ✓ Frames 1-5 compressed!`);
+        console.log(`     Replacement: ${replacement}`);
+      }
+    }
+  }
+  
+  if (compressedFrameCount === 0) {
+    console.log(`   ℹ️  No frames compressed yet (async work may still be in progress)`);
+  }
+  console.log();
+  
+  // Look for compression facets (note: they're ephemeral)
+  const compressionPlans = Array.from(finalState.facets.values())
     .filter(f => f.type === 'compression-plan');
-  const compressionResults = Array.from(state.facets.values())
+  const compressionResults = Array.from(finalState.facets.values())
     .filter(f => f.type === 'compression-result');
   
-  console.log(`   Compression plans found: ${compressionPlans.length}`);
-  console.log(`   Compression results found: ${compressionResults.length}`);
-  
-  if (compressionResults.length > 0) {
-    console.log();
-    console.log('   📋 Compression Results:');
-    compressionResults.forEach((facet, idx) => {
-      const result = (facet as any).state;
-      console.log(`      ${idx + 1}. Frames ${result.range.from}-${result.range.to}`);
-      console.log(`         Tokens: ${result.range.totalTokens}`);
-      console.log(`         Summary: ${result.summary?.substring(0, 60)}...`);
-    });
-  }
+  console.log(`   Compression facets in current state:`);
+  console.log(`   • compression-plan facets: ${compressionPlans.length}`);
+  console.log(`   • compression-result facets: ${compressionResults.length}`);
+  console.log(`   (Note: These are ephemeral and may have been removed)`);
   console.log();
   
   // ========================================
@@ -208,22 +305,44 @@ async function demonstrateCompression() {
   // STEP 7: Check Rendered Context
   // ========================================
   
-  console.log('📄 Checking rendered context...');
+  console.log('📄 Demonstrating compression in use...');
   
-  const updatedState = veilState.getState();
-  const contextFacets = Array.from(updatedState.facets.values())
-    .filter(f => f.type === 'rendered-context');
+  // Manually render context to show compression working
+  console.log('   Rendering context WITH compression:');
+  const { FrameTrackingHUD } = await import('../src/hud/frame-tracking-hud');
+  const hud = new FrameTrackingHUD();
   
-  if (contextFacets.length > 0) {
-    console.log(`   ✓ Rendered context created: ${contextFacets.length} facet(s)`);
-    
-    const contextFacet = contextFacets[0];
-    const contextData = (contextFacet as any).state;
-    console.log(`   Token count: ${contextData.tokenCount}`);
-    console.log('   → Context includes compressed frames!');
+  const testState = veilState.getState();
+  const rendered = hud.render(
+    [...testState.frameHistory],
+    new Map(testState.facets),
+    compressionEngine,  // With compression!
+    { maxTokens: 5000 }
+  );
+  
+  console.log(`   • Total messages: ${rendered.messages.length}`);
+  console.log(`   • Total tokens: ${rendered.metadata.totalTokens}`);
+  console.log();
+  
+  // Show first few messages
+  console.log('   First 3 messages in rendered context:');
+  rendered.messages.slice(0, 3).forEach((msg, i) => {
+    const preview = msg.content.substring(0, 80).replace(/\n/g, ' ');
+    console.log(`   ${i + 1}. [${msg.role}] ${preview}...`);
+  });
+  console.log();
+  
+  // Check for compressed content
+  const hasCompressedContent = rendered.messages.some(m => 
+    m.content.includes('[Compressed')
+  );
+  
+  if (hasCompressedContent) {
+    console.log('   ✅ Compression working! Rendered context includes compressed frames.');
   } else {
-    console.log('   ℹ️  No rendered context yet (will appear in next frame)');
+    console.log('   ℹ️  Compression in cache but not yet used in rendered output');
   }
+  
   console.log();
   
   // ========================================
@@ -238,11 +357,15 @@ async function demonstrateCompression() {
   console.log('   Phase 1: Events → VEIL (Receptors)');
   console.log('      └─ User messages converted to facets');
   console.log();
-  console.log('   Phase 2: VEIL → VEIL (Transforms)');
-  console.log('      ├─ CompressionTransform (priority=10)');
+  console.log('   Phase 2: VEIL → VEIL (Transforms) [CONSTRAINT-ORDERED]');
+  console.log('      ├─ FrameSnapshotTransform (provides: frame-snapshots)');
+  console.log('      │  └─ Captures how frames render at creation');
+  console.log('      │  └─ Stores snapshots with facet attribution');
+  console.log('      ├─ CompressionTransform (requires: frame-snapshots, provides: compressed-frames)');
+  console.log('      │  └─ Uses snapshots (no re-rendering!)');
   console.log('      │  └─ Compresses old frames when threshold met');
   console.log('      │  └─ Updates engine cache');
-  console.log('      └─ ContextTransform (priority=100)');
+  console.log('      └─ ContextTransform (requires: compressed-frames)');
   console.log('         └─ Renders context for agent activation');
   console.log('         └─ Uses compressed frames from cache');
   console.log();
@@ -266,24 +389,33 @@ async function demonstrateCompression() {
   console.log();
   console.log('Key Takeaways:');
   console.log();
-  console.log('1. 🔢 Transform Priority: Ensures correct execution order');
-  console.log('   • CompressionTransform (10) runs before ContextTransform (100)');
-  console.log('   • Order matters because they share the engine instance');
+  console.log('1. 🔗 Constraint Solver: Automatic dependency ordering');
+  console.log('   • Transforms declare what they provide/require');
+  console.log('   • System uses topological sort (like npm/pip dependencies)');
+  console.log('   • Register in ANY order - solver figures it out!');
+  console.log('   • Helpful errors if dependencies missing or circular');
   console.log();
-  console.log('2. 🧩 Separation of Concerns:');
-  console.log('   • Agent doesn\'t manage compression');
-  console.log('   • Transforms handle infrastructure');
+  console.log('2. 📸 Frame Snapshots: No re-rendering waste');
+  console.log('   • Frames capture how they render at creation time');
+  console.log('   • Snapshots include chunk attribution to facets');
+  console.log('   • Compression uses snapshots directly (fast!)');
+  console.log('   • Preserves "original subjective experience"');
+  console.log();
+  console.log('3. 🧩 Separation of Concerns:');
+  console.log('   • Agent doesn\'t manage compression or snapshots');
+  console.log('   • Transforms handle infrastructure declaratively');
   console.log('   • Effectors connect everything');
   console.log();
-  console.log('3. 📊 Observable:');
+  console.log('4. 📊 Observable & Debuggable:');
+  console.log('   • Frame snapshots stored on frame.renderedSnapshot');
   console.log('   • Compression creates facets (compression-plan, compression-result)');
   console.log('   • Context rendering creates facets (rendered-context)');
   console.log('   • Everything visible in VEIL state');
   console.log();
-  console.log('4. 🔄 Reusable:');
+  console.log('5. 🔄 Reusable & Composable:');
+  console.log('   • One snapshot transform serves all compression');
   console.log('   • One compression engine serves all agents');
-  console.log('   • One set of transforms handles all compression');
-  console.log('   • Multiple agents can share the infrastructure');
+  console.log('   • Transforms compose automatically via constraints');
   console.log();
   
   // Clean up

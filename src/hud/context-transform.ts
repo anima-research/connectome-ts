@@ -15,8 +15,10 @@ import { HUDConfig } from './types-v2';
 import { VEILStateManager } from '../veil/veil-state';
 
 export class ContextTransform extends BaseTransform {
-  // Priority: Run after compression (which has priority 10)
-  // TODO [constraint-solver]: Replace with requires = ['compressed-frames']
+  // Constraint-based ordering (replaces priority)
+  requires = ['compressed-frames'];  // Needs compression to provide compressed context
+  
+  // Keep priority for backwards compatibility (when constraints not used)
   priority = 100;
   
   private hud: FrameTrackingHUD;
