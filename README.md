@@ -85,7 +85,7 @@ Tag-based system for maintaining intent across asynchronous operations:
 
 ## Repository Setup
 
-⚠️ **Important**: The Connectome ecosystem temporarily uses npm file links between repositories . All repos must be cloned into the same parent directory with their default names. This is a temporary limitation that will be resolved when packages are published to npm.
+⚠️ **Important**: The Connectome ecosystem currently uses npm file links between repositories. All repos must be cloned into the same parent directory with their default names. This is a temporary limitation that will be resolved when packages are published to npm.
 
 ```bash
 # Required directory structure:
@@ -125,13 +125,54 @@ cd discord-axon && npm install && npm run build && cd ..
 npm install
 npm run build
 
-# Run examples
-npm run example                    # Basic usage
-npm run example:discord-v2        # Discord integration 
-npm run example:dispenser         # Persistence demo
-npm run example:martem-complete   # Full MARTEM showcase
-npm run example:continuations     # Continuation system
+# Try the interactive console chat with persistence
+npm run example:console
+
+# Or run Discord bot (requires Discord token - see discord-axon/README.md)
+cd ../discord-axon
+npm install && npm run build
+npm run example:host
 ```
+
+### Console Chat
+
+The console chat is the easiest way to start:
+- Interactive terminal interface to chat with an AI agent
+- Full persistence - your conversation continues across restarts
+- Inspect internals with commands like `/frames`, `/veil`, `/state`
+- See all events and state changes in real-time
+- Traces saved to `traces/` for debugging
+
+### Debug Server & Web UI
+
+For visual debugging, you can enable the debug server in your application:
+
+```typescript
+import { DebugServer } from 'connectome-ts';
+
+const debugServer = new DebugServer(space, {
+  enabled: true,
+  port: 8888  // Default port
+});
+debugServer.start();
+```
+
+Then open http://localhost:8888 to access the Debug UI which provides:
+- Real-time frame visualization
+- VEIL state inspector with facet tree
+- Event stream monitoring
+- Performance metrics
+- WebSocket-based live updates
+
+### Discord Bot
+
+The Discord bot (`discord-axon`) demonstrates:
+- Real-world AXON integration
+- Multi-channel communication
+- Persistent conversation state
+- Hot-reloading for development
+
+See [discord-axon/README.md](../discord-axon/README.md) for setup instructions.
 
 ## Usage
 
@@ -378,17 +419,10 @@ jq 'select(.component == "BasicAgent")' traces/trace-*.jsonl
 
 ## Documentation
 
-- [Architecture Overview](docs/architecture.md)
-- [MARTEM Components](MARTEM_ARCHITECTURE.md) 
-- [Continuation System](CONTINUATION_SYSTEM.md)
-- [Requirements Spec](docs/connectome-ts-reqs.md)
-- [VEIL Delta Timing](docs/VEIL_DELTA_TIMING.md)
-- [Observability Guide](docs/observability.md)
+📚 **[Complete Architecture Guide](docs/connectome-ts-reqs.md)** - Comprehensive reference covering VEIL, MARTEM, AXON, and all core concepts
+
+The architecture guide above is the primary reference. Additional documentation in the `docs/` folder may be outdated.
 
 ## Contributing
 
-This project is developed by [Anima Labs](https://github.com/janus/anima). See the [contribution guidelines](CONTRIBUTING.md) for details.
-
-## License
-
-[MIT License](LICENSE)
+This project is developed by [Anima Labs](https://github.com/janus/anima).
