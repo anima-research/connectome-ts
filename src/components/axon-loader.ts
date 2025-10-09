@@ -553,7 +553,32 @@ export class AxonLoaderComponent extends Component {
     
     console.log(`[AxonLoader] Loading RETM module with exports:`, Object.keys(moduleExports));
     this.loadedExports = [];
-    
+
+    // Initialize the module state with URL parameters if an initializer is provided
+    if (moduleExports.initializer && this.parsedUrl?.params) {
+      console.log(`[AxonLoader] Calling initializer with params:`, this.parsedUrl.params);
+      try {
+        // Call setConnectionParams if it exists
+        if (typeof moduleExports.initializer.setConnectionParams === 'function') {
+          moduleExports.initializer.setConnectionParams({
+            host: this.parsedUrl.host,
+            path: this.parsedUrl.path,
+            ...this.parsedUrl.params
+          });
+        } else if (typeof moduleExports.initializer.initialize === 'function') {
+          moduleExports.initializer.initialize({
+            host: this.parsedUrl.host,
+            path: this.parsedUrl.path,
+            ...this.parsedUrl.params
+          });
+        }
+        this.loadedExports.push('initializer');
+        console.log(`[AxonLoader] Initialized module with connection params`);
+      } catch (error) {
+        console.error(`[AxonLoader] Failed to initialize module:`, error);
+      }
+    }
+
     // Register receptors
     if (moduleExports.receptors) {
       for (const [name, ReceptorClass] of Object.entries(moduleExports.receptors)) {
@@ -634,6 +659,21 @@ export class AxonLoaderComponent extends Component {
     }
     
     console.log(`[AxonLoader] RETM module loaded successfully. Exports: ${this.loadedExports.join(', ')}`);
+
+    // Emit module-loaded event for application to handle initialization
+    console.log(`[AxonLoader] Emitting axon:module-loaded event for application initialization`);
+    await space.emit({
+      topic: 'axon:module-loaded',
+      source: this.element.getRef(),
+      payload: {
+        module: this.manifest?.name || 'unknown',
+        exports: this.loadedExports
+      },
+      timestamp: Date.now()
+    });
+
+    // Give the application a chance to handle the event
+    await new Promise(resolve => setTimeout(resolve, 100));
   }
   
   /**
