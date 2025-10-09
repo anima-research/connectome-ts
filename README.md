@@ -1,96 +1,87 @@
-# Lightweight Connectome
+# Connectome TypeScript
 
-An experimental TypeScript implementation of Connectome without the Loom DAG, focusing on instant state management with VEIL (Virtual Environment Interface Language) for LLM context generation.
+A TypeScript implementation of Connectome - an architectural framework for digital minds. This is the active TypeScript rewrite of the original Python Connectome, focusing on instant state management with VEIL while maintaining the core concepts of Elements, Components, and Spaces.
 
-## Key Differences from Main Connectome
+## Core Philosophy
 
-- **No Loom DAG** - State is instant only, no timeline branching
-- **Event-driven architecture** - All changes propagate through a unified event system
-- **TypeScript implementation** - For better type safety and modern async handling
-- **Simplified state model** - No historical state tracking or rollback
+Connectome is not just an agent framework - it's an architecture for digital minds with:
+- **Perceptual Subjectivity**: Different minds perceive the same Space differently through VEIL
+- **Event-Driven Architecture**: All state changes flow through events with clear causality
+- **Component Composition**: Elements are containers, functionality comes from Components
+- **Protocol Agnostic**: Core framework stays clean through the AXON protocol
 
-## Core Concepts
+## AXON Protocol
 
-### VEIL (Virtual Environment Interface Language)
-A markup language for LLM perceptual context consisting of:
-- **Facets**: The atomic units of context (events, states, ambient info, tools)
-- **Frames**: Deltas that modify the VEIL state
-- **Operations**: Add facets, change states, manage scopes, trigger agent activation, speak naturally
+The AXON protocol enables Connectome to dynamically load components from external HTTP services, keeping the core framework protocol-agnostic:
 
-### Focus and Communication
-- **Focus**: The active communication channel set by incoming events
-- **Speak**: Agent's natural dialogue operations that flow to the focused channel
-- **Multi-channel**: Support for Discord, Minecraft, Twitter, terminals, etc.
+- **Dynamic Loading**: Components loaded at runtime from URLs (e.g., `axon://localhost:8080/discord`)
+- **Hot Reloading**: WebSocket support for development-time updates
+- **Protocol Separation**: Discord, Minecraft, terminals etc. developed independently
+- **MARTEM Support**: AXON modules can export any MARTEM component type
+- **Parameter Passing**: URL parameters passed to components (e.g., `axon://game.server/spacegame?token=xyz`)
 
-### Architecture Layers
+This allows adapters to be developed and served independently, maintaining clean separation of concerns.
 
-1. **Elements & Spaces**
-   - Elements arranged in a tree structure
-   - Root Space contains all elements
-   - Event propagation through the tree
+## MARTEM Architecture
 
-2. **VEIL Layer**
-   - Facet management
-   - Frame processing
-   - State maintenance
+The framework uses a six-phase processing model for deterministic event handling:
 
-3. **Memory System** (formerly Compression Engine)
-   - Narrative summarization of event sequences
-   - Fact and pattern extraction
-   - Memory storage and retrieval
-   - Asynchronous processing
+1. **Afferents** (Async): Bridge external systems to Connectome events
+2. **Modulators** (Phase 0): Preprocess events (filter, aggregate, buffer)
+3. **Receptors** (Phase 1): Transform events into VEIL deltas
+4. **Transforms** (Phase 2): Process VEIL state iteratively like a "chemical reaction"
+5. **Effectors** (Phase 3): React to state changes, emit events or perform actions
+6. **Maintainers** (Phase 4): System maintenance, persistence, infrastructure
 
-4. **HUD (Heads-Up Display)**
-   - Token budget management
-   - Saliency-based content selection
-   - Final context assembly
-   - Multiple rendering strategies (XML, JSON)
-   - Tool call extraction
+All components share a unified lifecycle interface with `mount`, `unmount`, and optional `destroy` methods.
 
-## Project Structure
+## Key Concepts
 
-```
-lightweight-connectome/
-├── src/
-│   ├── veil/
-│   │   ├── types.ts              # Core VEIL type definitions
-│   │   └── veil-state.ts         # VEIL state management
-│   ├── compression/
-│   │   ├── types.ts              # Compression interfaces
-│   │   └── passthrough-engine.ts # Minimal compression implementation
-│   ├── hud/
-│   │   ├── types.ts              # HUD interfaces
-│   │   └── xml-hud.ts            # XML rendering implementation
-│   ├── agent-loop/
-│   │   ├── types.ts              # Agent loop interfaces
-│   │   └── agent-loop.ts         # Main orchestration logic
-│   └── index.ts                  # Public API exports
-├── examples/
-│   ├── starship-scenario-veil.ts      # Complete VEIL frames example
-│   ├── starship-scenario-rendered.xml # Rendered output example
-│   ├── minimal-example.ts             # Simple example with focus/speak
-│   ├── saliency-example.ts            # Saliency hints in action
-│   ├── saliency-scoring-example.ts    # How saliency affects scoring
-│   ├── graph-saliency-example.ts      # Graph-based saliency with links
-│   ├── transient-lifecycle.ts         # Transient decay examples
-│   ├── stream-awareness-example.ts    # Stream operations example
-│   ├── minimal-example.ts             # Simple example with focus/speak
-│   ├── test-saliency-rendering.ts     # Test saliency-aware rendering
-│   └── reconciliation-summary.md      # Mapping between VEIL and output
-├── docs/
-│   ├── requirements.md                # Full requirements specification
-│   ├── architecture.md                # Implementation architecture
-│   ├── veil-to-rendering-mapping.md   # Detailed rendering rules
-│   ├── focus-and-speak-design.md      # Communication design patterns
-│   ├── saliency-design.md             # Context management design
-│   ├── saliency-implementation.md     # Saliency implementation details
-│   ├── saliency-hints-usage.md        # How to use saliency hints
-│   ├── saliency-evolution.md          # Evolution to graph-based system
-│   └── stream-operations.md           # Stream lifecycle management
-├── package.json                       # Node.js package configuration
-├── tsconfig.json                      # TypeScript configuration
-└── README.md
-```
+### VEIL (Virtual Embodiment Interface Language)
+
+VEIL is the single source of truth for Connectome - a markup language for LLM perceptual context:
+
+- **Facets**: Atomic units built from aspects (ContentAspect, StateAspect, EphemeralAspect, etc.)
+- **Frames**: Boundaries for atomic state changes with event attribution
+- **Deltas**: Only three operations - addFacet, changeFacet, removeFacet
+
+Common facet types:
+- **Event**: Strict temporality, occurs at one moment
+- **State**: Mutable world/UI state with inline renderers
+- **Ambient**: Floating context that stays in attention zone
+- **Speech/Thought/Action**: Agent-generated content
+- **Meta facets**: Infrastructure like stream-change, agent-activation
+
+All system behaviors are expressed through facets - no special operations needed.
+
+### Elements & Components
+- **Elements**: Form a tree structure defining spatial organization
+- **Components**: Provide all functionality, attached to Elements
+- **Spaces**: Root Elements that orchestrate event processing
+- **Auto-discovery**: Components are found in the element tree automatically
+
+### Stream References
+
+Communication uses structured stream references instead of hardcoded channels:
+- Events set the active stream for their interaction
+- Agent speak operations flow to the active stream
+- Explicit targets enable cross-channel communication
+- Stream metadata enables flexible routing
+
+### Event System
+
+Topic-based subscription system with structured element references:
+- Events propagate through the element tree
+- First-class events: frame start, timers, element lifecycle
+- Adapter events defined by their elements (discord.message, etc.)
+- Event batching for external sources
+
+### Continuation System
+
+Tag-based system for maintaining intent across asynchronous operations:
+- Operations can specify continuations with tags
+- Completed operations emit continuation facets
+- Transforms process continuations to trigger follow-up actions
 
 ## Quick Start
 
@@ -99,73 +90,210 @@ npm install
 npm run build
 
 # Run examples
-npm run example                # Basic usage example
-npm run example:compression    # Compression + RETM architecture demo
-npm run example:dispenser      # Box dispenser demo with persistence
+npm run example                    # Basic usage
+npm run example:discord-v2        # Discord integration 
+npm run example:dispenser         # Persistence demo
+npm run example:martem-complete   # Full MARTEM showcase
+npm run example:continuations     # Continuation system
 ```
 
 ## Usage
 
+### Basic Setup
+
 ```typescript
 import {
   VEILStateManager,
-  FrameTrackingHUD,
-  BasicAgent,
-  AnthropicProvider,
-  MockLLMProvider,
-  Space
-} from 'lightweight-connectome';
+  Space,
+  Element,
+  BaseReceptor,
+  BaseEffector,
+  createEventFacet
+} from 'connectome-ts';
 
-// Initialize components
+// Initialize VEIL state
 const veilState = new VEILStateManager();
-
-// Choose LLM provider
-const llmProvider = process.env.ANTHROPIC_API_KEY
-  ? new AnthropicProvider({ apiKey: process.env.ANTHROPIC_API_KEY })
-  : new MockLLMProvider();
-
-// Create agent
-const agent = new BasicAgent({
-  systemPrompt: 'You are a helpful assistant.',
-  defaultMaxTokens: 1000
-}, llmProvider, veilState);
-
-// Create space and attach agent
 const space = new Space(veilState);
-space.setAgent(agent);
 
-// Process incoming frames
-await space.emit({ topic: 'frame:start', ... });
+// Create element structure
+const ui = new Element('ui-root');
+space.addChild(ui);
+
+// Add components (auto-discovered, no dual registration!)
+ui.addComponent(new MyReceptor());
+ui.addComponent(new MyEffector());
+
+// Emit events
+space.emit({
+  topic: 'user:action',
+  source: ui.getRef(),
+  payload: { action: 'click' }
+});
 ```
 
-### LLM Providers
+### Creating Components
 
-The framework includes multiple LLM providers:
+```typescript
+// Receptor: Convert events to VEIL changes
+class ClickReceptor extends BaseReceptor {
+  topics = ['ui:click'];
+  
+  transform(event: SpaceEvent, state: ReadonlyVEILState): VEILDelta[] {
+    return [{
+      type: 'addFacet',
+      facet: createEventFacet({
+        id: `click-${Date.now()}`,
+        content: 'Button clicked',
+        source: event.source
+      })
+    }];
+  }
+}
 
-- **AnthropicProvider**: For Claude models (requires API key)
-- **MockLLMProvider**: For testing without API calls
-- Custom providers can implement the `LLMProvider` interface
+// Effector: React to VEIL changes
+class NotificationEffector extends BaseEffector {
+  async process(changes: FacetDelta[], state: ReadonlyVEILState): Promise<EffectorResult> {
+    for (const change of changes) {
+      if (change.type === 'added' && change.facet.type === 'event') {
+        console.log('Event occurred:', change.facet.content);
+      }
+    }
+    return { events: [] };
+  }
+}
 
-## Current Status
+// Transform: Derive new state
+class EventCountTransform extends BaseTransform {
+  priority = 50; // Optional execution order
+  
+  process(state: ReadonlyVEILState): VEILDelta[] {
+    const eventCount = Array.from(state.facets.values())
+      .filter(f => f.type === 'event').length;
+      
+    return [{
+      type: 'addFacet',
+      facet: {
+        id: 'event-count',
+        type: 'state',
+        content: `Total events: ${eventCount}`,
+        state: { count: eventCount }
+      }
+    }];
+  }
+}
+```
 
-✅ **Phase 1 Complete**: Core VEIL + HUD implementation
-- VEIL state management with focus/speak
-- Stream tracking and multi-channel support
-- Graph-based saliency with temporal proximity
-- Float-based transient decay (no magic timestamps)
-- Passthrough compression engine  
-- XML HUD with completion parsing
-- SaliencyAwareHUD with link-aware scoring
-- Basic agent loop orchestration
+### Loading AXON Components
+
+```typescript
+// Load Discord adapter via AXON
+const discordElement = new Element('discord');
+await discordElement.loadAxon('axon://localhost:8080/discord', {
+  token: DISCORD_TOKEN
+});
+space.addChild(discordElement);
+
+// Components are auto-discovered after loading!
+```
+
+### Afferents for External Integration
+
+```typescript
+class WebSocketAfferent extends BaseAfferent<WebSocketConfig> {
+  private ws?: WebSocket;
+  
+  async onInitialize(context: AfferentContext<WebSocketConfig>) {
+    const { config } = context;
+    
+    this.ws = new WebSocket(config.url);
+    this.ws.on('message', (data) => {
+      this.context.emitEvent({
+        topic: 'ws:message',
+        source: this.context.elementRef,
+        payload: JSON.parse(data)
+      });
+    });
+  }
+  
+  async onStart() {
+    // Connect websocket
+  }
+  
+  async onStop() {
+    this.ws?.close();
+  }
+}
+```
+
+## Auto-Discovery
+
+Components are automatically discovered in the element tree - no dual registration needed!
+
+```typescript
+// Old way (error-prone)
+const effector = new MyEffector();
+element.addComponent(effector);
+space.addEffector(effector); // Easy to forget!
+
+// New way (simple!)
+element.addComponent(new MyEffector()); // That's it!
+```
+
+## Agent System
+
+Agents interact through VEIL using natural operations:
+
+```typescript
+import { BasicAgent, AnthropicProvider, AgentEffector } from 'connectome-ts';
+
+// Create agent with LLM provider
+const agent = new BasicAgent({
+  systemPrompt: 'You are a helpful assistant',
+  provider: new AnthropicProvider({ apiKey: API_KEY })
+});
+
+// Agent operations create facets:
+// speak() → speech facets
+// act() → action facets (@element.action syntax)
+// think() → thought facets
+
+// Add agent effector to enable processing
+const agentElement = new Element('agent');
+agentElement.addComponent(new AgentEffector(agent));
+space.addChild(agentElement);
+```
+
+### Action Syntax
+
+Agents use `@element.action` syntax for invoking tools:
+- Simple: `@box.open`
+- With parameters: `@box.open("gently")` or `@box.open(speed="slow", careful=true)`
+- Hierarchical paths: `@chat.general.say("Hello")`
+
+## Testing & Development
+
+```bash
+# Run tests
+npm test
+
+# Type checking
+npm run typecheck
+
+# Linting
+npm run lint
+
+# Interactive console with tracing
+npm run test:console
+
+# Start debug server
+npm run debug-server
+```
 
 ## Observability
 
-The system includes comprehensive observability with file-based trace persistence:
+Comprehensive tracing with file-based persistence:
 
 ```bash
-# Interactive console chat with tracing
-npm run test:console
-
 # View real-time traces
 tail -f traces/trace-*.jsonl | jq .
 
@@ -176,44 +304,55 @@ grep "llm\." traces/trace-*.jsonl | jq .
 jq 'select(.component == "BasicAgent")' traces/trace-*.jsonl
 ```
 
-Features:
-- **Full LLM request/response capture** - All interactions logged
-- **File-based persistence** - Traces saved to `./traces` directory  
-- **Automatic rotation** - Manages disk space automatically
-- **Multiple export formats** - JSON, CSV, Markdown
+## Architecture Benefits
 
-See [docs/observability.md](docs/observability.md) for detailed documentation.
+1. **Clear Separation of Concerns**: Each MARTEM type has a specific responsibility
+2. **Deterministic Processing**: Phases execute in order with clear boundaries
+3. **Flexible Composition**: Mix and match components as needed
+4. **Auto-Discovery**: Components work immediately when added to elements
+5. **Type Safety**: Full TypeScript support with comprehensive types
+6. **Protocol Agnostic**: Core stays clean through AXON dynamic loading
 
-## Next Steps
+## Current Status
 
-### Phase 2: Elements & Spaces
-1. Create Element base class and lifecycle
-2. Implement Space as container Element
-3. Convert HUD/AgentLoop to Elements
-4. Add event propagation system
+✅ **Core Complete**
+- VEIL state management with aspect-based facets
+- MARTEM component architecture with unified lifecycle
+- Element tree with auto-discovery
+- Event system with topic-based routing
+- Continuation system for async coordination
+- Symbol-based type detection
+- Stream references for flexible communication
+- Three fundamental VEIL operations
+- Frame-based processing with event attribution
 
-### Phase 3: Discord Integration
-1. Create Discord adapter
-2. Map Discord events to VEIL frames
-3. Route speak operations back to Discord
-4. Handle multi-channel scenarios
+✅ **Integrations**
+- Discord AXON (fully functional)
+- Console I/O components
+- File system operations
+- Agent system with LLM providers
+- AXON protocol with hot reloading
+- Debug server and inspector
 
-### Phase 4: Additional Elements
-1. Internal scratchpad
-2. Shell terminal
-3. File system browser
-4. Social graph tracker
+🚧 **In Progress**
+- Component state management improvements
+- Additional AXON modules (Minecraft, terminals, etc.)
+- Performance optimizations
+- Enhanced persistence strategies
 
-### Phase 5: Advanced Features
-1. Compression strategies (summarization)
-2. JSON HUD format
-3. Tool registration system
-4. Scheduled events/timers
+## Documentation
 
-## Design Principles
+- [Architecture Overview](docs/architecture.md)
+- [MARTEM Components](MARTEM_ARCHITECTURE.md) 
+- [Continuation System](CONTINUATION_SYSTEM.md)
+- [Requirements Spec](docs/connectome-ts-reqs.md)
+- [VEIL Delta Timing](docs/VEIL_DELTA_TIMING.md)
+- [Observability Guide](docs/observability.md)
 
-- **Event-driven**: All state changes through events
-- **Frame-based**: Atomic updates with clear boundaries
-- **Pluggable**: HUDs and Compression Engines are interchangeable
-- **Type-safe**: Leverage TypeScript for compile-time checks
-- **Async-first**: Built for concurrent processing
+## Contributing
+
+This project is developed by [Anima Labs](https://github.com/janus/anima). See the [contribution guidelines](CONTRIBUTING.md) for details.
+
+## License
+
+[MIT License](LICENSE)
