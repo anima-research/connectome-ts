@@ -81,6 +81,9 @@ export {
   getRETMInterfaces
 } from './utils/retm-type-guards';
 
+// Export priority grouping utility
+export { groupByPriority } from './utils/priorities';
+
 // Note: EphemeralCleanupTransform removed - ephemeral facets naturally fade away
 
 // Transform exports

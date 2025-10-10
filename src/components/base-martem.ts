@@ -50,6 +50,12 @@ export abstract class BaseReceptor extends Component implements Receptor {
   
   async mount(element: Element): Promise<void> {
     this.element = element;
+    
+    // Auto-register with Space
+    const space = element.findSpace() as any;
+    if (space && space.addReceptor) {
+      space.addReceptor(this);
+    }
   }
   
   async unmount(): Promise<void> {
@@ -69,6 +75,12 @@ export abstract class BaseTransform extends Component implements Transform {
   
   async mount(element: Element): Promise<void> {
     this.element = element;
+    
+    // Auto-register with Space
+    const space = element.findSpace() as any;
+    if (space && space.addTransform) {
+      space.addTransform(this);
+    }
   }
   
   async unmount(): Promise<void> {
@@ -87,6 +99,12 @@ export abstract class BaseEffector extends Component implements Effector {
   
   async mount(element: Element): Promise<void> {
     this.element = element;
+    
+    // Auto-register with Space
+    const space = element.findSpace() as any;
+    if (space && space.addEffector) {
+      space.addEffector(this);
+    }
   }
   
   async unmount(): Promise<void> {
@@ -120,6 +138,12 @@ export abstract class BaseMaintainer extends Component implements Maintainer {
   
   async mount(element: Element): Promise<void> {
     this.element = element;
+    
+    // Auto-register with Space
+    const space = element.findSpace() as any;
+    if (space && space.addMaintainer) {
+      space.addMaintainer(this);
+    }
   }
   
   async unmount(): Promise<void> {

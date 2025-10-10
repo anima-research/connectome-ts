@@ -107,6 +107,12 @@ export interface AfferentError {
  * TIMING: Returned deltas are applied IMMEDIATELY before Phase 2 begins
  */
 export interface Receptor extends Component {
+  /** 
+   * Optional priority for execution order (lower = runs earlier).
+   * Default: 50
+   */
+  priority?: number;
+  
   /** Which event topics this receptor handles */
   topics: string[];
   
@@ -162,6 +168,12 @@ export interface Transform extends Component {
  * Can emit events, perform side effects, or manage external connections
  */
 export interface Effector extends Component {
+  /** 
+   * Optional priority for execution order (lower = runs earlier).
+   * Default: 50
+   */
+  priority?: number;
+  
   /** Which facet types/patterns this effector watches */
   facetFilters?: FacetFilter[];
   
@@ -250,6 +262,12 @@ export interface MaintainerResult {
  * Events in MaintainerResult are queued for next frame.
  */
 export interface Maintainer extends Component {
+  /** 
+   * Optional priority for execution order (lower = runs earlier).
+   * Default: 50
+   */
+  priority?: number;
+  
   /** 
    * Perform maintenance operations
    * @returns events for next frame and deltas to apply immediately

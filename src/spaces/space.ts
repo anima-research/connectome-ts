@@ -36,6 +36,7 @@ import {
 } from './receptor-effector-types';
 import { VEILOperationReceptor } from './migration-adapters';
 import { SpaceAutoDiscovery } from './space-auto-discovery';
+import { groupByPriority } from '../utils/priorities';
 import { 
   isReceptor, 
   isTransform, 
@@ -135,7 +136,9 @@ export class Space extends Element {
     this.subscribe('agent:activate');
     
     // Add built-in VEIL operation receptor for compatibility
-    this.addReceptor(new VEILOperationReceptor());
+    const veilOpReceptor = new VEILOperationReceptor();
+    (veilOpReceptor as any).element = this; // Mount to Space
+    this.addReceptor(veilOpReceptor);
   }
   
   /**
@@ -196,6 +199,10 @@ export class Space extends Element {
   }
   
   addReceptor(receptor: Receptor): void {
+    if (!(receptor as any).element) {
+      throw new Error(`Receptor ${receptor.constructor.name} must be mounted to an element before registration. Use element.addComponent() or Space itself for space-level receptors.`);
+    }
+    
     for (const topic of receptor.topics) {
       const topicReceptors = this.receptors.get(topic) || [];
       topicReceptors.push(receptor);
@@ -234,6 +241,10 @@ export class Space extends Element {
    * @param transform - The transform to register
    */
   addTransform(transform: Transform): void {
+    if (!(transform as any).element) {
+      throw new Error(`Transform ${transform.constructor.name} must be mounted to an element before registration. Use element.addComponent() or Space itself for space-level transforms.`);
+    }
+    
     this.transforms.push(transform);
     
     // TODO [constraint-solver]: Replace this priority-based sort with topological sort
@@ -264,10 +275,16 @@ export class Space extends Element {
   }
   
   addEffector(effector: Effector): void {
+    if (!(effector as any).element) {
+      throw new Error(`Effector ${effector.constructor.name} must be mounted to an element before registration. Use element.addComponent() or Space itself for space-level effectors.`);
+    }
     this.effectors.push(effector);
   }
   
   addMaintainer(maintainer: Maintainer): void {
+    if (!(maintainer as any).element) {
+      throw new Error(`Maintainer ${maintainer.constructor.name} must be mounted to an element before registration. Use element.addComponent() or Space itself for space-level maintainers.`);
+    }
     this.maintainers.push(maintainer);
   }
   
@@ -466,41 +483,17 @@ export class Space extends Element {
       const phase1Deltas = this.runPhase1(processedEvents);
       const phase1Changes = this.veilState.applyDeltasDirect(phase1Deltas);
       
-      // PHASE 2: VEIL → VEIL (via Transforms) - loop until no more deltas
-      // Apply deltas directly to state (not creating intermediate frames)
-      const allPhase2Deltas: VEILDelta[] = [];
-      const allPhase2Changes: FacetDelta[] = [];
-      let iteration = 0;
-      const maxIterations = 100; // Prevent infinite loops
-      let lastPhase2Deltas: VEILDelta[] = [];
+      // Add Phase 1 deltas to currentFrame so they're visible during Phase 2
+      this.currentFrame.deltas.push(...phase1Deltas);
       
-      while (iteration < maxIterations) {
-        const phase2Deltas = this.runPhase2();
-        lastPhase2Deltas = phase2Deltas;
-        
-        if (phase2Deltas.length === 0) {
-          // No more deltas generated, we're done
-          break;
-        }
-        
-        // Apply deltas directly to state (no frame creation, no listener notification)
-        // This allows next iteration to see the changes immediately
-        const phase2Changes = this.veilState.applyDeltasDirect(phase2Deltas);
-        
-        allPhase2Deltas.push(...phase2Deltas);
-        allPhase2Changes.push(...phase2Changes);
-        iteration++;
-      }
+      // PHASE 2: VEIL → VEIL (via Transforms)
+      // Now handled entirely within runPhase2 with priority groups
+      const phase2Result = this.runPhase2();
+      const allPhase2Deltas = phase2Result.deltas;
+      const allPhase2Changes = phase2Result.changes;
       
-      if (iteration === maxIterations) {
-        throw new Error(`Phase 2 exceeded maximum iterations (${maxIterations}). Possible infinite loop in transforms. Last ${lastPhase2Deltas.length} deltas were of types: ${lastPhase2Deltas.map(d => d.type).join(', ')}`);
-      }
-      
-      // Collect all deltas for the complete frame
+      // Collect all deltas for the complete frame (already in currentFrame.deltas)
       frame.deltas = [...phase1Deltas, ...allPhase2Deltas];
-      
-      // Update currentFrame with all deltas
-      this.currentFrame.deltas = [...this.currentFrame.deltas, ...frame.deltas];
       
       // Finalize the frame: add to history, update sequence, notify listeners
       // State already has the changes from applyDeltasDirect calls
@@ -586,10 +579,10 @@ export class Space extends Element {
    * PHASE 1: Events → VEIL Deltas (Receptors)
    * Receptors can add facets, rewrite existing facets, or remove facets
    * Uses auto-discovery + manual registrations
+   * Processes receptors in priority groups
    */
   private runPhase1(events: SpaceEvent[]): VEILDelta[] {
-    const deltas: VEILDelta[] = [];
-    const readonlyState = this.getReadonlyState();
+    const allDeltas: VEILDelta[] = [];
     
     // Merge discovered + manual receptors
     const discovered = this.getDiscoveredComponents();
@@ -600,74 +593,130 @@ export class Space extends Element {
       allReceptors.set(topic, [...manual, ...discoveredList]);
     }
     
-    for (const event of events) {
-      const receptors = allReceptors.get(event.topic) || [];
+    // Flatten all receptors and group by priority
+    const allReceptorsList: Receptor[] = [];
+    for (const receptorList of allReceptors.values()) {
+      allReceptorsList.push(...receptorList);
+    }
+    const receptorGroups = groupByPriority(allReceptorsList);
+    
+    // Process each priority group
+    for (const [priority, receptors] of receptorGroups) {
+      const groupDeltas: VEILDelta[] = [];
       
-      for (const receptor of receptors) {
-        try {
-          const newDeltas = receptor.transform(event, readonlyState);
-          deltas.push(...newDeltas);
-        } catch (error) {
-          console.error(`Receptor error for ${event.topic}:`, error);
-          deltas.push({
-            type: 'addFacet',
-            facet: createEventFacet({
-              id: `error-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-              content: `Receptor error: ${String(error)}`,
-              source: 'space',
-              eventType: 'receptor-error',
-              metadata: {
-                event: event.topic,
-                error: String(error)
-              },
-              streamId: 'system',
-              streamType: 'system'
-            })
-          });
+      for (const event of events) {
+        for (const receptor of receptors) {
+          // Check if this receptor handles this event topic
+          if (!receptor.topics.includes(event.topic)) continue;
+          
+          try {
+            const newDeltas = receptor.transform(event, this.getReadonlyState());
+            groupDeltas.push(...newDeltas);
+          } catch (error) {
+            console.error(`Receptor error for ${event.topic}:`, error);
+            groupDeltas.push({
+              type: 'addFacet',
+              facet: createEventFacet({
+                id: `error-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+                content: `Receptor error: ${String(error)}`,
+                source: 'space',
+                eventType: 'receptor-error',
+                metadata: {
+                  event: event.topic,
+                  error: String(error)
+                },
+                streamId: 'system',
+                streamType: 'system'
+              })
+            });
+          }
         }
+      }
+      
+      // Apply this priority group's changes
+      if (groupDeltas.length > 0) {
+        this.veilState.applyDeltasDirect(groupDeltas);
+        this.currentFrame!.deltas.push(...groupDeltas);
+        allDeltas.push(...groupDeltas);
       }
     }
     
-    return deltas;
+    return allDeltas;
   }
   
   /**
    * PHASE 2: VEIL → VEIL
    * Uses auto-discovery + manual registrations
+   * Processes transforms in priority groups, each group runs to completion
    */
-  private runPhase2(): VEILDelta[] {
-    const deltas: VEILDelta[] = [];
-    const readonlyState = this.getReadonlyState();
+  private runPhase2(): { deltas: VEILDelta[], changes: FacetDelta[] } {
+    const allDeltas: VEILDelta[] = [];
+    const allChanges: FacetDelta[] = [];
+    const maxIterations = 100;
     
     // Merge discovered + manual transforms
     const discovered = this.getDiscoveredComponents();
     const allTransforms = [...this.transforms, ...discovered.transforms];
     
-    for (const transform of allTransforms) {
-      try {
-        const newDeltas = transform.process(readonlyState);
-        deltas.push(...newDeltas);
-      } catch (error) {
-        console.error('Transform error:', error);
-        deltas.push({
-          type: 'addFacet',
-          facet: createEventFacet({
-            id: `error-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-            content: `Transform error: ${String(error)}`,
-            source: 'space',
-            eventType: 'transform-error',
-            metadata: {
-              transform: transform.constructor.name,
-              error: String(error)
-            },
-            streamId: 'system',
-            streamType: 'system'
-          })
-        });
+    // Group transforms by priority
+    const transformGroups = groupByPriority(allTransforms);
+    
+    // Process each priority group to completion
+    for (const [priority, transforms] of transformGroups) {
+      let groupIteration = 0;
+      let lastGroupDeltas: VEILDelta[] = [];
+      
+      // Run this priority group until no more deltas
+      while (groupIteration < maxIterations) {
+        const groupDeltas: VEILDelta[] = [];
+        
+        for (const transform of transforms) {
+          try {
+            const newDeltas = transform.process(this.getReadonlyState());
+            groupDeltas.push(...newDeltas);
+          } catch (error) {
+            console.error('Transform error:', error);
+            groupDeltas.push({
+              type: 'addFacet',
+              facet: createEventFacet({
+                id: `error-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+                content: `Transform error: ${String(error)}`,
+                source: 'space',
+                eventType: 'transform-error',
+                metadata: {
+                  transform: transform.constructor.name,
+                  error: String(error)
+                },
+                streamId: 'system',
+                streamType: 'system'
+              })
+            });
+          }
+        }
+        
+        lastGroupDeltas = groupDeltas;
+        
+        if (groupDeltas.length === 0) break; // This group is stable
+        
+        // Apply and push deltas for this group
+        const groupChanges = this.veilState.applyDeltasDirect(groupDeltas);
+        this.currentFrame!.deltas.push(...groupDeltas);
+        allDeltas.push(...groupDeltas);
+        allChanges.push(...groupChanges);
+        
+        groupIteration++;
+      }
+      
+      if (groupIteration === maxIterations) {
+        throw new Error(
+          `Phase 2 priority group ${priority} exceeded maximum iterations (${maxIterations}). ` +
+          `Possible infinite loop in transforms. Last ${lastGroupDeltas.length} deltas were of types: ` +
+          `${lastGroupDeltas.map(d => d.type).join(', ')}`
+        );
       }
     }
     
-    return deltas;
+    return { deltas: allDeltas, changes: allChanges };
   }
   
   /**
@@ -675,95 +724,117 @@ export class Space extends Element {
    * Uses auto-discovery + manual registrations
    */
   private async runPhase3(changes: FacetDelta[]): Promise<SpaceEvent[]> {
-    const events: SpaceEvent[] = [];
-    const readonlyState = this.getReadonlyState();
+    const allEvents: SpaceEvent[] = [];
     
     // Merge discovered + manual effectors
     const discovered = this.getDiscoveredComponents();
     const allEffectors = [...this.effectors, ...discovered.effectors];
     
-    if (discovered.effectors.length > 0 && events.length === 0) {
+    if (discovered.effectors.length > 0 && allEvents.length === 0) {
       console.log(`[Phase3] Discovered ${discovered.effectors.length} effectors, ${allEffectors.length} total`);
     }
     
-    for (const effector of allEffectors) {
-      // Filter changes this effector cares about
-      const relevantChanges = changes.filter(change => 
-        this.matchesEffectorFilters(change.facet, effector.facetFilters || [])
-      );
-      if (relevantChanges.length === 0) continue;
+    // Group effectors by priority
+    const effectorGroups = groupByPriority(allEffectors);
+    
+    // Process each priority group
+    for (const [priority, effectors] of effectorGroups) {
+      const groupEvents: SpaceEvent[] = [];
       
-      try {
-        const result = await effector.process(relevantChanges, readonlyState);
+      for (const effector of effectors) {
+        // Filter changes this effector cares about
+        const relevantChanges = changes.filter(change => 
+          this.matchesEffectorFilters(change.facet, effector.facetFilters || [])
+        );
+        if (relevantChanges.length === 0) continue;
         
-        if (result.events) {
-          events.push(...result.events);
-        }
-        
-        // External actions can be surfaced through tracing or debug observers
-      } catch (error) {
-        console.error('Effector error:', error);
-        // Create error event
-        events.push({
-          topic: 'system:error',
-          source: this.getRef(),
-          timestamp: Date.now(),
-          payload: {
-            type: 'effector-error',
-            effector: effector.constructor.name,
-            error: String(error)
+        try {
+          const result = await effector.process(relevantChanges, this.getReadonlyState());
+          
+          if (result.events) {
+            groupEvents.push(...result.events);
           }
-        });
+          
+          // External actions can be surfaced through tracing or debug observers
+        } catch (error) {
+          console.error('Effector error:', error);
+          // Create error event
+          groupEvents.push({
+            topic: 'system:error',
+            source: this.getRef(),
+            timestamp: Date.now(),
+            payload: {
+              type: 'effector-error',
+              effector: effector.constructor.name,
+              error: String(error)
+            }
+          });
+        }
       }
+      
+      allEvents.push(...groupEvents);
     }
     
-    return events;
+    return allEvents;
   }
   
   /**
    * PHASE 4: Maintenance
    * Maintainers can modify VEIL for infrastructure concerns
    * Uses auto-discovery + manual registrations
+   * Processes maintainers in priority groups
    */
   private async runPhase4(frame: Frame, changes: FacetDelta[]): Promise<{ events: SpaceEvent[]; deltas: VEILDelta[] }> {
-    const events: SpaceEvent[] = [];
-    const deltas: VEILDelta[] = [];
-    const readonlyState = this.getReadonlyState();
+    const allEvents: SpaceEvent[] = [];
+    const allDeltas: VEILDelta[] = [];
     
     // Merge discovered + manual maintainers
     const discovered = this.getDiscoveredComponents();
     const allMaintainers = [...this.maintainers, ...discovered.maintainers];
     
-    for (const maintainer of allMaintainers) {
-      try {
-        const result = await maintainer.process(frame, changes, readonlyState);
-        
-        // Collect events for next frame
-        if (result.events) {
-          events.push(...result.events);
-        }
-        
-        // Collect deltas to apply in current frame
-        if (result.deltas) {
-          deltas.push(...result.deltas);
-        }
-      } catch (error) {
-        console.error('Maintainer error:', error);
-        // Create error event
-        events.push({
-          topic: 'system:error',
-          source: this.getRef(),
-          timestamp: Date.now(),
-          payload: {
-            type: 'maintainer-error',
-            maintainer: maintainer.constructor.name,
-            error: String(error)
+    // Group maintainers by priority
+    const maintainerGroups = groupByPriority(allMaintainers);
+    
+    // Process each priority group
+    for (const [priority, maintainers] of maintainerGroups) {
+      const groupEvents: SpaceEvent[] = [];
+      const groupDeltas: VEILDelta[] = [];
+      
+      for (const maintainer of maintainers) {
+        try {
+          const result = await maintainer.process(frame, changes, this.getReadonlyState());
+          
+          // Collect events for next frame
+          if (result.events) {
+            groupEvents.push(...result.events);
           }
-        });
+          
+          // Collect deltas to apply in current frame
+          if (result.deltas) {
+            groupDeltas.push(...result.deltas);
+          }
+        } catch (error) {
+          console.error('Maintainer error:', error);
+          // Create error event
+          groupEvents.push({
+            topic: 'system:error',
+            source: this.getRef(),
+            timestamp: Date.now(),
+            payload: {
+              type: 'maintainer-error',
+              maintainer: maintainer.constructor.name,
+              error: String(error)
+            }
+          });
+        }
       }
+      
+      // Collect deltas (will be applied by processFrame)
+      allDeltas.push(...groupDeltas);
+      allEvents.push(...groupEvents);
     }
     
-    return { events, deltas };
+    return { events: allEvents, deltas: allDeltas };
   }
   
   /**
