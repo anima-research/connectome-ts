@@ -132,12 +132,15 @@ export class PersistentSessionServer extends EventEmitter {
       throw new Error(`Session ${id} already exists`);
     }
 
-    const shell = options.shell || (process.platform === 'win32' ? 'powershell.exe' : '/bin/bash');
+    const shell = options.shell || (process.platform === 'win32' ? 'wsl.exe' : '/bin/bash');
     const cwd = options.cwd || process.cwd();
     const env = { ...process.env, ...options.env };
 
+    // For WSL, we need to tell it to run bash in Ubuntu specifically
+    const shellArgs = shell === 'wsl.exe' ? ['-d', 'Ubuntu', 'bash'] : [];
+
     // Create PTY instance
-    const ptyProcess = pty.spawn(shell, [], {
+    const ptyProcess = pty.spawn(shell, shellArgs, {
       name: 'xterm-color',
       cwd,
       env,
@@ -402,7 +405,8 @@ export class PersistentSessionServer extends EventEmitter {
     // Create session
     const sessionId = await this.createSession(options.name, {
       cwd: options.cwd,
-      env: options.env
+      env: options.env,
+      shell: options.shell
     });
 
     // Execute command and return quickly
