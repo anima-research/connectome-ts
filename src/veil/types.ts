@@ -1,6 +1,9 @@
 // VEIL (Virtual Environment Interface Language) Type Definitions
 
-export type FacetType = 'event' | 'state' | 'ambient' | 'tool' | 'speech' | 'thought' | 'action' | 'defineAction' | 'agentActivation';
+import type { FrameRenderedSnapshot } from './rendered-snapshot-types';
+
+// FacetType is now just a string - no restrictions!
+export type FacetType = string;
 
 export interface SaliencyHints {
   // Temporal hints
@@ -19,202 +22,39 @@ export interface SaliencyHints {
   linkedFrom?: string[];  // These facets link to this one (system-managed)
 }
 
-export interface BaseFacet {
-  id: string;
-  type: FacetType;
+// Import all facet types and aspects from the new file
+export * from './facet-types';
+
+// Export rendered snapshot types
+export * from './rendered-snapshot-types';
+
+// Legacy fields that aren't part of the clean aspect model
+interface LegacyFacetFields {
   displayName?: string;
-  content?: string;
   attributes?: Record<string, any>;
   scope?: string[];
-  children?: Facet[];
+  children?: any[];
   saliency?: SaliencyHints;
 }
 
-export interface EventFacet extends BaseFacet {
-  type: 'event';
+// Temporarily augment facets with legacy fields during migration
+import { BaseFacet as CleanBaseFacet } from './facet-types';
+declare module './facet-types' {
+  interface BaseFacet extends LegacyFacetFields {}
 }
 
-export interface StateFacet extends BaseFacet {
-  type: 'state';
-  // Optional functions to render individual attribute changes
-  attributeRenderers?: Record<string, (value: any, oldValue?: any) => string | null>;
-  // Optional functions to render state transitions as narrative events
-  transitionRenderers?: Record<string, (value: any, oldValue?: any) => string | null>;
-}
+// Legacy type aliases - to be removed
+export type ToolFacet = CleanBaseFacet & { type: 'action-definition' };
+export type DefineActionFacet = CleanBaseFacet & { type: 'action-definition' };
 
-export interface AmbientFacet extends BaseFacet {
-  type: 'ambient';
-  scope: string[]; // Required for ambient
-}
+// Import Facet type separately to avoid circular dependency
+import type { Facet } from './facet-types';
 
-export interface ToolFacet extends BaseFacet {
-  type: 'tool';
-  definition: {
-    name: string;
-    parameters: string[];
-    callback: string;
-  };
-}
+// Import VEILDelta from facet-types
+import { VEILDelta } from './facet-types';
 
-export interface SpeechFacet extends BaseFacet {
-  type: 'speech';
-  content: string;  // Required for speech
-  attributes?: {
-    target?: string;  // Which stream/channel this was said to
-    agentGenerated: boolean;
-    agentId?: string;  // Which agent created this
-    agentName?: string;  // For display purposes
-    conversationId?: string;  // For threading
-    inReplyTo?: string;  // For conversation flow
-  };
-}
-
-export interface ThoughtFacet extends BaseFacet {
-  type: 'thought';
-  content: string;  // Required for thoughts
-  scope?: string[];  // Usually includes 'agent-internal'
-  attributes?: {
-    agentGenerated: boolean;
-    agentId?: string;  // Which agent created this
-    agentName?: string;  // For display purposes
-    private?: boolean;
-  };
-}
-
-export interface ActionFacet extends BaseFacet {
-  type: 'action';
-  displayName: string;  // The tool name
-  content?: string;  // JSON stringified parameters
-  attributes: {
-    agentGenerated: boolean;
-    agentId?: string;  // Which agent created this
-    agentName?: string;  // For display purposes
-    toolName: string;
-    parameters: Record<string, any>;
-  };
-}
-
-export interface DefineActionFacet extends BaseFacet {
-  type: 'defineAction';
-  displayName: string;  // The tool name
-  content?: string;  // Description of the action
-  attributes: {
-    agentGenerated: boolean;
-    toolName: string;
-    parameters: Record<string, any>;
-  };
-}
-
-export interface AgentActivationFacet extends BaseFacet {
-  type: 'agentActivation';
-  content?: string;  // Reason for activation
-  attributes: {
-    source: string;      // Who requested activation
-    sourceAgentId?: string;  // ID of agent that triggered activation
-    sourceAgentName?: string; // Name of agent that triggered activation
-    priority: 'low' | 'normal' | 'high';
-    reason: string;      // Why activation was requested
-    targetAgent?: string; // Optional specific agent name (legacy)
-    targetAgentId?: string; // Optional specific agent ID (preferred)
-    config?: {
-      temperature?: number;
-      maxTokens?: number;
-      [key: string]: any;
-    };
-  };
-}
-
-export type Facet = EventFacet | StateFacet | AmbientFacet | ToolFacet | SpeechFacet | ThoughtFacet | ActionFacet | DefineActionFacet | AgentActivationFacet;
-
-// VEIL Operations
-export interface AddFacetOperation {
-  type: 'addFacet';
-  facet: Facet;
-}
-
-export interface ChangeStateOperation {
-  type: 'changeState';
-  facetId: string;
-  updates: {
-    content?: string;
-    attributes?: Record<string, any>;
-  };
-  updateMode?: 'full' | 'attributesOnly';  // Default is 'full' for backward compatibility
-}
-
-export interface AddScopeOperation {
-  type: 'addScope';
-  scope: string;
-}
-
-export interface DeleteScopeOperation {
-  type: 'deleteScope';
-  scope: string;
-}
-
-// Note: AgentActivationOperation has been replaced with AgentActivationFacet
-
-export interface AddStreamOperation {
-  type: 'addStream';
-  stream: StreamInfo;
-}
-
-export interface UpdateStreamOperation {
-  type: 'updateStream';
-  streamId: string;
-  updates: Partial<Omit<StreamInfo, 'id'>>;
-}
-
-export interface DeleteStreamOperation {
-  type: 'deleteStream';
-  streamId: string;
-}
-
-export interface RemoveFacetOperation {
-  type: 'removeFacet';
-  facetId: string;
-  mode: 'hide' | 'delete';
-}
-
-export interface ChangeFacetOperation {
-  type: 'changeFacet';
-  facetId: string;
-  updates: {
-    content?: string;
-    attributes?: Record<string, any>;
-  };
-}
-
-export interface AddAgentOperation {
-  type: 'addAgent';
-  agent: AgentInfo;
-}
-
-export interface RemoveAgentOperation {
-  type: 'removeAgent';
-  agentId: string;
-  reason?: string;  // Why the agent was removed
-}
-
-export interface UpdateAgentOperation {
-  type: 'updateAgent';
-  agentId: string;
-  updates: Partial<Omit<AgentInfo, 'id'>>;
-}
-
-export type VEILOperation = 
-  | AddFacetOperation 
-  | ChangeStateOperation 
-  | AddScopeOperation 
-  | DeleteScopeOperation 
-  | AddStreamOperation
-  | UpdateStreamOperation
-  | DeleteStreamOperation
-  | RemoveFacetOperation
-  | ChangeFacetOperation
-  | AddAgentOperation
-  | RemoveAgentOperation
-  | UpdateAgentOperation;
+// VEILOperation is now an alias for VEILDelta
+export type VEILOperation = VEILDelta;
 
 // Stream information
 export interface StreamInfo {
@@ -234,66 +74,75 @@ export interface StreamRef {
 export interface AgentInfo {
   id: string;  // Unique agent identifier
   name: string;  // Human-readable name
-  type?: string;  // e.g., "assistant", "tool", "system"
+  type?: string;  // e.g., "assistant", "action-definition", "system"
   capabilities?: string[];  // What the agent can do
   metadata?: Record<string, any>;  // Additional agent-specific data
   createdAt: string;  // When the agent joined
   lastActiveAt?: string;  // Last activity timestamp
 }
 
-// VEIL Frames
-export interface IncomingVEILFrame {
+// Import SpaceEvent for frame events
+import type { SpaceEvent } from '../spaces/types';
+
+// VEIL Frames - NOW UNIFIED!
+export interface Frame {
   sequence: number;
   timestamp: string;
   uuid?: string;
-  activeStream?: StreamRef; // Active stream reference with metadata
-  operations: VEILOperation[];
-  transition?: FrameTransition; // Mutable transition object for persistence
+  activeStream?: StreamRef;
+  events: SpaceEvent[];    // Events processed in this frame
+  deltas: VEILDelta[];     // Exotemporal changes
+  transition: FrameTransition;
+  
+  /**
+   * Optional: Snapshot of how this frame rendered at creation time
+   * 
+   * Captures the original subjective experience as chunked rendered content.
+   * Preserves what this frame looked like when it was created, even if later
+   * transforms modify earlier frames.
+   * 
+   * May not be present on older frames or if snapshot capture is disabled.
+   */
+  renderedSnapshot?: FrameRenderedSnapshot;
 }
 
-// Import at usage site to avoid circular dependencies
+
+// Legacy frame interface for migration
+export interface LegacyFrame {
+  sequence: number;
+  timestamp: string;
+  uuid?: string;
+  activeStream?: StreamRef;
+  deltas: VEILOperation[];
+  transition: FrameTransition;
+}
+
 export interface FrameTransition {
   sequence: number;
   timestamp: string;
   elementOps: any[];
   componentOps: any[];
   componentChanges: any[];
-  veilOps: VEILOperation[];
+  veilOps: VEILOperation[];  // Updated to use deltas
   extensions?: Record<string, any>;
 }
 
-// Agent-specific operations (these create facets internally)
-export interface SpeakOperation {
-  type: 'speak';
-  content: string;
-  target?: string; // Optional explicit target, overrides focus
-  targets?: string[]; // Optional multiple targets for broadcasting
+export function createDefaultTransition(sequence: number, timestamp: string): FrameTransition {
+  return {
+    sequence,
+    timestamp,
+    elementOps: [],
+    componentOps: [],
+    componentChanges: [],
+    veilOps: [],
+    extensions: {}
+  };
 }
 
-export interface ThinkOperation {
-  type: 'think';
-  content: string;
-}
+// Frame types are now unified - no more incoming/outgoing distinction
+// Turn attribution is determined by frame.events, not frame type
 
-export interface ActOperation {
-  type: 'act';
-  toolName: string;
-  parameters: Record<string, any>;
-  target?: string; // Optional target element
-}
-
-export type OutgoingVEILOperation = 
-  | SpeakOperation
-  | ThinkOperation
-  | ActOperation;
-
-export interface OutgoingVEILFrame {
-  sequence: number;
-  timestamp: string;
-  uuid?: string;
-  activeStream?: StreamRef;
-  operations: OutgoingVEILOperation[];
-}
+export type OutgoingVEILOperation = VEILOperation;
 
 // VEIL State
 export interface VEILState {
@@ -303,7 +152,11 @@ export interface VEILState {
   agents: Map<string, AgentInfo>;  // Active agents
   currentStream?: StreamRef;  // Currently active stream
   currentAgent?: string;  // Currently processing agent
-  frameHistory: (IncomingVEILFrame | OutgoingVEILFrame)[];
+  frameHistory: Frame[];
   currentSequence: number;
   removals: Map<string, 'hide' | 'delete'>;  // Tracks removed facets
+  
+  // Cached current state for state facets (performance optimization)
+  // Maps state facet ID → current computed state after applying all state-changes
+  currentStateCache: Map<string, any>;
 }

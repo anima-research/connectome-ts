@@ -1,11 +1,20 @@
 import { Component } from '../spaces/component';
 import { SpaceEvent } from '../spaces/types';
 import { createAxonEnvironment } from '../axon/environment';
+import { createAxonEnvironmentV2 } from '../axon/environment-v2';
 import { IAxonManifest, IAxonComponentConstructor } from '../axon/interfaces';
+import { IAxonManifestV2 } from '../axon/interfaces-v2';
 import { persistable, persistent } from '../persistence/decorators';
+import { Space } from '../spaces/space';
+import { 
+  Receptor, 
+  Effector, 
+  Transform, 
+  Maintainer 
+} from '../spaces/receptor-effector-types';
 
-// Use the interface from axon/interfaces
-type AxonManifest = IAxonManifest;
+// Use the extended interface for RETM support
+type AxonManifest = IAxonManifestV2;
 
 interface ModuleVersions {
   [module: string]: string;
@@ -57,6 +66,12 @@ export class AxonLoaderComponent extends Component {
   
   @persistent()
   private loadedComponentState?: any;
+  
+  @persistent()
+  private moduleType: 'component' | 'retm' | 'mixed' = 'component';
+  
+  @persistent()
+  private loadedExports: string[] = [];
   
   /**
    * Called when component is first created
@@ -317,8 +332,18 @@ export class AxonLoaderComponent extends Component {
       
       const moduleCode = await response.text();
       
-      // Create environment with framework capabilities
-      const env = createAxonEnvironment();
+      // Check if manifest indicates RETM support
+      const exports = this.manifest?.exports;
+      const hasRETMExports = exports && (
+        (exports.receptors && exports.receptors.length > 0) ||
+        (exports.effectors && exports.effectors.length > 0) ||
+        (exports.transforms && exports.transforms.length > 0) ||
+        (exports.maintainers && exports.maintainers.length > 0) ||
+        ((exports as any).afferents && (exports as any).afferents.length > 0)
+      );
+      
+      // Create appropriate environment
+      const env = hasRETMExports ? createAxonEnvironmentV2() : createAxonEnvironment();
       
       // Load dependencies first
       await this.loadDependencies(env);
@@ -351,12 +376,22 @@ export class AxonLoaderComponent extends Component {
       // Execute the module with the enhanced environment
       moduleFunc(moduleExports, module, enhancedEnv);
       
-      // Get the component class
-      const ComponentClass = module.exports as IAxonComponentConstructor;
+      // Check if this is a RETM module
+      if (hasRETMExports && typeof module.exports === 'object') {
+        // Handle RETM exports
+        await this.loadRETMModule(module.exports);
+        this.moduleType = module.exports.default ? 'mixed' : 'retm';
+        return;
+      }
+      
+      // Get the component class (traditional path)
+      const ComponentClass = module.exports.default || module.exports as IAxonComponentConstructor;
       
       if (!ComponentClass || typeof ComponentClass !== 'function') {
         throw new Error('Module does not export a valid component class');
       }
+      
+      this.moduleType = 'component';
       
       // Create an instance of the component
       this.loadedComponent = new ComponentClass() as unknown as Component;
@@ -402,7 +437,7 @@ export class AxonLoaderComponent extends Component {
         if (actions) {
           console.log(`[AxonLoader] Component declares actions:`, Object.keys(actions));
           for (const [actionName, actionDef] of Object.entries(actions)) {
-            const description = typeof actionDef === 'string' ? actionDef : actionDef.description;
+            const description = typeof actionDef === 'string' ? actionDef : (actionDef as any).description;
             console.log(`[AxonLoader] Action: ${this.element.id}.${actionName} - ${description}`);
           }
         }
@@ -505,6 +540,140 @@ export class AxonLoaderComponent extends Component {
     } catch (error) {
       console.error('[AxonLoader] Failed to setup hot reload:', error);
     }
+  }
+  
+  /**
+   * Load a RETM module and register its exports
+   */
+  private async loadRETMModule(moduleExports: any): Promise<void> {
+    const space = this.element?.space as Space | undefined;
+    if (!space) {
+      throw new Error('Cannot load RETM module: element not attached to space');
+    }
+    
+    console.log(`[AxonLoader] Loading RETM module with exports:`, Object.keys(moduleExports));
+    this.loadedExports = [];
+
+    // Initialize the module state with URL parameters if an initializer is provided
+    if (moduleExports.initializer && this.parsedUrl?.params) {
+      console.log(`[AxonLoader] Calling initializer with params:`, this.parsedUrl.params);
+      try {
+        // Call setConnectionParams if it exists
+        if (typeof moduleExports.initializer.setConnectionParams === 'function') {
+          moduleExports.initializer.setConnectionParams({
+            host: this.parsedUrl.host,
+            path: this.parsedUrl.path,
+            ...this.parsedUrl.params
+          });
+        } else if (typeof moduleExports.initializer.initialize === 'function') {
+          moduleExports.initializer.initialize({
+            host: this.parsedUrl.host,
+            path: this.parsedUrl.path,
+            ...this.parsedUrl.params
+          });
+        }
+        this.loadedExports.push('initializer');
+        console.log(`[AxonLoader] Initialized module with connection params`);
+      } catch (error) {
+        console.error(`[AxonLoader] Failed to initialize module:`, error);
+      }
+    }
+
+    // Register receptors
+    if (moduleExports.receptors) {
+      for (const [name, ReceptorClass] of Object.entries(moduleExports.receptors)) {
+        if (typeof ReceptorClass === 'function') {
+          try {
+            const receptor = new (ReceptorClass as any)();
+            space.addReceptor(receptor);
+            this.loadedExports.push(`receptor:${name}`);
+            console.log(`[AxonLoader] Registered receptor: ${name}`);
+          } catch (error) {
+            console.error(`[AxonLoader] Failed to register receptor ${name}:`, error);
+          }
+        }
+      }
+    }
+    
+    // Register effectors
+    if (moduleExports.effectors) {
+      for (const [name, EffectorClass] of Object.entries(moduleExports.effectors)) {
+        if (typeof EffectorClass === 'function') {
+          try {
+            const effector = new (EffectorClass as any)();
+            space.addEffector(effector);
+            this.loadedExports.push(`effector:${name}`);
+            console.log(`[AxonLoader] Registered effector: ${name}`);
+          } catch (error) {
+            console.error(`[AxonLoader] Failed to register effector ${name}:`, error);
+          }
+        }
+      }
+    }
+    
+    // Register transforms
+    if (moduleExports.transforms) {
+      for (const [name, TransformClass] of Object.entries(moduleExports.transforms)) {
+        if (typeof TransformClass === 'function') {
+          try {
+            const transform = new (TransformClass as any)();
+            space.addTransform(transform);
+            this.loadedExports.push(`transform:${name}`);
+            console.log(`[AxonLoader] Registered transform: ${name}`);
+          } catch (error) {
+            console.error(`[AxonLoader] Failed to register transform ${name}:`, error);
+          }
+        }
+      }
+    }
+    
+    // Register maintainers
+    if (moduleExports.maintainers) {
+      for (const [name, MaintainerClass] of Object.entries(moduleExports.maintainers)) {
+        if (typeof MaintainerClass === 'function') {
+          try {
+            const maintainer = new (MaintainerClass as any)();
+            space.addMaintainer(maintainer);
+            this.loadedExports.push(`maintainer:${name}`);
+            console.log(`[AxonLoader] Registered maintainer: ${name}`);
+          } catch (error) {
+            console.error(`[AxonLoader] Failed to register maintainer ${name}:`, error);
+          }
+        }
+      }
+    }
+    
+    // Also load traditional component if exported
+    if (moduleExports.default || moduleExports.component) {
+      const ComponentClass = moduleExports.default || moduleExports.component;
+      if (typeof ComponentClass === 'function') {
+        try {
+          this.loadedComponent = new ComponentClass() as unknown as Component;
+          await this.element.addComponentAsync(this.loadedComponent);
+          this.loadedExports.push('component:default');
+          console.log(`[AxonLoader] Also loaded traditional component`);
+        } catch (error) {
+          console.error(`[AxonLoader] Failed to load component:`, error);
+        }
+      }
+    }
+    
+    console.log(`[AxonLoader] RETM module loaded successfully. Exports: ${this.loadedExports.join(', ')}`);
+
+    // Emit module-loaded event for application to handle initialization
+    console.log(`[AxonLoader] Emitting axon:module-loaded event for application initialization`);
+    await space.emit({
+      topic: 'axon:module-loaded',
+      source: this.element.getRef(),
+      payload: {
+        module: this.manifest?.name || 'unknown',
+        exports: this.loadedExports
+      },
+      timestamp: Date.now()
+    });
+
+    // Give the application a chance to handle the event
+    await new Promise(resolve => setTimeout(resolve, 100));
   }
   
   /**

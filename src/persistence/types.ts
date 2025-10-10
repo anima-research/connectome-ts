@@ -2,7 +2,7 @@
  * Persistence system types and interfaces
  */
 
-import { VEILState, OutgoingVEILFrame, IncomingVEILFrame, StreamRef } from '../veil/types';
+import { VEILState, Frame, StreamRef } from '../veil/types';
 import { ElementRef } from '../spaces/types';
 import type { RenderedContext } from '../hud/types-v2';
 
@@ -119,7 +119,7 @@ export interface CompressedFrameBatch {
 export interface FrameDelta {
   sequence: number;
   timestamp: string;
-  frame: IncomingVEILFrame | OutgoingVEILFrame;
+  frame: Frame;
   elementOperations?: ElementOperation[];
   renderedContext?: RenderedContextSnapshot;
 }

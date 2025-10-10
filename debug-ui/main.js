@@ -12,11 +12,11 @@ import {
 function normalizeFrame(frame) {
   return {
     events: [],
-    operations: [],
+    deltas: [],
     renderedContext: null,
     ...frame,
     events: frame.events ? [...frame.events] : [],
-    operations: frame.operations ? [...frame.operations] : [],
+    deltas: frame.deltas ? [...frame.deltas] : [],
     kind: frame.kind || 'incoming'
   };
 }
@@ -768,7 +768,7 @@ const App = {
           ...existing,
           ...incoming,
           events: incoming.events.length ? incoming.events : existing.events,
-          operations: incoming.operations.length ? incoming.operations : existing.operations,
+          deltas: incoming.deltas.length ? incoming.deltas : existing.deltas,
           renderedContext: incoming.renderedContext || existing.renderedContext
         };
       }
@@ -1140,14 +1140,14 @@ const App = {
 
       const frame = state.frames.find(f => f.uuid === uuid);
       if (changed) {
-        state.selectedOperationIndex = frame?.operations?.length ? 0 : null;
+        state.selectedOperationIndex = frame?.deltas?.length ? 0 : null;
         state.selectedEventIndex = frame?.events?.length ? 0 : null;
       } else {
-        if (frame?.operations?.length) {
+        if (frame?.deltas?.length) {
           if (state.selectedOperationIndex == null) {
             state.selectedOperationIndex = 0;
-          } else if (state.selectedOperationIndex >= frame.operations.length) {
-            state.selectedOperationIndex = frame.operations.length - 1;
+          } else if (state.selectedOperationIndex >= frame.deltas.length) {
+            state.selectedOperationIndex = frame.deltas.length - 1;
           }
         } else {
           state.selectedOperationIndex = null;
@@ -1755,7 +1755,7 @@ const App = {
     const selectedOperation = computed(() => {
       const frame = selectedFrame.value;
       if (!frame || state.selectedOperationIndex == null) return null;
-      return frame.operations?.[state.selectedOperationIndex] || null;
+      return frame.deltas?.[state.selectedOperationIndex] || null;
     });
 
     const selectedEvent = computed(() => {
@@ -1985,7 +1985,7 @@ const App = {
                 <span class="frame-seq">#{{ frame.sequence }}</span>
                 <span class="frame-kind" :class="frame.kind">{{ frame.kind }}</span>
                 <span class="frame-time">{{ formatTimestamp(frame.timestamp).split(' ')[1] }}</span>
-                <span class="frame-stats">{{ frame.operations?.length || 0 }}op {{ frame.events?.length || 0 }}ev</span>
+                <span class="frame-stats">{{ frame.deltas?.length || 0 }}op {{ frame.events?.length || 0 }}ev</span>
                 <span v-if="frame.durationMs" class="frame-duration">{{ frame.durationMs.toFixed(0) }}ms</span>
               </div>
               <div v-if="!filteredFrames.length" class="text-muted">No frames yet.</div>
@@ -2284,8 +2284,8 @@ const App = {
                 <div class="section">
                   <h3>Operations</h3>
                   <div class="log-viewer operations">
-                    <div v-if="!selectedFrame.operations?.length" class="text-muted">No operations.</div>
-                    <template v-for="(op, idx) in selectedFrame.operations" :key="idx">
+                    <div v-if="!selectedFrame.deltas?.length" class="text-muted">No operations.</div>
+                    <template v-for="(op, idx) in selectedFrame.deltas" :key="idx">
                       <div v-if="op.type === 'addFacet' && op.facet" class="log-entry facet-entry">
                         <div class="facet-header" @click="selectOperation(op, idx)">
                           <span class="log-type">{{ op.type }}</span>

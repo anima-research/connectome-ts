@@ -9,9 +9,10 @@ import { debugLLMBridge, DebugLLMRequest } from '../llm/debug-llm-bridge';
 
 import type { Space } from '../spaces/space';
 import { VEILStateManager } from '../veil/veil-state';
-import type { IncomingVEILFrame, OutgoingVEILFrame, Facet, StreamRef, StreamInfo } from '../veil/types';
+import type { Frame, Facet, StreamRef, StreamInfo } from '../veil/types';
+import { hasContentAspect } from '../veil/types';
 import type { SpaceEvent, ElementRef } from '../spaces/types';
-import type { DebugObserver, DebugFrameStartContext, DebugFrameCompleteContext, DebugEventContext, DebugOutgoingFrameContext, DebugRenderedContextInfo } from './types';
+import type { DebugObserver, DebugFrameStartContext, DebugFrameCompleteContext, DebugEventContext, DebugAgentFrameContext, DebugRenderedContextInfo } from './types';
 import { deterministicUUID } from '../utils/uuid';
 import { Element } from '../spaces/element';
 import type { Component } from '../spaces/component';
@@ -55,7 +56,7 @@ interface DebugFrameRecord {
   sequence: number;
   timestamp: string;
   kind: 'incoming' | 'outgoing';
-  operations: any[];
+  deltas: any[];
   events: DebugEventRecord[];
   queueLength?: number;
   durationMs?: number;
@@ -69,8 +70,7 @@ interface DebugFrameRecord {
 }
 
 interface DebugMetrics {
-  incomingFrames: number;
-  outgoingFrames: number;
+  frameCount: number;
   lastFrameTimestamp?: string;
   averageDurationMs: number;
   totalEvents: number;
@@ -163,35 +163,35 @@ class DebugStateTracker extends EventEmitter implements DebugObserver {
   private frames: DebugFrameRecord[] = [];
   private frameIndex: Map<string, DebugFrameRecord> = new Map();
   private metrics: DebugMetrics = {
-    incomingFrames: 0,
-    outgoingFrames: 0,
+    frameCount: 0,
     averageDurationMs: 0,
     totalEvents: 0
   };
+  private completedFrames = 0;
 
   constructor(private maxFrames: number) {
     super();
   }
 
-  onFrameStart(frame: IncomingVEILFrame, context: DebugFrameStartContext): void {
-    const uuid = frame.uuid || deterministicUUID(`incoming-${frame.sequence}`);
+  onFrameStart(frame: Frame, context: DebugFrameStartContext): void {
+    const uuid = frame.uuid || deterministicUUID(`frame-${frame.sequence}`);
     const record: DebugFrameRecord = {
       uuid,
       sequence: frame.sequence,
       timestamp: frame.timestamp,
-      kind: 'incoming',
+      kind: inferFrameKind(frame, 'incoming'),
       events: [],
-      operations: [],
+      deltas: [],
       queueLength: context.queuedEvents,
       activeStream: frame.activeStream
     };
     this.insertFrame(record);
-    this.metrics.incomingFrames += 1;
+    this.metrics.frameCount += 1;
     this.metrics.lastFrameTimestamp = frame.timestamp;
     this.emit('frame:start', record);
   }
 
-  onFrameEvent(frame: IncomingVEILFrame, event: SpaceEvent, context: DebugEventContext): void {
+  onFrameEvent(frame: Frame, event: SpaceEvent, context: DebugEventContext): void {
     const record = this.lookup(frame);
     if (!record) return;
 
@@ -210,47 +210,50 @@ class DebugStateTracker extends EventEmitter implements DebugObserver {
     this.emit('frame:event', { frame: record, event: eventRecord });
   }
 
-  onFrameComplete(frame: IncomingVEILFrame, context: DebugFrameCompleteContext): void {
+  onFrameComplete(frame: Frame, context: DebugFrameCompleteContext): void {
     const record = this.lookup(frame);
     if (!record) return;
 
-    record.operations = frame.operations.map(op => sanitizePayload(op));
+    record.deltas = frame.deltas.map(op => sanitizePayload(op));
     record.durationMs = context.durationMs;
     record.processedEvents = context.processedEvents;
     record.activeStream = frame.activeStream;
+    record.events = sanitizeFrameEvents(frame, record.uuid);
+    record.kind = inferFrameKind(frame, record.kind);
 
     if (context.durationMs > 0) {
-      const totalDuration = this.metrics.averageDurationMs * (this.metrics.incomingFrames - 1) + context.durationMs;
-      this.metrics.averageDurationMs = totalDuration / this.metrics.incomingFrames;
+      this.completedFrames += 1;
+      const totalDuration = this.metrics.averageDurationMs * (this.completedFrames - 1) + context.durationMs;
+      this.metrics.averageDurationMs = totalDuration / this.completedFrames;
     }
 
     this.emit('frame:complete', record);
   }
 
-  onOutgoingFrame(frame: OutgoingVEILFrame, context: DebugOutgoingFrameContext): void {
-    const uuid = frame.uuid || deterministicUUID(`outgoing-${frame.sequence}`);
+  onAgentFrame(frame: Frame, context: DebugAgentFrameContext): void {
+    const uuid = frame.uuid || deterministicUUID(`agent-${frame.sequence}`);
     const record: DebugFrameRecord = {
       uuid,
       sequence: frame.sequence,
       timestamp: frame.timestamp,
-      kind: 'outgoing',
-      events: [],
-      operations: frame.operations.map(op => sanitizePayload(op)),
-      agent: {
+      kind: inferFrameKind(frame, 'outgoing'),
+      events: sanitizeFrameEvents(frame, uuid),
+      deltas: frame.deltas.map(op => sanitizePayload(op)),
+      agent: context.agentId || context.agentName ? {
         id: context.agentId,
         name: context.agentName
-      },
+      } : undefined,
       activeStream: frame.activeStream
     };
 
-    // Capture raw completion if attached
     if ((frame as any).renderedContext) {
       record.renderedContext = sanitizePayload((frame as any).renderedContext) as RenderedContext;
     }
 
     this.insertFrame(record);
-    this.metrics.outgoingFrames += 1;
+    this.metrics.frameCount += 1;
     this.metrics.lastFrameTimestamp = frame.timestamp;
+    this.metrics.totalEvents += record.events.length;
     this.emit('frame:outgoing', record);
   }
 
@@ -307,14 +310,14 @@ class DebugStateTracker extends EventEmitter implements DebugObserver {
     this.frames = [];
     this.frameIndex.clear();
     this.metrics = {
-      incomingFrames: 0,
-      outgoingFrames: 0,
+      frameCount: 0,
       averageDurationMs: 0,
       totalEvents: 0
     };
+    this.completedFrames = 0;
   }
 
-  private lookup(frame: IncomingVEILFrame | OutgoingVEILFrame): DebugFrameRecord | undefined {
+  private lookup(frame: Frame): DebugFrameRecord | undefined {
     const uuid = frame.uuid || deterministicUUID(`${frame.sequence}`);
     return this.frameIndex.get(uuid);
   }
@@ -382,15 +385,51 @@ class DebugStateTracker extends EventEmitter implements DebugObserver {
     this.insertFrame(record);
     
     // Update metrics
-    if (record.kind === 'incoming') {
-      this.metrics.incomingFrames += 1;
-    } else {
-      this.metrics.outgoingFrames += 1;
-    }
+    this.metrics.frameCount += 1;
     this.metrics.totalEvents += record.events.length;
     this.metrics.lastFrameTimestamp = record.timestamp;
   }
 
+}
+
+function inferFrameKind(
+  frame: Frame,
+  fallback: 'incoming' | 'outgoing' = 'incoming'
+): 'incoming' | 'outgoing' {
+  if (Array.isArray(frame.events)) {
+    // Check for agent-generated events by looking at VEIL operations from agent elements
+    const hasAgentEvents = frame.events.some(event => {
+      if (event?.topic === 'veil:operation' && event.source) {
+        // Check if source is an agent element
+        return event.source.elementId?.includes('agent') || 
+               event.source.elementType === 'AgentElement';
+      }
+      return false;
+    });
+    if (hasAgentEvents) {
+      return 'outgoing';
+    }
+  }
+  return fallback;
+}
+
+function sanitizeFrameEvents(
+  frame: Frame,
+  recordUuid: string
+): DebugEventRecord[] {
+  if (!Array.isArray(frame.events) || frame.events.length === 0) {
+    return [];
+  }
+
+  return frame.events.map((event, index) => ({
+    id: deterministicUUID(`${recordUuid}:evt:${index}`),
+    topic: event.topic,
+    source: sanitizePayload(event.source),
+    target: sanitizePayload(event.target),
+    payload: sanitizePayload(event.payload),
+    phase: event.eventPhase !== undefined ? (EventPhaseName[event.eventPhase] || 'unknown') : 'unknown',
+    timestamp: event.timestamp
+  }));
 }
 
 const EventPhaseName: Record<number, string> = {
@@ -448,7 +487,7 @@ function serializeElement(element: Element): SerializedElement {
 }
 
 interface SerializedVEILState {
-  facets: Array<Facet & { facetId: string }>;
+  facets: Array<Facet & { id: string }>;
   streams: Array<{ id: string; info: StreamInfo }>;
   currentStream?: StreamRef;
   sequence: number;
@@ -461,7 +500,7 @@ function serializeVEILStateSimple(stateManager: VEILStateManager): SerializedVEI
   return {
     facets: Array.from(state.facets.values()).map(facet => ({
       ...sanitizePayload(facet),
-      facetId: facet.id
+      id: facet.id
     })),
     streams: Array.from(state.streams.entries()).map(([id, stream]) => ({
       id,
@@ -473,11 +512,12 @@ function serializeVEILStateSimple(stateManager: VEILStateManager): SerializedVEI
 }
 
 function sanitizeFacetTreeNode(facet: Facet, depth: number = 0): any {
+  const content = hasContentAspect(facet) ? facet.content : '';
   const baseNode = {
     id: facet.id,
     type: facet.type,
     displayName: facet.displayName || '',
-    content: facet.content || ''
+    content
   };
 
   if (depth >= FACET_TREE_MAX_DEPTH) {
@@ -498,7 +538,8 @@ function sanitizeFacetTreeNode(facet: Facet, depth: number = 0): any {
 }
 
 function describeFacet(facet: Facet): string {
-  return `${facet.id}:${facet.type || 'unknown'}:${facet.displayName || facet.content || ''}`;
+  const content = hasContentAspect(facet) ? facet.content : '';
+  return `${facet.id}:${facet.type || 'unknown'}:${facet.displayName || content}`;
 }
 
 interface FrameListResponse {
@@ -532,8 +573,8 @@ export class DebugServer {
     this.setupMiddleware();
     this.setupRoutes();
     this.setupWebSocket();
-    this.setupStaticAssets();
     this.setupDebugLLMBridge();
+    this.setupStaticAssets();  // Move to end so 404 handler comes last
   }
 
   private loadHistoricalFrames(): void {
@@ -544,17 +585,16 @@ export class DebugServer {
     
     // Convert VEIL frames to debug frame records
     frameHistory.forEach(frame => {
-      const isOutgoing = 'operations' in frame && frame.operations.some(
-        (op: any) => op.type === 'speak' || op.type === 'act' || op.type === 'think'
-      );
-      
+      const inferredKind = inferFrameKind(frame, 'incoming');
+      const uuid = frame.uuid || deterministicUUID(`${inferredKind}-${frame.sequence}`);
+
       const record: DebugFrameRecord = {
-        uuid: frame.uuid || deterministicUUID(`${isOutgoing ? 'outgoing' : 'incoming'}-${frame.sequence}`),
+        uuid,
         sequence: frame.sequence,
         timestamp: frame.timestamp,
-        kind: isOutgoing ? 'outgoing' : 'incoming',
-        events: [],
-        operations: frame.operations.map((op: any) => sanitizePayload(op)),
+        kind: inferredKind,
+        events: sanitizeFrameEvents(frame, uuid),
+        deltas: (frame.deltas || []).map((op: any) => sanitizePayload(op)),
         queueLength: 0,
         activeStream: frame.activeStream
       };
@@ -644,7 +684,16 @@ export class DebugServer {
   }
 
   private setupMiddleware(): void {
+    console.log('[DebugServer] Setting up middleware...');
+    
     this.app.use(express.json({ limit: '1mb' }));
+    
+    // Request logging middleware
+    this.app.use((req, res, next) => {
+      console.log(`[DebugServer] Request: ${req.method} ${req.path}`);
+      next();
+    });
+    
     this.app.use((req, res, next) => {
       if (this.config.corsOrigins.includes('*')) {
         res.setHeader('Access-Control-Allow-Origin', '*');
@@ -659,10 +708,15 @@ export class DebugServer {
       res.setHeader('Cache-Control', 'no-store');
       next();
     });
+    
+    console.log('[DebugServer] Middleware setup complete');
   }
 
   private setupRoutes(): void {
+    console.log('[DebugServer] Setting up API routes...');
+    
     this.app.get('/api/frames', (req, res) => {
+      console.log('[DebugServer] /api/frames requested');
       const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : undefined;
       const offset = req.query.offset ? parseInt(String(req.query.offset), 10) : 0;
       const frames = this.tracker.getFrames(limit, offset);
@@ -670,6 +724,8 @@ export class DebugServer {
       const response: FrameListResponse = { frames, metrics };
       res.json(response);
     });
+    
+    console.log('[DebugServer] Registered /api/frames route');
 
     this.app.get('/api/frames/:uuid', (req, res) => {
       const frame = this.tracker.getFrame(req.params.uuid);
@@ -920,9 +976,21 @@ export class DebugServer {
       return;
     }
 
-    this.app.use(express.static(uiPath));
+    // Serve UI static files from /ui/* to avoid catching API routes
+    this.app.use('/ui', express.static(uiPath));
+    
     this.app.get('/', (_req, res) => {
-      res.sendFile(path.join(uiPath, 'index.html'));
+      const indexPath = path.join(uiPath, 'index.html');
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.send('<html><body><h1>Connectome Debug Server</h1><p>API available at /api/*</p><p>UI files not found</p></body></html>');
+      }
+    });
+    
+    // Add 404 handler for unmatched routes (after all other routes)
+    this.app.use((req, res) => {
+      res.status(404).json({ error: 'Not found', path: req.path });
     });
   }
 
@@ -958,32 +1026,8 @@ export class DebugServer {
     const framesToApply = state.frameHistory.filter(frame => frame.sequence <= sequence);
     
     
-    let incomingCount = 0;
-    let outgoingCount = 0;
-    let facetOpsCount = { add: 0, remove: 0, hide: 0 };
-
     for (const frame of framesToApply) {
-      // Determine frame type by checking for outgoing operations
-      const isIncoming = !frame.operations.some((op: any) => 
-        op.type === 'speak' || op.type === 'act' || op.type === 'think'
-      );
-      
-      if (isIncoming) {
-        const inFrame = frame as IncomingVEILFrame;
-        temp.applyIncomingFrame(inFrame);
-        incomingCount += 1;
-        
-        // Count facet operations in incoming frames
-        if (inFrame.operations) {
-          for (const op of inFrame.operations) {
-            if (op.type === 'addFacet') facetOpsCount.add++;
-            else if (op.type === 'removeFacet') facetOpsCount.remove++;
-          }
-        }
-      } else {
-        temp.recordOutgoingFrame(frame as OutgoingVEILFrame);
-        outgoingCount += 1;
-      }
+      temp.applyFrame(frame);
     }
 
     let snapshot = temp.getState();

@@ -6,7 +6,7 @@ import { VEILComponent } from '../components/base-components';
 import { SpaceEvent, FrameEndEvent, AgentResponseEvent } from '../spaces/types';
 import { AgentInterface, AgentCommand, AgentConfig } from './types';
 import { Space } from '../spaces/space';
-import { OutgoingVEILOperation, AgentInfo } from '../veil/types';
+import { Facet, AgentLifecycleFacet, hasStateAspect } from '../veil/types';
 import { persistable, persistent } from '../persistence/decorators';
 import { reference, RestorableComponent } from '../host/decorators';
 import { LLMProvider } from '../llm/llm-interface';
@@ -87,10 +87,9 @@ export class AgentComponent extends VEILComponent implements RestorableComponent
     // Unregister agent from VEIL state
     if (this.veilState) {
       this.addOperation({
-        type: 'removeAgent',
-        agentId: this.element.id,
-        reason: 'Component unmounted'
-      } as any);
+        type: 'addFacet',
+        facet: this.createAgentLifecycleFacet('deregister')
+      });
     }
   }
   
@@ -114,9 +113,9 @@ export class AgentComponent extends VEILComponent implements RestorableComponent
           };
           
           this.addOperation({
-            type: 'addAgent',
-            agent: agentInfo
-          } as any);
+            type: 'addFacet',
+            facet: this.createAgentLifecycleFacet('register', agentInfo)
+          });
           
           this.agentRegistered = true;
         }
@@ -145,15 +144,20 @@ export class AgentComponent extends VEILComponent implements RestorableComponent
     if (!frame || !event.payload.hasOperations) return;
     
     // Check if this agent should handle this frame - look for activation facets
-    const activationOps = frame.operations.filter((op: any) => 
-      op.type === 'addFacet' && op.facet?.type === 'agentActivation'
+    const activationOps = frame.deltas.filter((op: any) => 
+      op.type === 'addFacet' && op.facet?.type === 'agent-activation'
     );
     if (activationOps.length === 0) return;
-    
+
     // Check if any activation targets this agent (or no target specified)
     const shouldHandle = activationOps.some((op: any) => {
-      const targetAgent = op.facet?.attributes?.targetAgent;
-      const targetAgentId = op.facet?.attributes?.targetAgentId;
+      const facet = op.facet as Facet | undefined;
+      if (!facet || !hasStateAspect(facet)) {
+        return false;
+      }
+      const activationState = facet.state as Record<string, any>;
+      const targetAgent = activationState.targetAgent ?? activationState.targetAgentName;
+      const targetAgentId = activationState.targetAgentId as string | undefined;
       
       // Check by ID first, then by name
       if (targetAgentId) {
@@ -210,7 +214,23 @@ export class AgentComponent extends VEILComponent implements RestorableComponent
       console.log(`[Agent ${this.element.name}] Currently sleeping, may have ignored low-priority activations`);
     }
   }
-  
+
+  private createAgentLifecycleFacet(
+    operation: AgentLifecycleFacet['state']['operation'],
+    agentInfo?: AgentLifecycleFacet['state']['agentInfo']
+  ): AgentLifecycleFacet {
+    return {
+      id: `agent-lifecycle-${this.element?.id || 'unknown'}-${Date.now()}`,
+      type: 'agent-lifecycle',
+      state: {
+        operation,
+        agentId: this.element?.id || 'unknown',
+        agentInfo
+      },
+      ephemeral: true
+    };
+  }
+
   private handleAgentCommand(command: AgentCommand): void {
     if (!this.agent) {
       console.warn('[AgentComponent] No agent set');

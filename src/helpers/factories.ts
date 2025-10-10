@@ -8,19 +8,20 @@ import type {
   ElementRef
 } from '../spaces/types';
 import type {
-  VEILOperation,
+  VEILDelta,
   Facet,
-  FacetType,
-  BaseFacet,
   AgentActivationFacet,
-  AddFacetOperation,
-  RemoveFacetOperation,
-  ChangeStateOperation,
-  ChangeFacetOperation,
-  AddStreamOperation,
-  SpeakOperation
+  SpeechFacet,
+  ThoughtFacet,
+  ActionFacet,
+  EventFacet,
+  StateFacet,
+  AmbientFacet,
+  StreamRewriteFacet,
+  InternalStateFacet
 } from '../veil/types';
 import { Element } from '../spaces/element';
+import { validateFacet } from '../validation/facet-validation';
 
 // Counter for friendly sequential IDs
 let idCounter = 0;
@@ -34,6 +35,266 @@ let idCounter = 0;
 export function friendlyId(prefix: string, unique: boolean = true): string {
   if (!unique) return prefix;
   return `${prefix}-${++idCounter}`;
+}
+
+// ============================================
+// Facet builder helpers (aspect-aware)
+// ============================================
+
+export interface SpeechFacetInit {
+  content: string;
+  agentId: string;
+  streamId: string;
+  id?: string;
+  agentName?: string;
+  streamType?: string;
+}
+
+export function createSpeechFacet(init: SpeechFacetInit): SpeechFacet {
+  const { content, agentId, streamId, id, agentName, streamType } = init;
+  const facet: SpeechFacet = {
+    id: id ?? friendlyId('speech'),
+    type: 'speech',
+    content,
+    agentId,
+    ...(agentName ? { agentName } : {}),
+    streamId,
+    ...(streamType ? { streamType } : {})
+  };
+  
+  // Validate before returning
+  validateFacet(facet, 'speech', { context: 'createSpeechFacet' });
+  
+  return facet;
+}
+
+export interface ThoughtFacetInit {
+  content: string;
+  agentId: string;
+  streamId: string;
+  id?: string;
+  agentName?: string;
+  streamType?: string;
+}
+
+export function createThoughtFacet(init: ThoughtFacetInit): ThoughtFacet {
+  const { content, agentId, streamId, id, agentName, streamType } = init;
+  const facet: ThoughtFacet = {
+    id: id ?? friendlyId('thought'),
+    type: 'thought',
+    content,
+    agentId,
+    ...(agentName ? { agentName } : {}),
+    streamId,
+    ...(streamType ? { streamType } : {})
+  };
+  
+  // Validate before returning
+  validateFacet(facet, 'thought', { context: 'createThoughtFacet' });
+  
+  return facet;
+}
+
+export interface ActionFacetInit {
+  toolName: string;
+  parameters?: Record<string, any>;
+  agentId: string;
+  streamId: string;
+  content?: string;
+  id?: string;
+  agentName?: string;
+  streamType?: string;
+}
+
+export function createActionFacet(init: ActionFacetInit): ActionFacet {
+  const {
+    toolName,
+    parameters = {},
+    agentId,
+    agentName,
+    streamId,
+    streamType,
+    content = `@${toolName}`,
+    id
+  } = init;
+
+  const facet: ActionFacet = {
+    id: id ?? friendlyId('action'),
+    type: 'action',
+    content,
+    state: {
+      toolName,
+      parameters
+    },
+    agentId,
+    ...(agentName ? { agentName } : {}),
+    streamId,
+    ...(streamType ? { streamType } : {})
+  };
+  
+  // Validate before returning
+  validateFacet(facet, 'action', { context: 'createActionFacet' });
+  
+  return facet;
+}
+
+export interface EventFacetInit {
+  content: string;
+  source: string;
+  eventType: string;
+  streamId: string;
+  metadata?: any;
+  id?: string;
+  streamType?: string;
+}
+
+export function createEventFacet(init: EventFacetInit): EventFacet {
+  const { content, source, eventType, metadata, streamId, streamType, id } = init;
+  const facet: EventFacet = {
+    id: id ?? friendlyId('event'),
+    type: 'event',
+    content,
+    state: {
+      source,
+      eventType,
+      ...(metadata !== undefined ? { metadata } : {})
+    },
+    streamId,
+    ...(streamType ? { streamType } : {})
+  };
+  
+  // Validate before returning
+  validateFacet(facet, 'event', { context: 'createEventFacet' });
+  
+  return facet;
+}
+
+export interface StateFacetInit {
+  content: string;
+  entityType: StateFacet['entityType'];
+  entityId: string;
+  state?: Record<string, any>;
+  scopes?: string[];
+  id?: string;
+  // Renderers can be provided as functions (will be converted to strings) or as strings
+  attributeRenderers?: Record<string, ((value: any) => string | null) | string>;
+  transitionRenderers?: Record<string, ((newValue: any, oldValue: any) => string | null) | string>;
+}
+
+export function createStateFacet(init: StateFacetInit): StateFacet {
+  const { 
+    content, 
+    entityType, 
+    entityId, 
+    state = {}, 
+    scopes = [], 
+    id,
+    attributeRenderers,
+    transitionRenderers
+  } = init;
+  
+  const facet: StateFacet = {
+    id: id ?? friendlyId('state'),
+    type: 'state',
+    content,
+    state,
+    entityType,
+    entityId,
+    scopes
+  };
+  
+  // Add renderers if provided, converting functions to strings
+  if (attributeRenderers) {
+    facet.attributeRenderers = {};
+    for (const [key, renderer] of Object.entries(attributeRenderers)) {
+      facet.attributeRenderers[key] = typeof renderer === 'function' 
+        ? `return (${renderer.toString()})(value);`
+        : renderer;
+    }
+  }
+  if (transitionRenderers) {
+    facet.transitionRenderers = {};
+    for (const [key, renderer] of Object.entries(transitionRenderers)) {
+      facet.transitionRenderers[key] = typeof renderer === 'function'
+        ? `return (${renderer.toString()})(newValue, oldValue);`
+        : renderer;
+    }
+  }
+  
+  // Validate before returning
+  validateFacet(facet, 'state', { context: 'createStateFacet' });
+  
+  return facet;
+}
+
+export interface AmbientFacetInit {
+  content: string;
+  streamId: string;
+  streamType?: string;
+  id?: string;
+}
+
+export function createAmbientFacet(init: AmbientFacetInit): AmbientFacet {
+  const { content, streamId, streamType, id } = init;
+  const facet: AmbientFacet = {
+    id: id ?? friendlyId('ambient'),
+    type: 'ambient',
+    content,
+    streamId,
+    ...(streamType ? { streamType } : {})
+  };
+  
+  // Validate before returning
+  validateFacet(facet, 'ambient', { context: 'createAmbientFacet' });
+  
+  return facet;
+}
+
+export interface StreamRewriteFacetInit {
+  operation: StreamRewriteFacet['state']['operation'];
+  streamId: string;
+  streamType?: string;
+  id?: string;
+}
+
+export function createStreamRewriteFacet(init: StreamRewriteFacetInit): StreamRewriteFacet {
+  const { operation, streamId, streamType, id } = init;
+  const facet: StreamRewriteFacet = {
+    id: id ?? friendlyId('stream-change'),
+    type: 'stream-change',
+    state: {
+      operation,
+      streamId,
+      ...(streamType ? { streamType } : {})
+    },
+    ephemeral: true
+  };
+  
+  // Validate before returning
+  validateFacet(facet, 'stream-change', { context: 'createStreamRewriteFacet' });
+  
+  return facet;
+}
+
+export interface InternalStateFacetInit {
+  componentId: string;
+  state: Record<string, any>;
+  id?: string;
+}
+
+export function createInternalStateFacet(init: InternalStateFacetInit): InternalStateFacet {
+  const { componentId, state, id } = init;
+  const facet: InternalStateFacet = {
+    id: id ?? friendlyId('internal-state'),
+    type: 'internal-state',
+    componentId,
+    state
+  };
+  
+  // Note: InternalStateFacet intentionally has no ContentAspect
+  // It's not rendered to agents, only used for component persistence
+  
+  return facet;
 }
 
 /**
@@ -134,180 +395,139 @@ export function createAgentActivation(
   reason: string,
   options: {
     id?: string;
-    priority?: 'low' | 'normal' | 'high';
-    source?: string;
+    priority?: 'low' | 'normal' | 'high' | 'critical';
+    sourceAgentId?: string;
     [key: string]: any;
   } = {}
 ): AgentActivationFacet {
-  const { id, priority = 'normal', source = 'manual', ...attributes } = options;
+  const { id, priority = 'normal', sourceAgentId, ...extraState } = options;
   
-  return {
+  const facet: AgentActivationFacet = {
     id: id || friendlyId('activation'),
-    type: 'agentActivation',
-    content: reason,
-    attributes: {
+    type: 'agent-activation',
+    state: {
       reason,
       priority,
-      source,
-      ...attributes
-    }
+      ...(sourceAgentId ? { sourceAgentId } : {}),
+      ...extraState
+    },
+    ephemeral: true
   };
+  
+  // Validate before returning
+  validateFacet(facet, 'agent-activation', { context: 'createAgentActivation' });
+  
+  return facet;
 }
 
 
-// VEIL Operation Helpers
+// VEIL Delta Helpers
 
-/**
- * Creates an addFacet operation with optional stable ID
- * @param content - The facet content
- * @param type - The facet type (default: 'ambient')
- * @param attributesOrId - Either attributes object OR a string ID
- * @param attributes - Attributes if third param was an ID
- * 
- * @example
- * // Auto-generated ID
- * this.addOperation(addFacet('My note', 'ambient', { priority: 'high' }));
- * 
- * // Stable ID
- * this.addOperation(addFacet('My note', 'ambient', 'my-note-id', { priority: 'high' }));
- */
-export function addFacet(
-  content: string,
-  type: FacetType = 'ambient',
-  attributesOrId?: Record<string, any> | string,
-  attributes?: Record<string, any>
-): AddFacetOperation {
-  let id: string;
-  let attrs: Record<string, any>;
-  
-  // Handle overloaded parameters
-  if (typeof attributesOrId === 'string') {
-    id = attributesOrId;
-    attrs = attributes || {};
-  } else {
-    id = friendlyId(type);
-    attrs = attributesOrId || {};
-  }
-  
-  const facet: any = {
-    id,
-    type,
-    content,
-    attributes: attrs
-  };
-  
-  // Add required fields for specific facet types
-  if (type === 'ambient') {
-    facet.scope = facet.scope || [];
-  }
-  
+export function addFacet(facet: Facet): VEILDelta {
   return {
     type: 'addFacet',
     facet
   };
 }
 
-/**
- * Creates a removeFacet operation
- * @example
- * this.addOperation(removeFacet('note-123', 'hide'));
- */
-export function removeFacet(
-  facetId: string,
-  mode: 'hide' | 'delete' = 'hide'
-): RemoveFacetOperation {
+export function removeFacet(id: string): VEILDelta {
   return {
     type: 'removeFacet',
-    facetId,
-    mode
+    id
   };
 }
 
 /**
- * Creates a changeState operation (updates existing state facets)
- * @example
- * this.addOperation(changeState('status-facet', { 
- *   content: 'Updated status',
- *   attributes: { timestamp: Date.now() }
- * }));
+ * Helper to wrap facets in addFacet deltas
+ * For migrating receptors to return VEILDelta[]
  */
-export function changeState(
-  facetId: string,
-  updates: {
-    content?: string;
-    attributes?: Record<string, any>;
+export function wrapFacetsAsDeltas(facets: Facet[]): VEILDelta[] {
+  return facets.map(facet => ({
+    type: 'addFacet' as const,
+    facet
+  }));
+}
+
+export function rewriteFacet(id: string, changes: Partial<Facet>): VEILDelta {
+  return {
+    type: 'rewriteFacet',
+    id,
+    changes
+  };
+}
+
+// Deprecated aliases - use rewriteFacet for clarity
+export const changeState = rewriteFacet;
+export const updateState = rewriteFacet;
+export const changeFacet = rewriteFacet;  // Backward compat
+
+/**
+ * Create a component state facet for VEIL-based component persistence
+ */
+export function createComponentStateFacet(init: {
+  componentId: string;
+  componentType: string;
+  componentClass: 'modulator' | 'afferent' | 'receptor' | 'transform' | 'effector' | 'maintainer';
+  elementId: string;
+  initialState?: Record<string, any>;
+}): Facet {
+  return {
+    id: `component-state:${init.componentId}`,
+    type: 'component-state',
+    componentType: init.componentType,
+    componentClass: init.componentClass,
+    componentId: init.componentId,
+    elementId: init.elementId,
+    state: init.initialState || {}
+  } as any;
+}
+
+/**
+ * Create or update state facets from a key-value dictionary
+ * Returns state-change facets that will be applied by VEILStateManager
+ * 
+ * @param baseId - Base ID for facets (e.g., 'discord-lastread')
+ * @param updates - Dictionary of key → value updates
+ * @param currentState - Optional ReadonlyVEILState to read old values
+ * @returns Array of state-change facets
+ * 
+ * @example
+ * // In a Receptor
+ * return [
+ *   messageFacet,
+ *   ...updateStateFacets('discord-lastread', { 
+ *     'channel-123': 'msg-456',
+ *     'channel-789': 'msg-012'
+ *   }, state)
+ * ];
+ */
+export function updateStateFacets(
+  baseId: string,
+  updates: Record<string, any>,
+  currentState?: any
+): Facet[] {
+  const facets: Facet[] = [];
+  
+  for (const [key, newValue] of Object.entries(updates)) {
+    const facetId = `${baseId}-${key}`;
+    
+    // Get old value if state provided
+    const oldFacet = currentState?.facets?.get(facetId);
+    const oldValue = oldFacet?.state?.value;
+    
+    // Create state-change facet
+    facets.push({
+      id: `state-update-${facetId}-${Date.now()}`,
+      type: 'state-change',
+      targetFacetIds: [facetId],
+      state: {
+        changes: {
+          value: { old: oldValue, new: newValue }
+        }
+      },
+      ephemeral: true
+    });
   }
-): ChangeStateOperation {
-  return {
-    type: 'changeState',
-    facetId,
-    updates
-  };
-}
-
-/**
- * Alias for changeState to match component method naming
- * @deprecated Use changeState for consistency with VEIL operations
- */
-export const updateState = changeState;
-
-/**
- * Creates a changeFacet operation (for event facets)
- * @example
- * this.addOperation(changeFacet('discord-msg-123', {
- *   content: 'Edited message',
- *   attributes: { edited: true }
- * }));
- */
-export function changeFacet(
-  facetId: string,
-  updates: {
-    content?: string;
-    attributes?: Record<string, any>;
-  }
-): ChangeFacetOperation {
-  return {
-    type: 'changeFacet',
-    facetId,
-    updates
-  };
-}
-
-/**
- * Creates an addStream operation
- * @example
- * this.addOperation(addStream('discord:general', 'General Chat', {
- *   channelId: '123',
- *   guildId: '456'
- * }));
- */
-export function addStream(
-  streamId: string,
-  name?: string,
-  metadata: Record<string, any> = {}
-): AddStreamOperation {
-  return {
-    type: 'addStream',
-    stream: {
-      id: streamId,
-      name,
-      metadata
-    }
-  };
-}
-
-/**
- * Creates an agent speak operation
- * @example
- * this.addOperation(speak('Hello, world!', 'discord-channel-123'));
- */
-export function speak(
-  content: string,
-  target?: string
-): SpeakOperation {
-  return {
-    type: 'speak',
-    content,
-    target
-  };
+  
+  return facets;
 }

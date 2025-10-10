@@ -1,37 +1,50 @@
 // Complete VEIL frames for the starship scenario
 // This file shows all VEIL frames that produce the rendered context
 
-import { IncomingVEILFrame, OutgoingVEILFrame } from '../veil/types';
+import { Frame, createDefaultTransition } from '../veil/types';
 
-export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] = [
+const BRIDGE_STREAM_ID = 'starship:bridge';
+const BRIDGE_STREAM_TYPE = 'starship';
+const CAPTAIN_AGENT_ID = 'captain';
+const CAPTAIN_AGENT_NAME = 'Captain Reyes';
+
+export const starshipScenarioFrames: (Frame | Frame)[] = [
   // Frame 1: Initial state setup
   {
     sequence: 1,
-    timestamp: "2024-01-15T10:30:00Z",
+    timestamp: '2024-01-15T10:30:00Z',
     activeStream: {
-      streamId: "starship:bridge",
-      streamType: "starship", 
-      metadata: { location: "bridge" }
+      streamId: BRIDGE_STREAM_ID,
+      streamType: BRIDGE_STREAM_TYPE,
+      metadata: { location: 'bridge' }
     },
-    operations: [
+    events: [],
+    deltas: [
       {
-        type: "addStream",
-        stream: {
-          id: "starship:bridge",
-          name: "Main Bridge",
-          metadata: {
-            location: "Deck 1",
-            personnel: 8
-          }
+        type: 'addFacet',
+        facet: {
+          id: 'stream-change-bridge',
+          type: 'stream-change',
+          state: {
+            operation: 'add',
+            streamId: BRIDGE_STREAM_ID,
+            streamType: BRIDGE_STREAM_TYPE
+          },
+          ephemeral: true
         }
       },
       {
-        type: "addFacet",
+        type: 'addFacet',
         facet: {
-          id: "available-channels",
-          type: "state",
-          displayName: "Communication Channels",
-          content: "Active channels: Bridge",
+          id: 'available-channels',
+          type: 'state',
+          content: 'Active channels: Bridge',
+          state: {
+            channels: ['Bridge']
+          },
+          entityType: 'component',
+          entityId: 'communications',
+          scopes: [],
           saliency: {
             crossStream: true,
             reference: true
@@ -39,449 +52,500 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         }
       },
       {
-        type: "addFacet",
+        type: 'addFacet',
         facet: {
-          id: "ship-status-001",
-          type: "state",
-          displayName: "Ship Status",
-          content: "USS Endeavor - In orbit around Kepler-442b",
-          attributes: {
-            alertLevel: "green",
-            shields: "100%",
-            power: "nominal"
+          id: 'ship-status-001',
+          type: 'state',
+          content: 'USS Endeavor - In orbit around Kepler-442b',
+          state: {
+            alertLevel: 'green',
+            shields: '100%',
+            power: 'nominal'
           },
+          entityType: 'component',
+          entityId: 'ship-status',
+          scopes: [],
           saliency: {
-            crossStream: true  // Ship status relevant everywhere
+            crossStream: true
           }
         }
       },
       {
-        type: "addFacet",
+        type: 'addFacet',
         facet: {
-          id: "bridge-crew-001",
-          type: "state",
-          displayName: "Bridge Crew",
-          content: "Commander Chen at helm, Lt. Rodriguez at sensors",
-          children: [
-            {
-              id: "helm-status",
-              type: "state",
-              content: "Orbital trajectory stable"
-            }
-          ]
+          id: 'bridge-crew-001',
+          type: 'state',
+          content: 'Commander Chen at helm, Lt. Rodriguez at sensors',
+          state: {
+            crew: [
+              { role: 'Helm', name: 'Commander Chen' },
+              { role: 'Sensors', name: 'Lt. Rodriguez' }
+            ]
+          },
+          entityType: 'component',
+          entityId: 'bridge-crew',
+          scopes: []
         }
       }
-    ]
+    ],
+    transition: createDefaultTransition(1, '2024-01-15T10:30:00Z')
   },
 
   // Frame 2: Sensor event detection
   {
     sequence: 2,
-    timestamp: "2024-01-15T10:31:15Z",
-    operations: [
+    timestamp: '2024-01-15T10:31:15Z',
+    events: [],
+    deltas: [
       {
-        type: "addFacet",
+        type: 'addFacet',
         facet: {
-          id: "sensor-event-001",
-          type: "event",
-          displayName: "Sensor Alert",
-          content: "Anomalous energy signature detected on planet surface, sector 7-G",
-          attributes: {
-            priority: "medium",
-            source: "Lt. Rodriguez"
+          id: 'sensor-event-001',
+          type: 'event',
+          content: 'Anomalous energy signature detected on planet surface, sector 7-G',
+          state: {
+            source: 'Lt. Rodriguez',
+            eventType: 'sensor-alert',
+            metadata: { priority: 'medium' }
           },
+          streamId: BRIDGE_STREAM_ID,
           saliency: {
-            streams: ["starship:bridge"],
-            reference: true  // Important discovery
+            streams: [BRIDGE_STREAM_ID],
+            reference: true
           }
         }
       }
-    ]
+    ],
+    transition: createDefaultTransition(2, '2024-01-15T10:31:15Z')
   },
 
   // Frame 3: Alert level change and tool registration
   {
     sequence: 3,
-    timestamp: "2024-01-15T10:31:20Z",
-    operations: [
+    timestamp: '2024-01-15T10:31:20Z',
+    events: [],
+    deltas: [
       {
-        type: "addFacet",
+        type: 'addFacet',
         facet: {
-          id: "scan-tool",
-          type: "tool",
-          displayName: "Deep Scan",
-          definition: {
-            name: "perform_deep_scan",
-            parameters: ["target_sector", "scan_type"],
-            callback: "SensorElement.handleDeepScan"
+          id: 'scan-tool',
+          type: 'action-definition',
+          state: {
+            actionName: 'perform_deep_scan',
+            parameters: ['target_sector', 'scan_type'],
+            description: 'Perform a deep diagnostic scan of the specified sector.',
+            handler: 'SensorElement.handleDeepScan'
           }
         }
       },
       {
-        type: "changeState",
-        facetId: "ship-status-001",
-        updates: {
-          attributes: {
-            alertLevel: "yellow"
+        type: 'rewriteFacet',
+        id: 'ship-status-001',
+        changes: {
+          state: {
+            alertLevel: 'yellow'
           }
         }
       },
       {
-        type: "addFacet",
+        type: 'addFacet',
         facet: {
-          id: "agent-activation-1",
-          type: "agentActivation",
-          content: "User message received",
-          attributes: {
-            source: "user",
-            reason: "User initiated conversation",
-            priority: "high",
-            config: {
-              temperature: 0.7,
-              maxTokens: 500
-            }
-          }
+          id: 'agent-activation-initial',
+          type: 'agent-activation',
+          state: {
+            reason: 'User initiated conversation',
+            priority: 'high',
+            sourceAgentId: 'user'
+          },
+          ephemeral: true
         }
       }
-    ]
+    ],
+    transition: createDefaultTransition(3, '2024-01-15T10:31:20Z')
   },
 
   // Frame 4: Agent's first response (outgoing)
   {
     sequence: 4,
-    timestamp: "2024-01-15T10:31:25Z",
-    operations: [
+    timestamp: '2024-01-15T10:31:25Z',
+    events: [],
+    deltas: [
       {
-        type: "speak",
-        content: "Interesting. That energy signature wasn't there during our initial orbital scan."
-      },
-      {
-        type: "speak",
-        content: "Lieutenant Rodriguez, can you get me more details on that anomaly? Run a deep scan on sector 7-G, focusing on electromagnetic and subspace frequencies."
-      },
-      {
-        type: "act",
-        toolName: "perform_deep_scan",
-        parameters: {
-          target_sector: "7-G",
-          scan_type: "electromagnetic,subspace"
+        type: 'addFacet',
+        facet: {
+          id: 'captain-speech-001',
+          type: 'speech',
+          content: `Interesting. That energy signature wasn't there during our initial orbital scan.`,
+          agentId: CAPTAIN_AGENT_ID,
+          agentName: CAPTAIN_AGENT_NAME,
+          streamId: BRIDGE_STREAM_ID
         }
       },
       {
-        type: "speak",
-        content: "Commander Chen, maintain our current orbit but be ready to break away if needed."
+        type: 'addFacet',
+        facet: {
+          id: 'captain-speech-002',
+          type: 'speech',
+          content: 'Lieutenant Rodriguez, can you get me more details on that anomaly? Run a deep scan on sector 7-G, focusing on electromagnetic and subspace frequencies.',
+          agentId: CAPTAIN_AGENT_ID,
+          agentName: CAPTAIN_AGENT_NAME,
+          streamId: BRIDGE_STREAM_ID
+        }
+      },
+      {
+        type: 'addFacet',
+        facet: {
+          id: 'captain-action-001',
+          type: 'action',
+          content: JSON.stringify({
+            target_sector: '7-G',
+            scan_type: 'electromagnetic,subspace'
+          }),
+          state: {
+            toolName: 'perform_deep_scan',
+            parameters: {
+              target_sector: '7-G',
+              scan_type: 'electromagnetic,subspace'
+            }
+          },
+          agentId: CAPTAIN_AGENT_ID,
+          agentName: CAPTAIN_AGENT_NAME,
+          streamId: BRIDGE_STREAM_ID
+        }
+      },
+      {
+        type: 'addFacet',
+        facet: {
+          id: 'captain-speech-003',
+          type: 'speech',
+          content: 'Commander Chen, maintain our current orbit but be ready to break away if needed.',
+          agentId: CAPTAIN_AGENT_ID,
+          agentName: CAPTAIN_AGENT_NAME,
+          streamId: BRIDGE_STREAM_ID
+        }
       }
-    ]
-  } as OutgoingVEILFrame,
+    ],
+    transition: createDefaultTransition(4, '2024-01-15T10:31:25Z')
+  },
 
   // Frame 5: Scan results
   {
     sequence: 5,
-    timestamp: "2024-01-15T10:31:45Z",
-    operations: [
+    timestamp: '2024-01-15T10:31:45Z',
+    events: [],
+    deltas: [
       {
-        type: "addFacet",
+        type: 'addFacet',
         facet: {
-          id: "scan-results-001",
-          type: "event",
-          displayName: "Scan Results",
-          content: "Deep scan complete:\n- Electromagnetic: Structured patterns detected, possible technology\n- Subspace: Minimal distortion, no active fields\n- Energy output: 2.3 terawatts, pulsing at 0.7Hz intervals\n- Composition: Unable to determine, interference present",
-          attributes: {
-            source: "sensors"
-          }
+          id: 'scan-results-001',
+          type: 'event',
+          content: `Deep scan complete:\n- Electromagnetic: Structured patterns detected, possible technology\n- Subspace: Minimal distortion, no active fields\n- Energy output: 2.3 terawatts, pulsing at 0.7Hz intervals\n- Composition: Unable to determine, interference present`,
+          state: {
+            source: 'sensors',
+            eventType: 'scan-results',
+            metadata: {
+              frequency: '0.7Hz',
+              energyOutput: '2.3 terawatts'
+            }
+          },
+          streamId: BRIDGE_STREAM_ID
         }
       }
-    ]
+    ],
+    transition: createDefaultTransition(5, '2024-01-15T10:31:45Z')
   },
 
   // Frame 6: Transmission detection
   {
     sequence: 6,
-    timestamp: "2024-01-15T10:31:50Z",
-    operations: [
+    timestamp: '2024-01-15T10:31:50Z',
+    events: [],
+    deltas: [
       {
-        type: "addFacet",
+        type: 'addFacet',
         facet: {
-          id: "transmission-event-001",
-          type: "event",
-          displayName: "Transmission Detected",
-          content: "Captain, I'm picking up a faint transmission on a carrier wave matching that pulse frequency. It's... it's mathematical sequences. Prime numbers.",
-          attributes: {
-            source: "Commander Chen"
-          }
+          id: 'transmission-event-001',
+          type: 'event',
+          content: `Captain, I'm picking up a faint transmission on a carrier wave matching that pulse frequency. It's... it's mathematical sequences. Prime numbers.`,
+          state: {
+            source: 'Commander Chen',
+            eventType: 'transmission-detected',
+            metadata: {
+              pattern: 'prime-numbers'
+            }
+          },
+          streamId: BRIDGE_STREAM_ID
         }
       },
       {
-        type: "addFacet",
+        type: 'addFacet',
         facet: {
-          id: "mission-objectives",
-          type: "ambient",
-          displayName: "Mission Objectives",
-          content: "Primary Directive: Investigate signs of intelligent life\nSecondary: Maintain crew and ship safety\nCurrent Mission Duration: 342 days",
-          scope: [],  // No scope requirements - always active
+          id: 'mission-objectives',
+          type: 'ambient',
+          content: `Primary Directive: Investigate signs of intelligent life\nSecondary: Maintain crew and ship safety\nCurrent Mission Duration: 342 days`,
+          streamId: BRIDGE_STREAM_ID,
           saliency: {
-            crossStream: true,  // Mission relevant everywhere
+            crossStream: true,
             reference: true
           }
         }
       },
       {
-        type: "addFacet",
+        type: 'addFacet',
         facet: {
-          id: `agent-activation-${Date.now()}`,
-          type: "agentActivation",
-          content: "Continue conversation",
-          attributes: {
-            source: "system",
-            reason: "Conversation continuation",
-            priority: "normal"
-          }
+          id: 'agent-activation-continue',
+          type: 'agent-activation',
+          state: {
+            reason: 'Conversation continuation',
+            priority: 'normal',
+            sourceAgentId: 'system'
+          },
+          ephemeral: true
         }
       }
-    ]
+    ],
+    transition: createDefaultTransition(6, '2024-01-15T10:31:50Z')
   },
 
   // Frame 7: Agent's second response with inner thoughts
   {
     sequence: 7,
-    timestamp: "2024-01-15T10:31:55Z",
-    operations: [
+    timestamp: '2024-01-15T10:31:55Z',
+    events: [],
+    deltas: [
       {
-        type: "think",
-        content: "Prime numbers? That's a clear sign of intelligence. This changes everything."
-      },
-      {
-        type: "speak",
-        content: "All stop. Lt. Rodriguez, record everything. Commander Chen, can you isolate and clean up that transmission?"
-      },
-      {
-        type: "act",
-        toolName: "analyze_transmission",
-        parameters: {
-          frequency: "0.7Hz",
-          pattern: "prime_sequence"
+        type: 'addFacet',
+        facet: {
+          id: 'captain-thought-001',
+          type: 'thought',
+          content: 'Prime numbers? That is a clear sign of intelligence. This changes everything.',
+          agentId: CAPTAIN_AGENT_ID,
+          agentName: CAPTAIN_AGENT_NAME,
+          streamId: BRIDGE_STREAM_ID
         }
       },
       {
-        type: "speak",
-        content: "And open a ship-wide channel."
+        type: 'addFacet',
+        facet: {
+          id: 'captain-speech-004',
+          type: 'speech',
+          content: 'All stop. Lt. Rodriguez, record everything. Commander Chen, can you isolate and clean up that transmission?',
+          agentId: CAPTAIN_AGENT_ID,
+          agentName: CAPTAIN_AGENT_NAME,
+          streamId: BRIDGE_STREAM_ID
+        }
       },
       {
-        type: "act",
-        toolName: "ship_comms",
-        parameters: {
-          channel: "ship_wide",
-          message: "All hands, this is the Captain. We may have just made first contact. All departments prepare for extended station keeping. Science teams to the bridge."
+        type: 'addFacet',
+        facet: {
+          id: 'captain-action-002',
+          type: 'action',
+          content: JSON.stringify({
+            frequency: '0.7Hz',
+            pattern: 'prime_sequence'
+          }),
+          state: {
+            toolName: 'analyze_transmission',
+            parameters: {
+              frequency: '0.7Hz',
+              pattern: 'prime_sequence'
+            }
+          },
+          agentId: CAPTAIN_AGENT_ID,
+          agentName: CAPTAIN_AGENT_NAME,
+          streamId: BRIDGE_STREAM_ID
+        }
+      },
+      {
+        type: 'addFacet',
+        facet: {
+          id: 'captain-speech-005',
+          type: 'speech',
+          content: 'And open a ship-wide channel.',
+          agentId: CAPTAIN_AGENT_ID,
+          agentName: CAPTAIN_AGENT_NAME,
+          streamId: BRIDGE_STREAM_ID
+        }
+      },
+      {
+        type: 'addFacet',
+        facet: {
+          id: 'captain-action-003',
+          type: 'action',
+          content: JSON.stringify({
+            channel: 'ship_wide',
+            message: 'All hands, this is the Captain. We may have just made first contact. All departments prepare for extended station keeping. Science teams to the bridge.'
+          }),
+          state: {
+            toolName: 'ship_comms',
+            parameters: {
+              channel: 'ship_wide',
+              message: 'All hands, this is the Captain. We may have just made first contact. All departments prepare for extended station keeping. Science teams to the bridge.'
+            }
+          },
+          agentId: CAPTAIN_AGENT_ID,
+          agentName: CAPTAIN_AGENT_NAME,
+          streamId: BRIDGE_STREAM_ID
         }
       }
-    ]
-  } as OutgoingVEILFrame,
+    ],
+    transition: createDefaultTransition(7, '2024-01-15T10:31:55Z')
+  },
 
   // Frame 8: Tool responses and crew activity
   {
     sequence: 8,
-    timestamp: "2024-01-15T10:32:10Z",
-    operations: [
+    timestamp: '2024-01-15T10:32:10Z',
+    events: [],
+    deltas: [
       {
-        type: "addFacet",
+        type: 'addFacet',
         facet: {
-          id: "transmission-analysis-001",
-          type: "state",
-          displayName: "Transmission Analysis",
-          content: "Decoding mathematical sequence...\nIdentified: Prime numbers 2 through 127\nAdditional patterns detected, analysis ongoing",
-          attributes: {
-            status: "processing"
-          }
+          id: 'transmission-analysis-001',
+          type: 'state',
+          content: 'Decoding mathematical sequence... analysis ongoing.',
+          state: {
+            status: 'processing',
+            progress: 'identifying prime number sequence'
+          },
+          entityType: 'component',
+          entityId: 'transmission-analysis',
+          scopes: []
         }
       },
       {
-        type: "addFacet",
+        type: 'addFacet',
         facet: {
-          id: "ship-comms-status",
-          type: "state",
-          displayName: "Ship Communications",
-          content: "Ship-wide announcement delivered\nScience teams acknowledging",
-          attributes: {
-            status: "delivered"
-          }
+          id: 'ship-comms-status',
+          type: 'state',
+          content: 'Ship-wide announcement delivered. Science teams acknowledging.',
+          state: {
+            status: 'delivered',
+            acknowledgements: ['Science teams']
+          },
+          entityType: 'component',
+          entityId: 'communications-status',
+          scopes: []
         }
       },
       {
-        type: "addFacet",
+        type: 'addFacet',
         facet: {
-          id: "crew-activity-container",
-          type: "state",
-          displayName: "Crew Activity",
-          children: [
-            {
-              id: "crew-event-001",
-              type: "event",
-              displayName: "Crew Report",
-              content: "Arriving on bridge with xenobiology team",
-              attributes: {
-                source: "Dr. Yuki Tanaka"
-              }
-            },
-            {
-              id: "crew-event-002", 
-              type: "event",
-              content: "Power reserves optimal, ready for extended operations",
-              attributes: {
-                source: "Chief Engineer Morrison"
-              }
+          id: 'crew-event-001',
+          type: 'event',
+          content: 'Arriving on bridge with xenobiology team.',
+          state: {
+            source: 'Dr. Yuki Tanaka',
+            eventType: 'crew-report',
+            metadata: {
+              team: 'xenobiology'
             }
-          ]
+          },
+          streamId: BRIDGE_STREAM_ID
         }
       },
       {
-        type: "addFacet",
+        type: 'addFacet',
         facet: {
-          id: `agent-activation-${Date.now()}`,
-          type: "agentActivation",
-          content: "Continue conversation",
-          attributes: {
-            source: "system",
-            reason: "Conversation continuation",
-            priority: "normal"
-          }
+          id: 'crew-event-002',
+          type: 'event',
+          content: 'Power reserves optimal, ready for extended operations.',
+          state: {
+            source: 'Chief Engineer Morrison',
+            eventType: 'crew-report',
+            metadata: {
+              system: 'power'
+            }
+          },
+          streamId: BRIDGE_STREAM_ID
+        }
+      },
+      {
+        type: 'addFacet',
+        facet: {
+          id: 'agent-activation-status-update',
+          type: 'agent-activation',
+          state: {
+            reason: 'Status updates received',
+            priority: 'normal',
+            sourceAgentId: 'system'
+          },
+          ephemeral: true
         }
       }
-    ]
+    ],
+    transition: createDefaultTransition(8, '2024-01-15T10:32:10Z')
   },
 
-  // Frame 9: Agent's reflection and cycle request
+  // Frame 9: Agent reflection
   {
     sequence: 9,
-    timestamp: "2024-01-15T10:32:15Z",
-    operations: [
+    timestamp: '2024-01-15T10:32:15Z',
+    events: [],
+    deltas: [
       {
-        type: "think",
-        content: "This is what we've been searching for. After nearly a year in deep space, we might have found intelligent life. Need to proceed carefully - this could be automated, ancient, or active. The crew is excited but I need to keep them focused."
+        type: 'addFacet',
+        facet: {
+          id: 'captain-thought-002',
+          type: 'thought',
+          content: "This is what we've been searching for. After nearly a year in deep space, we might have found intelligent life. Need to proceed carefully.",
+          agentId: CAPTAIN_AGENT_ID,
+          agentName: CAPTAIN_AGENT_NAME,
+          streamId: BRIDGE_STREAM_ID
+        }
       },
       {
-        type: "speak",
-        content: "Dr. Tanaka, good timing. Look at this pattern - prime numbers broadcast at regular intervals. What's your assessment?"
-      },
-      // Note: cycleRequest has been removed. The environment should
-      // decide when to activate agents based on the conversation flow.
-    ]
-  } as OutgoingVEILFrame,
-
-  // Frame 9.5: Agent decides to open personal log (outgoing)
-  {
-    sequence: 9.5,
-    timestamp: "2024-01-15T10:32:20Z",
-    operations: [
-      {
-        type: "think",
-        content: "I should record this in my personal log. This could be a historic moment."
-      },
-      {
-        type: "act",
-        toolName: "open_personal_log",
-        parameters: {
-          classification: "Captain's Eyes Only"
+        type: 'addFacet',
+        facet: {
+          id: 'captain-speech-006',
+          type: 'speech',
+          content: 'Dr. Tanaka, good timing. Look at this pattern - prime numbers broadcast at regular intervals. What is your assessment?',
+          agentId: CAPTAIN_AGENT_ID,
+          agentName: CAPTAIN_AGENT_NAME,
+          streamId: BRIDGE_STREAM_ID
         }
       }
-    ]
-  } as OutgoingVEILFrame,
-
-  // Frame 9.6: System creates log stream in response
-  {
-    sequence: 9.6,
-    timestamp: "2024-01-15T10:32:21Z",
-    operations: [
-      {
-        type: "addStream",
-        stream: {
-          id: "starship:captain-log",
-          name: "Captain's Personal Log",
-          metadata: {
-            private: true,
-            classification: "Captain's Eyes Only"
-          }
-        }
-      },
-      {
-        type: "changeState",
-        facetId: "available-channels",
-        updates: {
-          content: "Active channels: Bridge, Captain's Log"
-        }
-      }
-    ]
+    ],
+    transition: createDefaultTransition(9, '2024-01-15T10:32:15Z')
   },
 
-  // Frame 9.7: Agent makes log entry (outgoing)
+  // Frame 9.5: Personal log decision
   {
-    sequence: 9.7,
-    timestamp: "2024-01-15T10:32:25Z",
-    operations: [
+    sequence: 9.5,
+    timestamp: '2024-01-15T10:32:20Z',
+    events: [],
+    deltas: [
       {
-        type: "speak",
-        content: "Captain's Log, Stardate 51234.5. We've detected what appears to be an artificial signal - prime numbers. This could be the discovery we've been searching for.",
-        target: "starship:captain-log"  // Explicitly targeting the log
-      }
-    ]
-  } as OutgoingVEILFrame,
-
-  // Frame 10: Tool definitions for the additional tools used
-  {
-    sequence: 10,
-    timestamp: "2024-01-15T10:32:00Z",  // Retroactively adding tool definitions
-    operations: [
-      {
-        type: "addFacet",
+        type: 'addFacet',
         facet: {
-          id: "analyze-transmission-tool",
-          type: "tool",
-          displayName: "Analyze Transmission",
-          definition: {
-            name: "analyze_transmission",
-            parameters: ["frequency", "pattern"],
-            callback: "CommsElement.analyzeTransmission"
-          }
+          id: 'captain-thought-003',
+          type: 'thought',
+          content: 'I should record this in my personal log. This could be a historic moment.',
+          agentId: CAPTAIN_AGENT_ID,
+          agentName: CAPTAIN_AGENT_NAME,
+          streamId: BRIDGE_STREAM_ID
         }
       },
       {
-        type: "addFacet",
+        type: 'addFacet',
         facet: {
-          id: "ship-comms-tool",
-          type: "tool",
-          displayName: "Ship Communications",
-          definition: {
-            name: "ship_comms",
-            parameters: ["channel", "message"],
-            callback: "CommsElement.sendMessage"
-          }
-        }
-      },
-      {
-        type: "addFacet",
-        facet: {
-          id: "request-cycle-tool",
-          type: "tool",
-          displayName: "Request Cycle",
-          definition: {
-            name: "request_cycle",
-            parameters: ["reason", "delay_ms"],
-            callback: "AgentLoop.requestCycle"
-          }
-        }
-      },
-      {
-        type: "addFacet",
-        facet: {
-          id: "open-personal-log-tool",
-          type: "tool",
-          displayName: "Open Personal Log",
-          definition: {
-            name: "open_personal_log",
-            parameters: ["classification"],
-            callback: "LogElement.openPersonalLog"
-          }
+          id: 'captain-action-004',
+          type: 'action',
+          content: JSON.stringify({
+            classification: "Captain's Eyes Only"
+          }),
+          state: {
+            toolName: 'open_personal_log',
+            parameters: {
+              classification: "Captain's Eyes Only"
+            }
+          },
+          agentId: CAPTAIN_AGENT_ID,
+          agentName: CAPTAIN_AGENT_NAME,
+          streamId: BRIDGE_STREAM_ID
         }
       }
-    ]
+    ],
+    transition: createDefaultTransition(9.5, '2024-01-15T10:32:20Z')
   }
 ];

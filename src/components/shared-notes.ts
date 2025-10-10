@@ -191,8 +191,7 @@ export class SpaceNotesComponent extends InteractiveComponent {
     // Remove the facet
     this.addOperation({
       type: 'removeFacet',
-      facetId: `note-${params.noteId}`,
-      mode: 'delete'
+      id: `note-${params.noteId}`
     });
   }
   
@@ -203,8 +202,7 @@ export class SpaceNotesComponent extends InteractiveComponent {
     for (const noteId of this.openNotes) {
       this.addOperation({
         type: 'removeFacet',
-        facetId: `note-${noteId}`,
-        mode: 'delete'
+        id: `note-${noteId}`
       });
     }
     this.openNotes.clear();

@@ -1,9 +1,9 @@
 // Complete VEIL frames for the starship scenario
 // This file shows all VEIL frames that produce the rendered context
 
-import { IncomingVEILFrame, OutgoingVEILFrame } from '../src/veil/types';
+import { Frame } from '../src/veil/types';
 
-export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] = [
+export const starshipScenarioFrames: (Frame | Frame)[] = [
   // Frame 1: Initial state setup
   {
     sequence: 1,
@@ -13,7 +13,7 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
       streamType: "starship", 
       metadata: { location: "bridge" }
     },
-    operations: [
+    deltas: [
       {
         type: "addStream",
         stream: {
@@ -78,7 +78,7 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
   {
     sequence: 2,
     timestamp: "2024-01-15T10:31:15Z",
-    operations: [
+    deltas: [
       {
         type: "addFacet",
         facet: {
@@ -103,12 +103,12 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
   {
     sequence: 3,
     timestamp: "2024-01-15T10:31:20Z",
-    operations: [
+    deltas: [
       {
         type: "addFacet",
         facet: {
           id: "scan-tool",
-          type: "tool",
+          type: 'action-definition',
           displayName: "Deep Scan",
           definition: {
             name: "perform_deep_scan",
@@ -118,16 +118,16 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         }
       },
       {
-        type: "changeState",
-        facetId: "ship-status-001",
-        updates: {
+        type: "RewriteFacet",
+        id: "ship-status-001",
+        changes: {
           attributes: {
             alertLevel: "yellow"
           }
         }
       },
       {
-        type: "agentActivation",
+        type: 'agent-activation',
         config: {
           temperature: 0.7,
           maxTokens: 500
@@ -140,7 +140,7 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
   {
     sequence: 4,
     timestamp: "2024-01-15T10:31:25Z",
-    operations: [
+    deltas: [
       {
         type: "speak",
         content: "Interesting. That energy signature wasn't there during our initial orbital scan."
@@ -162,13 +162,13 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         content: "Commander Chen, maintain our current orbit but be ready to break away if needed."
       }
     ]
-  } as OutgoingVEILFrame,
+  } as Frame,
 
   // Frame 5: Scan results
   {
     sequence: 5,
     timestamp: "2024-01-15T10:31:45Z",
-    operations: [
+    deltas: [
       {
         type: "addFacet",
         facet: {
@@ -188,7 +188,7 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
   {
     sequence: 6,
     timestamp: "2024-01-15T10:31:50Z",
-    operations: [
+    deltas: [
       {
         type: "addFacet",
         facet: {
@@ -216,7 +216,7 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         }
       },
       {
-        type: "agentActivation"
+        type: 'agent-activation'
       }
     ]
   },
@@ -225,7 +225,7 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
   {
     sequence: 7,
     timestamp: "2024-01-15T10:31:55Z",
-    operations: [
+    deltas: [
       {
         type: "think",
         content: "Prime numbers? That's a clear sign of intelligence. This changes everything."
@@ -255,13 +255,13 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         }
       }
     ]
-  } as OutgoingVEILFrame,
+  } as Frame,
 
   // Frame 8: Tool responses and crew activity
   {
     sequence: 8,
     timestamp: "2024-01-15T10:32:10Z",
-    operations: [
+    deltas: [
       {
         type: "addFacet",
         facet: {
@@ -314,7 +314,7 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         }
       },
       {
-        type: "agentActivation"
+        type: 'agent-activation'
       }
     ]
   },
@@ -323,7 +323,7 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
   {
     sequence: 9,
     timestamp: "2024-01-15T10:32:15Z",
-    operations: [
+    deltas: [
       {
         type: "think",
         content: "This is what we've been searching for. After nearly a year in deep space, we might have found intelligent life. Need to proceed carefully - this could be automated, ancient, or active. The crew is excited but I need to keep them focused."
@@ -338,13 +338,13 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         delayMs: 2000
       }
     ]
-  } as OutgoingVEILFrame,
+  } as Frame,
 
   // Frame 10: Agent decides to open personal log (outgoing)
   {
     sequence: 10,
     timestamp: "2024-01-15T10:32:20Z",
-    operations: [
+    deltas: [
       {
         type: "think",
         content: "I should record this in my personal log. This could be a historic moment."
@@ -357,13 +357,13 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         }
       }
     ]
-  } as OutgoingVEILFrame,
+  } as Frame,
 
   // Frame 11: System creates log stream in response
   {
     sequence: 11,
     timestamp: "2024-01-15T10:32:21Z",
-    operations: [
+    deltas: [
       {
         type: "addStream",
         stream: {
@@ -376,9 +376,9 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         }
       },
       {
-        type: "changeState",
-        facetId: "available-channels",
-        updates: {
+        type: "RewriteFacet",
+        id: "available-channels",
+        changes: {
           content: "Active channels: Bridge, Captain's Log"
         }
       }
@@ -389,25 +389,25 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
   {
     sequence: 12,
     timestamp: "2024-01-15T10:32:25Z",
-    operations: [
+    deltas: [
       {
         type: "speak",
         content: "Captain's Log, Stardate 51234.5. We've detected what appears to be an artificial signal - prime numbers. This could be the discovery we've been searching for.",
         target: "starship:captain-log"  // Explicitly targeting the log
       }
     ]
-  } as OutgoingVEILFrame,
+  } as Frame,
 
   // Frame 13: Tool definitions for the additional tools used
   {
     sequence: 13,
     timestamp: "2024-01-15T10:32:00Z",  // Retroactively adding tool definitions
-    operations: [
+    deltas: [
       {
         type: "addFacet",
         facet: {
           id: "analyze-transmission-tool",
-          type: "tool",
+          type: 'action-definition',
           displayName: "Analyze Transmission",
           definition: {
             name: "analyze_transmission",
@@ -420,7 +420,7 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         type: "addFacet",
         facet: {
           id: "ship-comms-tool",
-          type: "tool",
+          type: 'action-definition',
           displayName: "Ship Communications",
           definition: {
             name: "ship_comms",
@@ -433,7 +433,7 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         type: "addFacet",
         facet: {
           id: "request-cycle-tool",
-          type: "tool",
+          type: 'action-definition',
           displayName: "Request Cycle",
           definition: {
             name: "request_cycle",
@@ -446,7 +446,7 @@ export const starshipScenarioFrames: (IncomingVEILFrame | OutgoingVEILFrame)[] =
         type: "addFacet",
         facet: {
           id: "open-personal-log-tool",
-          type: "tool",
+          type: 'action-definition',
           displayName: "Open Personal Log",
           definition: {
             name: "open_personal_log",

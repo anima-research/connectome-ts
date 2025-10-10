@@ -150,8 +150,8 @@ export class MemoryTraceStorage implements TraceStorage {
     if (event.data.operations) {
       parts.push(`ops=${event.data.operations}`);
     }
-    if (event.data.facetId) {
-      parts.push(`facet=${event.data.facetId}`);
+    if (event.data.id) {
+      parts.push(`facet=${event.data.id}`);
     }
     if (event.data.content) {
       const truncated = event.data.content.length > 50 

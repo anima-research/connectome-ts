@@ -4,7 +4,7 @@
 
 import { Component } from '../spaces/component';
 import { Element } from '../spaces/element';
-import { VEILState, Facet } from '../veil/types';
+import { VEILState, Facet, StateFacet, hasStateAspect, hasAgentGeneratedAspect, hasStreamAspect, hasContentAspect } from '../veil/types';
 import { 
   SerializableValue, 
   SerializedComponent, 
@@ -133,8 +133,11 @@ export function serializeValue(value: any): SerializableValue {
     return result;
   }
   
-  // Other objects - try to extract meaningful data
+  // Other objects - check for toJSON method first
   if (typeof value === 'object') {
+    if (typeof value.toJSON === 'function') {
+      return serializeValue(value.toJSON());
+    }
     console.warn(`Cannot serialize object of type ${value.constructor.name}, using toString()`);
     return value.toString();
   }
@@ -288,7 +291,7 @@ function serializeFacet(facet: Facet): any {
   };
   
   // Add content if present
-  if ('content' in facet && facet.content) {
+  if (hasContentAspect(facet) && facet.content) {
     serialized.content = facet.content;
   }
   
@@ -304,58 +307,39 @@ function serializeFacet(facet: Facet): any {
   
   // Handle type-specific fields
   switch (facet.type) {
-    case 'state':
-      const stateFacet = facet as any; // StateFacet
-      if (stateFacet.initialValue !== undefined) {
-        serialized.initialValue = serializeValue(stateFacet.initialValue);
-      }
-      if (stateFacet.transitionRenderers) {
-        serialized.transitionRenderers = stateFacet.transitionRenderers;
-      }
+    case 'state': {
+      const stateFacet = facet as StateFacet;
+      serialized.entityType = stateFacet.entityType;
+      serialized.entityId = stateFacet.entityId;
+      serialized.scopes = stateFacet.scopes;
       break;
-      
-    case 'tool':
-      const toolFacet = facet as any; // ToolFacet
-      if (toolFacet.toolName) {
-        serialized.toolName = toolFacet.toolName;
-      }
-      if (toolFacet.parameters) {
-        serialized.parameters = serializeValue(toolFacet.parameters);
-      }
-      break;
-      
-    case 'action':
-      const actionFacet = facet as any; // ActionFacet
-      if (actionFacet.actionTarget) {
-        serialized.actionTarget = actionFacet.actionTarget;
-      }
-      if (actionFacet.actionName) {
-        serialized.actionName = actionFacet.actionName;
-      }
-      if (actionFacet.parameters) {
-        serialized.parameters = serializeValue(actionFacet.parameters);
-      }
-      break;
-      
-    case 'defineAction':
-      const defineActionFacet = facet as any; // DefineActionFacet
-      if (defineActionFacet.actionTarget) {
-        serialized.actionTarget = defineActionFacet.actionTarget;
-      }
-      if (defineActionFacet.actionName) {
-        serialized.actionName = defineActionFacet.actionName;
-      }
-      if (defineActionFacet.parameters) {
-        serialized.parameters = serializeValue(defineActionFacet.parameters);
-      }
-      break;
-      
-    case 'agentActivation':
-      const agentActivationFacet = facet as any; // AgentActivationFacet
-      if (agentActivationFacet.attributes) {
-        serialized.attributes = serializeValue(agentActivationFacet.attributes);
-      }
-      break;
+    }
+  }
+
+  if (hasStateAspect(facet)) {
+    serialized.state = serializeValue(facet.state);
+  } else if ((facet as any).state) {
+    // Fallback: some facets have state but don't pass hasStateAspect check
+    console.warn(`[Serialization] Facet ${facet.id} has state but not StateAspect, saving anyway`);
+    serialized.state = serializeValue((facet as any).state);
+  }
+
+  if (hasAgentGeneratedAspect(facet)) {
+    serialized.agentId = facet.agentId;
+    if (facet.agentName) {
+      serialized.agentName = facet.agentName;
+    }
+  }
+
+  if (hasStreamAspect(facet)) {
+    serialized.streamId = facet.streamId;
+    if (facet.streamType) {
+      serialized.streamType = facet.streamType;
+    }
+  }
+
+  if ('ephemeral' in facet && (facet as any).ephemeral) {
+    serialized.ephemeral = true;
   }
   
   return serialized;

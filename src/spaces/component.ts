@@ -1,7 +1,12 @@
 import { ComponentLifecycle, EventHandler, SpaceEvent, ElementRef } from './types';
 import type { Element } from './element';
 import type { Space } from './space';
-import type { VEILOperation } from '../veil/types';
+import type { VEILDelta } from '../veil/types';
+import {
+  createAmbientFacet,
+  createStateFacet,
+  createEventFacet
+} from '../helpers/factories';
 
 /**
  * Base component class that can be attached to Elements
@@ -227,11 +232,89 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
     return this.element.getRef();
   }
 
+  // ============================================
+  // Component State Management (VEIL-based)
+  // ============================================
+
+  /**
+   * Get this component's unique ID for state scoping
+   */
+  protected getComponentId(): string {
+    // Use element ID + component type + index as unique ID
+    const components = Array.from(this.element.components);
+    const index = components.indexOf(this);
+    return `${this.element.id}:${this.constructor.name}:${index}`;
+  }
+
+  /**
+   * Get this component's state from VEIL
+   * Returns empty object if state facet doesn't exist yet
+   */
+  protected getComponentState<T = Record<string, any>>(): T {
+    const space = this.element?.findSpace() as Space | undefined;
+    if (!space || !(space as any).getVEILState) {
+      return {} as T;
+    }
+    
+    const veilState = (space as any).getVEILState().getState();
+    const componentId = this.getComponentId();
+    const stateFacet = veilState.facets.get(`component-state:${componentId}`);
+    
+    return (stateFacet?.state || {}) as T;
+  }
+
+  /**
+   * Update this component's state in VEIL
+   * 
+   * For VEILComponents (Phase 1/2): Uses addOperation() - applies via normal flow
+   * For Effectors/Maintainers (Phase 3/4): Directly modifies VEIL (side effect!) via Space hook
+   * For Afferents: Must emit event, use runtime cache
+   * 
+   * @param updates - Partial state updates (deep merged)
+   */
+  protected updateComponentState(updates: Record<string, any>): void {
+    const componentId = this.getComponentId();
+    const currentState = this.getComponentState();
+    
+    const delta = {
+      type: 'rewriteFacet' as const,
+      id: `component-state:${componentId}`,
+      changes: {
+        state: { ...currentState, ...updates }
+      }
+    };
+    
+    // Try to apply as scoped write (for Effectors/Maintainers in their phase)
+    const space = this.element?.findSpace() as any;
+    if (space && space._applyComponentStateDelta) {
+      // Direct application during Phase 3/4
+      space._applyComponentStateDelta(delta, componentId);
+    } else {
+      // Fallback to normal addOperation (for VEILComponents)
+      this.addOperation(delta);
+    }
+  }
+
+  /**
+   * Replace entire component state
+   */
+  protected setComponentState<T = Record<string, any>>(state: T): void {
+    const componentId = this.getComponentId();
+    
+    this.addOperation({
+      type: 'rewriteFacet',
+      id: `component-state:${componentId}`,
+      changes: {
+        state
+      }
+    });
+  }
+
   /**
    * Add a VEIL operation to the current frame
    * This is the primary way components interact with VEIL state
    */
-  protected addOperation(operation: VEILOperation): void {
+  protected addOperation(operation: VEILDelta): void {
     const space = this.element?.findSpace() as Space | undefined;
     if (!space) {
       throw new Error(
@@ -247,7 +330,7 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
       );
     }
     
-    frame.operations.push(operation);
+    frame.deltas.push(operation);
   }
 
   // ============================================
@@ -284,16 +367,31 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
       attrs = idOrAttributes || {};
     }
     
+    const { streamId = `${this.element.id}:ambient`, streamType, ...metadata } = attrs;
+
     this.addOperation({
       type: 'addFacet',
-      facet: {
+      facet: createAmbientFacet({
         id,
-        type: 'ambient',
         content,
-        attributes: attrs,
-        scope: [] // Ambient facets need a scope
-      }
+        streamId,
+        streamType
+      })
     });
+    if (Object.keys(metadata).length > 0) {
+      this.addOperation({
+        type: 'addFacet',
+        facet: createEventFacet({
+          id: `${id}-meta`,
+          content: `metadata:${JSON.stringify(metadata)}`,
+          source: this.element.id,
+          eventType: 'ambient-metadata',
+          metadata,
+          streamId,
+          streamType
+        })
+      });
+    }
   }
 
   /**
@@ -309,12 +407,14 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
     const facetId = `${this.element.id}-${id}`;
     this.addOperation({
       type: 'addFacet',
-      facet: {
+      facet: createStateFacet({
         id: facetId,
-        type: 'state',
         content,
-        attributes
-      }
+        entityType: 'component',
+        entityId: this.element.id,
+        state: attributes,
+        scopes: []
+      })
     });
   }
 
@@ -328,13 +428,20 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
    */
   protected changeState(
     id: string, 
-    updates: { content?: string; attributes?: Record<string, any> }
+    changes: { content?: string; attributes?: Record<string, any> }
   ): void {
     const facetId = `${this.element.id}-${id}`;
+    const delta: any = {};
+    if (changes.content !== undefined) {
+      delta.content = changes.content;
+    }
+    if (changes.attributes) {
+      delta.state = changes.attributes;
+    }
     this.addOperation({
-      type: 'changeState',
-      facetId,
-      updates
+      type: 'rewriteFacet',
+      id: facetId,
+      changes: delta
     });
   }
 
@@ -343,10 +450,10 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
    */
   protected updateState(
     id: string, 
-    updates: { content?: string; attributes?: Record<string, any> }
+    changes: { content?: string; attributes?: Record<string, any> }
   ): void {
     console.warn('updateState() is deprecated. Use changeState() for consistency with VEIL operations.');
-    this.changeState(id, updates);
+    this.changeState(id, changes);
   }
 
   /**
@@ -381,13 +488,19 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
       attrs = idOrAttributes || {};
     }
     
-    const facet = {
+    const { source = this.element.id, streamId: streamIdAttr, streamType: streamTypeAttr, ...metadata } = attrs;
+    const streamId = typeof streamIdAttr === 'string' ? streamIdAttr : 'default';
+    const streamType = typeof streamTypeAttr === 'string' ? streamTypeAttr : undefined;
+
+    const facet = createEventFacet({
       id,
-      type: 'event' as const,
-      displayName: eventType || 'event',
       content,
-      attributes: attrs
-    };
+      source,
+      eventType: eventType || 'event',
+      metadata: Object.keys(metadata).length ? metadata : undefined,
+      streamId,
+      streamType
+    });
     this.addOperation({ type: 'addFacet', facet });
   }
 
@@ -459,5 +572,62 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
       operation();
     });
     space.requestFrame();
+  }
+
+  // ============================================
+  // Convenience Helpers for Facet Creation
+  // ============================================
+
+  /**
+   * Emit a facet via veil:operation event
+   * For Effectors/Maintainers/Afferents that can't directly add to frame
+   * Can be overridden in subclasses for validation
+   */
+  protected emitFacet(facet: import('../veil/types').Facet): void {
+    this.emit({
+      topic: 'veil:operation',
+      payload: {
+        operation: {
+          type: 'addFacet',
+          facet
+        }
+      }
+    });
+  }
+
+  /**
+   * Emit an agent activation (convenience)
+   * Can be overridden for validation
+   */
+  protected activateAgent(reason: string, options?: {
+    priority?: 'low' | 'normal' | 'high' | 'critical';
+    source?: string;
+    streamRef?: any;
+  }): void {
+    const { createAgentActivation } = require('../helpers/factories');
+    this.emitFacet(createAgentActivation(reason, {
+      source: options?.source || this.element.id,
+      priority: options?.priority || 'normal',
+      streamRef: options?.streamRef
+    }));
+  }
+
+  /**
+   * Emit an event facet (convenience)
+   * Can be overridden for validation
+   */
+  protected emitEventFacet(content: string, options?: {
+    eventType?: string;
+    metadata?: any;
+  }): void {
+    const { createEventFacet } = require('../helpers/factories');
+    this.emitFacet(createEventFacet({
+      id: `${this.element.id}-event-${Date.now()}`,
+      content,
+      source: this.element.id,
+      eventType: options?.eventType || 'event',
+      metadata: options?.metadata,
+      streamId: 'default'
+    }));
   }
 }

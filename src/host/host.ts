@@ -5,6 +5,7 @@
 import { Space } from '../spaces/space';
 import { VEILStateManager } from '../veil/veil-state';
 import { TransitionManager } from '../persistence/transition-manager';
+import { PersistenceMaintainer } from '../persistence/persistence-maintainer';
 import { FileStorageAdapter } from '../persistence/file-storage';
 import { DebugServer } from '../debug/debug-server';
 import { LLMProvider } from '../llm/llm-interface';
@@ -20,6 +21,7 @@ export interface HostConfig {
   persistence?: {
     enabled: boolean;
     storageDir?: string;
+    snapshotInterval?: number;  // Frames between snapshots (default: 100)
   };
   debug?: {
     enabled: boolean;
@@ -110,8 +112,16 @@ export class ConnectomeHost {
     
     // Set up persistence tracking if enabled
     if (this.config.persistence?.enabled) {
+      // Register persistence maintainer (RETM-based)
+      const persistenceMaintainer = new PersistenceMaintainer(veilState, space, {
+        storagePath: this.config.persistence.storageDir || './connectome-state',
+        snapshotInterval: this.config.persistence.snapshotInterval || 100
+      });
+      space.addMaintainer(persistenceMaintainer);
+      
+      // Keep TransitionManager for now for compatibility
       this.transitionManager = new TransitionManager(space, veilState, {
-        snapshotInterval: 100,
+        snapshotInterval: this.config.persistence.snapshotInterval || 100,
         storagePath: this.config.persistence.storageDir || './connectome-state'
       });
       

@@ -12,15 +12,16 @@ import {
   ActionConfig
 } from './types';
 import { 
-  IncomingVEILFrame, 
-  OutgoingVEILFrame, 
+  Facet,
+  Frame, 
   OutgoingVEILOperation,
   VEILState,
-  StreamRef
+  StreamRef,
+  createDefaultTransition,
+  hasStateAspect
 } from '../veil/types';
 import { RenderedContext } from '../hud/types-v2';
 import { FrameTrackingHUD } from '../hud/frame-tracking-hud';
-import { CompressionEngine } from '../compression/types-v2';
 import { LLMProvider } from '../llm/llm-interface';
 import { VEILStateManager } from '../veil/veil-state';
 import { Element } from '../spaces/element';
@@ -44,15 +45,14 @@ export class BasicAgent implements AgentInterface {
   private hud: FrameTrackingHUD;
   private llmProvider: LLMProvider;
   private veilStateManager: VEILStateManager;
-  private compressionEngine?: CompressionEngine;
   private tools: Map<string, ToolDefinition> = new Map();
   private tracer: TraceStorage | undefined;
+  private agentId: string;
   
   constructor(
     configOrOptions: AgentConfig | BasicAgentConstructorOptions,
     llmProvider?: LLMProvider,
-    veilStateManager?: VEILStateManager,
-    compressionEngine?: CompressionEngine
+    veilStateManager?: VEILStateManager
   ) {
     // Support both old and new constructor patterns
     if (isAgentOptions(configOrOptions)) {
@@ -60,17 +60,16 @@ export class BasicAgent implements AgentInterface {
       this.config = configOrOptions.config;
       this.llmProvider = configOrOptions.provider;
       this.veilStateManager = configOrOptions.veilStateManager!;
-      this.compressionEngine = configOrOptions.compressionEngine;
     } else {
       // Old pattern for backward compatibility
       this.config = configOrOptions;
       this.llmProvider = llmProvider!;
       this.veilStateManager = veilStateManager!;
-      this.compressionEngine = compressionEngine;
     }
     
     this.hud = new FrameTrackingHUD();
     this.tracer = getGlobalTracer();
+    this.agentId = this.createAgentId(this.config.name);
     
     // Register tools
     if (this.config.tools) {
@@ -80,7 +79,7 @@ export class BasicAgent implements AgentInterface {
     }
   }
   
-  async onFrameComplete(frame: IncomingVEILFrame, state: VEILState): Promise<OutgoingVEILFrame | undefined> {
+  async onFrameComplete(frame: Frame, state: VEILState): Promise<Frame | undefined> {
     this.tracer?.record({
       id: `agent-frame-${frame.sequence}`,
       timestamp: Date.now(),
@@ -90,26 +89,30 @@ export class BasicAgent implements AgentInterface {
       operation: 'onFrameComplete',
       data: {
         frameSequence: frame.sequence,
-        operations: frame.operations.length,
+        deltas: frame.deltas.length,
         activeStream: frame.activeStream?.streamId
       }
     });
     
     // Look for activation facets in the state
     const activationFacets = Array.from(state.facets.values())
-      .filter(facet => facet.type === 'agentActivation');
+      .filter(facet => facet.type === 'agent-activation');
     
     if (activationFacets.length === 0) return undefined;
     
     // Check each activation facet
     for (const facet of activationFacets) {
-      const activation = facet.attributes as any;
-      
+      if (!hasStateAspect(facet)) {
+        continue;
+      }
+
+      const activation = facet.state as Record<string, any>;
+
       // Skip if this targets a different agent
       if (activation.targetAgent && activation.targetAgent !== this.config.name) {
         continue;
       }
-      
+
       if (this.shouldActivate(activation, state)) {
         try {
           // Build context
@@ -123,11 +126,10 @@ export class BasicAgent implements AgentInterface {
             (response as any).renderedContext = context;
             
             // Prepend operation to remove the activation facet
-            response.operations.unshift({
+            response.deltas.unshift({
               type: 'removeFacet',
-              facetId: facet.id,
-              mode: 'delete'
-            } as any);
+              id: facet.id
+            });
           }
           
           // Return the response frame without recording or processing
@@ -173,7 +175,7 @@ export class BasicAgent implements AgentInterface {
     return true;
   }
   
-  async runCycle(context: RenderedContext, streamRef?: StreamRef): Promise<OutgoingVEILFrame> {
+  async runCycle(context: RenderedContext, streamRef?: StreamRef): Promise<Frame> {
     const cycleSpan = this.tracer?.startSpan('runCycle', 'BasicAgent');
     
     try {
@@ -253,11 +255,17 @@ export class BasicAgent implements AgentInterface {
       // Apply stream routing to speak operations
       const operations = this.applyStreamRouting(parsed.operations, streamRef);
       
-      // Create outgoing frame without sequence (Space will assign it)
-      const frame: OutgoingVEILFrame = {
+      // Create agent-generated frame without sequence (Space will assign it)
+      const timestamp = new Date().toISOString();
+      const transition = createDefaultTransition(-1, timestamp);
+      transition.veilOps = operations;
+
+      const frame: Frame = {
         sequence: -1, // Placeholder - Space will assign proper sequence
-        timestamp: new Date().toISOString(),
-        operations
+        timestamp,
+        events: [],
+        deltas: operations,
+        transition
       };
       
       // Attach raw LLM completion for debug purposes
@@ -353,13 +361,14 @@ export class BasicAgent implements AgentInterface {
         }
       }
       
-      // Convert element action to act operation
+      // Convert element action to action facet
       // Path like ['dispenser', 'dispense'] becomes toolName 'dispenser.dispense'
       operations.push({
-        type: 'act',
-        toolName: pathParts.join('.'),
-        parameters: Object.keys(parameters).length > 0 ? parameters : {},
-        target: pathParts[0] // First part is the element
+        type: 'addFacet',
+        facet: this.createActionFacet(
+          pathParts.join('.'),
+          Object.keys(parameters).length > 0 ? parameters : {}
+        )
       });
     }
     
@@ -368,8 +377,8 @@ export class BasicAgent implements AgentInterface {
     let thoughtMatch;
     while ((thoughtMatch = thoughtRegex.exec(turnContent)) !== null) {
       operations.push({
-        type: 'think',
-        content: thoughtMatch[1].trim()
+        type: 'addFacet',
+        facet: this.createThoughtFacet(thoughtMatch[1].trim())
       });
     }
     
@@ -389,9 +398,8 @@ export class BasicAgent implements AgentInterface {
       }
       
       operations.push({
-        type: 'act',
-        toolName,
-        parameters: params
+        type: 'addFacet',
+        facet: this.createActionFacet(toolName, params)
       });
     }
     
@@ -426,8 +434,8 @@ export class BasicAgent implements AgentInterface {
     
     if (speechContent) {
       operations.push({
-        type: 'speak',
-        content: speechContent
+        type: 'addFacet',
+        facet: this.createSpeechFacet(speechContent)
       });
     }
     
@@ -593,12 +601,13 @@ export class BasicAgent implements AgentInterface {
   
   private buildContext(state: VEILState, streamRef?: StreamRef): RenderedContext {
     // Note: Pending activations removed - activation facets remain in state
+    // Note: No compression engine - compression is handled by CompressionTransform + ContextTransform in RETM architecture
     
-    // Render using HUD
+    // Render using HUD (without compression)
     return this.hud.render(
       state.frameHistory,
       new Map(state.facets),
-      this.compressionEngine,
+      undefined, // No compression - use RETM transforms for compression support
       {
         systemPrompt: this.config.systemPrompt,
         maxTokens: this.config.contextTokenBudget || 4000,  // Context window budget, not generation limit
@@ -617,20 +626,86 @@ export class BasicAgent implements AgentInterface {
   }
   
   private applyStreamRouting(
-    operations: OutgoingVEILOperation[], 
+    deltas: OutgoingVEILOperation[], 
     streamRef?: StreamRef
   ): OutgoingVEILOperation[] {
-    return operations.map(op => {
-      if (op.type === 'speak' && !op.target && streamRef) {
-        return {
-          ...op,
-          target: streamRef.streamId
-        };
+    return deltas.map(op => {
+      if (op.type === 'addFacet' && streamRef) {
+        const facet = op.facet;
+        if ((facet.type === 'speech' || facet.type === 'thought' || facet.type === 'action')) {
+          return {
+            ...op,
+            facet: {
+              ...facet,
+              streamId: streamRef.streamId
+            }
+          };
+        }
       }
       return op;
     });
   }
-  
+
+  private createActionFacet(toolName: string, parameters: Record<string, any>): Facet {
+    return {
+      id: this.generateFacetId('agent-action'),
+      type: 'action',
+      content: JSON.stringify(parameters),
+      state: {
+        toolName,
+        parameters
+      },
+      agentId: this.resolveAgentId(),
+      agentName: this.resolveAgentName(),
+      streamId: this.getDefaultStreamId()
+    };
+  }
+
+  private createSpeechFacet(content: string): Facet {
+    return {
+      id: this.generateFacetId('agent-speech'),
+      type: 'speech',
+      content,
+      agentId: this.resolveAgentId(),
+      agentName: this.resolveAgentName(),
+      streamId: this.getDefaultStreamId()
+    };
+  }
+
+  private createThoughtFacet(content: string): Facet {
+    return {
+      id: this.generateFacetId('agent-thought'),
+      type: 'thought',
+      content,
+      agentId: this.resolveAgentId(),
+      agentName: this.resolveAgentName(),
+      streamId: this.getDefaultStreamId()
+    };
+  }
+
+  private createAgentId(name?: string): string {
+    if (name) {
+      return name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    }
+    return `agent-${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  private generateFacetId(prefix: string): string {
+    return `${prefix}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  private resolveAgentId(): string {
+    return this.agentId;
+  }
+
+  private resolveAgentName(): string | undefined {
+    return this.config.name;
+  }
+
+  private getDefaultStreamId(): string {
+    return 'default';
+  }
+
   private parseParameterValue(value: string): any {
     // Try to parse as JSON first
     try {

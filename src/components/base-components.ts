@@ -1,9 +1,24 @@
 import { Component } from '../spaces/component';
 import { SpaceEvent } from '../spaces/types';
 import { Space } from '../spaces/space';
-import { IncomingVEILFrame, VEILOperation, Facet, SpeechFacet, ThoughtFacet } from '../veil/types';
+import {
+  Frame,
+  VEILDelta,
+  Facet,
+  StateFacet,
+  ActionFacet
+} from '../veil/types';
 import { ComponentChange } from '../persistence/transition-types';
 import { FacetType } from '../veil/types';
+import {
+  createSpeechFacet,
+  createThoughtFacet,
+  createActionFacet,
+  createEventFacet,
+  createStateFacet,
+  createAmbientFacet,
+  createAgentActivation
+} from '../helpers/factories';
 
 /**
  * Base component for producing VEIL operations
@@ -15,19 +30,11 @@ export abstract class VEILComponent extends Component {
   /**
    * Add an operation to the current frame
    */
-  protected addOperation(operation: VEILOperation): void {
+  protected addOperation(operation: VEILDelta): void {
     // Validate operation type
-    const validOperations = ['addFacet', 'changeState', 'addScope', 'deleteScope', 'addStream', 'updateStream', 'deleteStream', 'removeFacet', 'changeFacet', 'addAgent', 'removeAgent', 'updateAgent'];
+    const validOperations = ['addFacet', 'rewriteFacet', 'removeFacet'];
     if (!validOperations.includes(operation.type)) {
-      console.warn(`[Component] Warning: Unsupported operation type "${operation.type}". Valid operations are: ${validOperations.join(', ')}`);
-      // Legacy operation types that should be updated
-      if (['agentActivation', 'toolCall', 'innerThoughts', 'cycleRequest'].includes(operation.type as any)) {
-        console.warn(`[Component] "${operation.type}" is no longer an operation. Use the new VEIL model:`);
-        console.warn(`  - agentActivation: Use addFacet with type='agentActivation'`);
-        console.warn(`  - toolCall: Use 'act' operation (for agents only)`);
-        console.warn(`  - innerThoughts: Use 'think' operation (for agents only)`);
-        console.warn(`  - cycleRequest: Has been removed - use components/actions instead`);
-      }
+      console.warn(`[Component] Warning: Unsupported VEIL delta "${operation.type}". Expected one of: ${validOperations.join(', ')}`);
       return;
     }
     
@@ -50,7 +57,7 @@ export abstract class VEILComponent extends Component {
       );
     }
     
-    frame.operations.push(operation);
+    frame.deltas.push(operation);
   }
   
   /**
@@ -88,7 +95,7 @@ export abstract class VEILComponent extends Component {
     }
   }
   
-  private _deferredOperations?: VEILOperation[];
+  private _deferredOperations?: VEILDelta[];
   
   /**
    * Process any deferred operations when element is added to space
@@ -99,7 +106,7 @@ export abstract class VEILComponent extends Component {
       const frame = space.getCurrentFrame ? space.getCurrentFrame() : undefined;
       if (frame) {
         for (const op of this._deferredOperations) {
-          frame.operations.push(op);
+          frame.deltas.push(op);
         }
       }
       this._deferredOperations = undefined;
@@ -120,6 +127,12 @@ export abstract class VEILComponent extends Component {
     attributeRenderers?: Record<string, (value: any, oldValue?: any) => string | null>;
     transitionRenderers?: Record<string, (newValue: any, oldValue: any) => string | null>;
     children?: Facet[];
+    streamId?: string;
+    streamType?: string;
+    agentId?: string;
+    agentName?: string;
+    entityType?: StateFacet['entityType'];
+    entityId?: string;
   }): void {
     // Validate input
     if (!facetDef) {
@@ -136,132 +149,107 @@ export abstract class VEILComponent extends Component {
     
     // Create proper facet based on type
     let facet: Facet;
-    
+    const attrs = facetDef.attributes ?? {};
+    const streamId = facetDef.streamId ?? (attrs.streamId as string) ?? 'default-stream';
+    const streamType = facetDef.streamType ?? (attrs.streamType as string) ?? undefined;
+    const agentId = facetDef.agentId ?? (attrs.agentId as string) ?? this.element?.id ?? 'unknown-agent';
+    const agentName = facetDef.agentName ?? (attrs.agentName as string) ?? undefined;
+
     switch (facetDef.type) {
-      case 'event':
-        facet = {
+      case 'event': {
+        const { source = 'system', eventType = facetDef.displayName ?? 'event', ...metadata } = attrs;
+        facet = createEventFacet({
           id: facetDef.id,
-          type: 'event',
-          content: facetDef.content,
-          displayName: facetDef.displayName,
-          attributes: facetDef.attributes || {},
-          children: facetDef.children
-        };
+          content: facetDef.content ?? facetDef.displayName ?? '',
+          source,
+          eventType,
+          metadata: Object.keys(metadata).length ? metadata : undefined,
+          streamId,
+          streamType
+        });
         break;
-      case 'state':
-        facet = {
+      }
+      case 'state': {
+        const { entityType: attrEntityType, entityId: attrEntityId, state: explicitState, ...stateData } = attrs;
+        const entityType = (attrEntityType as StateFacet['entityType']) ?? facetDef.entityType ?? 'component';
+        const entityId = (attrEntityId as string) ?? facetDef.entityId ?? this.element?.id ?? 'unknown-entity';
+        facet = createStateFacet({
           id: facetDef.id,
-          type: 'state',
-          content: facetDef.content,
-          displayName: facetDef.displayName,
-          attributes: facetDef.attributes || {},
-          attributeRenderers: facetDef.attributeRenderers,
-          transitionRenderers: facetDef.transitionRenderers,
-          children: facetDef.children
-        };
+          content: facetDef.content ?? facetDef.displayName ?? '',
+          entityType,
+          entityId,
+          state: (explicitState as Record<string, any>) ?? stateData,
+          scopes: facetDef.scope ?? []
+        });
         break;
-      case 'ambient':
-        facet = {
+      }
+      case 'ambient': {
+        facet = createAmbientFacet({
           id: facetDef.id,
-          type: 'ambient',
-          content: facetDef.content,
-          displayName: facetDef.displayName,
-          scope: facetDef.scope || [],
-          attributes: facetDef.attributes || {},
-          children: facetDef.children
-        };
+          content: facetDef.content ?? facetDef.displayName ?? '',
+          streamId,
+          streamType
+        });
         break;
-      case 'tool':
-        // Tool facets are special - they need a definition
-        // For now, throw an error as we don't support tool facets in this generic method
-        throw new Error('Tool facets require a definition object and should be created using a specialized method');
-      case 'speech':
-        if (!facetDef.content) {
-          throw new Error('Speech facets require content');
-        }
-        facet = {
+      }
+      case 'speech': {
+        facet = createSpeechFacet({
           id: facetDef.id,
-          type: 'speech',
-          content: facetDef.content,
-          displayName: facetDef.displayName,
-          children: facetDef.children
-        } as SpeechFacet;
-        // Only add attributes if they're provided and include agentGenerated
-        if (facetDef.attributes && 'agentGenerated' in facetDef.attributes) {
-          facet.attributes = facetDef.attributes as any;
-        }
+          content: facetDef.content ?? '',
+          agentId,
+          agentName,
+          streamId,
+          streamType
+        });
         break;
-      case 'thought':
-        if (!facetDef.content) {
-          throw new Error('Thought facets require content');
-        }
-        facet = {
+      }
+      case 'thought': {
+        facet = createThoughtFacet({
           id: facetDef.id,
-          type: 'thought',
-          content: facetDef.content,
-          displayName: facetDef.displayName,
-          children: facetDef.children
-        } as ThoughtFacet;
-        // Only add attributes if they're provided and include agentGenerated
-        if (facetDef.attributes && 'agentGenerated' in facetDef.attributes) {
-          facet.attributes = facetDef.attributes as any;
-        }
+          content: facetDef.content ?? '',
+          agentId,
+          agentName,
+          streamId,
+          streamType
+        });
         break;
+      }
       case 'action':
-        if (!facetDef.displayName) {
-          throw new Error('Action facets require displayName');
-        }
-        // Action facets require specific attributes
-        if (!facetDef.attributes || !('agentGenerated' in facetDef.attributes) || 
-            !('toolName' in facetDef.attributes) || !('parameters' in facetDef.attributes)) {
-          throw new Error('Action facets require attributes with agentGenerated, toolName, and parameters');
-        }
-        facet = {
+      case 'action-definition':
+      case 'tool': {
+        const { toolName: attrToolName, parameters: attrParameters, ...rest } = attrs;
+        const toolName = (attrToolName as string) ?? facetDef.displayName ?? 'action';
+        const parameters = (attrParameters as Record<string, any>) ?? {};
+        facet = createActionFacet({
           id: facetDef.id,
-          type: 'action',
-          displayName: facetDef.displayName,
-          content: facetDef.content,
-          attributes: facetDef.attributes as any,
-          children: facetDef.children
-        };
+          content: facetDef.content ?? `@${toolName}`,
+          toolName,
+          parameters,
+          agentId,
+          agentName,
+          streamId,
+          streamType
+        }) as ActionFacet;
+        if (Object.keys(rest).length > 0) {
+          (facet.state as any).metadata = rest;
+        }
         break;
-      case 'defineAction':
-        if (!facetDef.displayName) {
-          throw new Error('DefineAction facets require displayName');
-        }
-        // DefineAction facets require specific attributes
-        if (!facetDef.attributes || !('agentGenerated' in facetDef.attributes) || 
-            !('toolName' in facetDef.attributes) || !('parameters' in facetDef.attributes)) {
-          throw new Error('DefineAction facets require attributes with agentGenerated, toolName, and parameters');
-        }
-        facet = {
+      }
+      case 'agent-activation': {
+        const { reason: attrReason, priority: attrPriority, sourceAgentId: attrSourceAgentId, ...rest } = attrs;
+        const reason = facetDef.content ?? (attrReason as string) ?? 'Activation';
+        facet = createAgentActivation(reason, {
           id: facetDef.id,
-          type: 'defineAction',
-          displayName: facetDef.displayName,
-          content: facetDef.content,
-          attributes: facetDef.attributes as any,
-          children: facetDef.children
-        };
+          priority: attrPriority as any,
+          sourceAgentId: attrSourceAgentId as string,
+          ...rest
+        });
         break;
-      case 'agentActivation':
-        if (!facetDef.attributes || !('source' in facetDef.attributes) || 
-            !('priority' in facetDef.attributes) || !('reason' in facetDef.attributes)) {
-          throw new Error('AgentActivation facets require attributes with source, priority, and reason');
-        }
-        facet = {
-          id: facetDef.id,
-          type: 'agentActivation',
-          content: facetDef.content,
-          attributes: facetDef.attributes as any,
-          children: facetDef.children
-        };
-        break;
+      }
       default:
-        // This should never happen with TypeScript's type checking,
-        // but we'll add it for runtime safety
-        throw new Error(`Invalid facet type: ${(facetDef as any).type}. Must be one of: event, state, ambient, tool, speech, thought, action, defineAction, agentActivation`);
+        throw new Error(`Invalid facet type: ${(facetDef as any).type}`);
     }
-    
+
     this.addOperation({
       type: 'addFacet',
       facet
@@ -271,15 +259,30 @@ export abstract class VEILComponent extends Component {
   /**
    * Update a state facet
    */
-  protected updateState(facetId: string, updates: {
-    content?: string;
-    attributes?: Record<string, any>;
-  }, updateMode?: 'full' | 'attributesOnly'): void {
+  protected updateState(
+    id: string,
+    changes: {
+      content?: string;
+      state?: Record<string, any>;
+      attributes?: Record<string, any>;
+    },
+    updateMode?: 'full' | 'attributesOnly'
+  ): void {
+    const { content, state, attributes } = changes;
+    const nextState = state ?? attributes ?? {};
+
+    const delta: any = {};
+    if (content !== undefined) {
+      delta.content = content;
+    }
+    if (Object.keys(nextState).length > 0) {
+      delta.state = nextState;
+    }
+
     this.addOperation({
-      type: 'changeState',
-      facetId,
-      updates,
-      updateMode
+      type: 'rewriteFacet',
+      id,
+      changes: delta
     });
   }
 }
@@ -332,16 +335,16 @@ export abstract class StateComponent<T = any> extends VEILComponent {
   /**
    * Update state and emit VEIL operation
    */
-  protected setState(updates: Partial<T>): void {
+  protected setState(changes: Partial<T>): void {
     // Track individual property changes
-    for (const [key, newValue] of Object.entries(updates)) {
+    for (const [key, newValue] of Object.entries(changes)) {
       const oldValue = this.state[key as keyof T];
       if (oldValue !== newValue) {
         this.trackPropertyChange(`state.${key}`, oldValue, newValue);
       }
     }
     
-    this.state = { ...this.state, ...updates };
+    this.state = { ...this.state, ...changes };
     this.emitStateUpdate();
   }
   

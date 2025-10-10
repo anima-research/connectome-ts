@@ -1,7 +1,7 @@
 import { Element } from './element';
-import { SpaceEvent, FrameStartEvent, FrameEndEvent, StreamRef, EventPhase, ElementRef } from './types';
+import { SpaceEvent, FrameStartEvent, FrameEndEvent, StreamRef, ElementRef } from './types';
 import { VEILStateManager } from '../veil/veil-state';
-import { IncomingVEILFrame, OutgoingVEILFrame } from '../veil/types';
+import { Frame, Facet, VEILDelta, AgentInfo, createDefaultTransition } from '../veil/types';
 import { matchesTopic } from './utils';
 import { 
   TraceStorage, 
@@ -9,13 +9,12 @@ import {
   getGlobalTracer 
 } from '../tracing';
 import { EventPriorityQueue } from './priority-queue';
-import { eventBubbles } from './event-utils';
 import type { 
   DebugObserver,
   DebugFrameStartContext,
   DebugFrameCompleteContext,
   DebugEventContext,
-  DebugOutgoingFrameContext,
+  DebugAgentFrameContext,
   DebugRenderedContextInfo
 } from '../debug/types';
 import { DebugServer, DebugServerConfig } from '../debug/debug-server';
@@ -23,6 +22,28 @@ import { deterministicUUID } from '../utils/uuid';
 import { performance } from 'perf_hooks';
 import type { RenderedContext } from '../hud/types-v2';
 import type { RenderedContextSnapshot } from '../persistence/types';
+import { createEventFacet } from '../helpers/factories';
+import { 
+  Modulator,
+  Receptor, 
+  Transform, 
+  Effector, 
+  FacetDelta, 
+  ReadonlyVEILState,
+  EffectorResult,
+  FacetFilter,
+  Maintainer
+} from './receptor-effector-types';
+import { VEILOperationReceptor } from './migration-adapters';
+import { SpaceAutoDiscovery } from './space-auto-discovery';
+import { groupByPriority } from '../utils/priorities';
+import { 
+  isReceptor, 
+  isTransform, 
+  isEffector, 
+  isMaintainer,
+  isModulator 
+} from '../utils/retm-type-guards';
 
 interface RenderedContextRecord {
   context: RenderedContext;
@@ -55,7 +76,7 @@ export class Space extends Element {
   /**
    * Current frame being processed
    */
-  private currentFrame?: IncomingVEILFrame;
+  private currentFrame?: Frame;
   
   /**
    * Active stream reference
@@ -68,6 +89,7 @@ export class Space extends Element {
    */
   private processingFrame: boolean = false;
   
+  
   /**
    * Tracer for observability
    */
@@ -77,10 +99,32 @@ export class Space extends Element {
    * Registered debug observers that mirror internal activity to external tooling
    */
   private debugObservers: DebugObserver[] = [];
+  
+  /**
+   * Frame completion observers (for persistence, etc)
+   */
+  private frameObservers: Array<(frame: Frame) => Promise<void>> = [];
 
   private debugServerInstance?: DebugServer;
 
   private renderedContextLog: Map<number, RenderedContextRecord> = new Map();
+  
+  // MARTEM architecture components
+  private modulators: Modulator[] = [];
+  private receptors: Map<string, Receptor[]> = new Map();
+  private transforms: Transform[] = [];
+  private effectors: Effector[] = [];
+  private maintainers: Maintainer[] = [];
+  
+  // Auto-discovery
+  private discovery = new SpaceAutoDiscovery();
+  private useAutoDiscovery = true;  // Enabled by default
+  private discoveryCache?: {
+    receptors: Map<string, Receptor[]>;
+    transforms: Transform[];
+    effectors: Effector[];
+    maintainers: Maintainer[];
+  };
   
   constructor(veilState: VEILStateManager, hostRegistry?: Map<string, any>) {
     super('root');
@@ -88,13 +132,160 @@ export class Space extends Element {
     this.hostRegistry = hostRegistry || new Map(); // Fallback for tests
     this.tracer = getGlobalTracer();
     
-    // Subscribe to agent frame events
-    this.subscribe('agent:frame-ready');
+    // Subscribe to agent activation events
     this.subscribe('agent:activate');
     
-    // Subscribe to element lifecycle events for transition tracking
-    this.subscribe('element:mount');
-    this.subscribe('element:unmount');
+    // Add built-in VEIL operation receptor for compatibility
+    const veilOpReceptor = new VEILOperationReceptor();
+    (veilOpReceptor as any).element = this; // Mount to Space
+    this.addReceptor(veilOpReceptor);
+  }
+  
+  /**
+   * Enable or disable auto-discovery of RETM components
+   */
+  setAutoDiscovery(enabled: boolean): void {
+    this.useAutoDiscovery = enabled;
+    this.discoveryCache = undefined;
+  }
+  
+  /**
+   * Discover RETM components in the element tree
+   * Caches results per frame for performance
+   */
+  private getDiscoveredComponents(): {
+    receptors: Map<string, Receptor[]>;
+    transforms: Transform[];
+    effectors: Effector[];
+    maintainers: Maintainer[];
+  } {
+    if (!this.useAutoDiscovery) {
+      return {
+        receptors: new Map(),
+        transforms: [],
+        effectors: [],
+        maintainers: []
+      };
+    }
+    
+    // Use cache if available
+    if (this.discoveryCache) {
+      return this.discoveryCache;
+    }
+    
+    // Discover components
+    const discovered = {
+      receptors: this.discovery.discoverReceptors(this),
+      transforms: this.discovery.discoverTransforms(this),
+      effectors: this.discovery.discoverEffectors(this),
+      maintainers: this.discovery.discoverMaintainers(this)
+    };
+    
+    this.discoveryCache = discovered;
+    return discovered;
+  }
+  
+  /**
+   * Clear discovery cache at start of frame
+   */
+  private clearDiscoveryCache(): void {
+    this.discoveryCache = undefined;
+  }
+  
+  // MARTEM registration methods
+  
+  addModulator(modulator: Modulator): void {
+    this.modulators.push(modulator);
+  }
+  
+  addReceptor(receptor: Receptor): void {
+    if (!(receptor as any).element) {
+      throw new Error(`Receptor ${receptor.constructor.name} must be mounted to an element before registration. Use element.addComponent() or Space itself for space-level receptors.`);
+    }
+    
+    for (const topic of receptor.topics) {
+      const topicReceptors = this.receptors.get(topic) || [];
+      topicReceptors.push(receptor);
+      this.receptors.set(topic, topicReceptors);
+    }
+  }
+  
+  /**
+   * Register a transform for Phase 2 processing.
+   * 
+   * EXECUTION ORDER:
+   * 1. Transforms with explicit priority execute first (lower number = earlier)
+   * 2. Transforms without priority execute in registration order
+   * 
+   * IMPORTANT: Order matters if transforms share mutable state!
+   * Example: CompressionTransform should run before ContextTransform
+   * 
+   * TODO [constraint-solver]: Replace numeric priorities with declarative constraints
+   * Future API:
+   *   transform.provides = ['compressed-frames'];
+   *   transform.requires = ['state-changes'];
+   * Then use topological sort to determine execution order automatically.
+   * See docs/transform-ordering.md for migration path.
+   * 
+   * @example
+   * // Option 1: Use priority (explicit, recommended for critical ordering)
+   * compressionTransform.priority = 10;
+   * space.addTransform(compressionTransform);  // Runs first due to priority
+   * space.addTransform(contextTransform);      // Runs after (no priority)
+   * 
+   * @example
+   * // Option 2: Use registration order (simple, works for most cases)
+   * space.addTransform(compressionTransform);  // Register first = runs first
+   * space.addTransform(contextTransform);      // Register second = runs second
+   * 
+   * @param transform - The transform to register
+   */
+  addTransform(transform: Transform): void {
+    if (!(transform as any).element) {
+      throw new Error(`Transform ${transform.constructor.name} must be mounted to an element before registration. Use element.addComponent() or Space itself for space-level transforms.`);
+    }
+    
+    this.transforms.push(transform);
+    
+    // TODO [constraint-solver]: Replace this priority-based sort with topological sort
+    // based on transform.provides/requires declarations
+    // Sort: prioritized transforms first (by priority), then unprioritized (maintain order)
+    this.transforms.sort((a, b) => {
+      const aPriority = a.priority;
+      const bPriority = b.priority;
+      
+      // Both have priority: sort by priority value
+      if (aPriority !== undefined && bPriority !== undefined) {
+        return aPriority - bPriority;
+      }
+      
+      // Only a has priority: a comes first
+      if (aPriority !== undefined) {
+        return -1;
+      }
+      
+      // Only b has priority: b comes first
+      if (bPriority !== undefined) {
+        return 1;
+      }
+      
+      // Neither has priority: maintain registration order (stable sort)
+      return 0;
+    });
+  }
+  
+  addEffector(effector: Effector): void {
+    if (!(effector as any).element) {
+      throw new Error(`Effector ${effector.constructor.name} must be mounted to an element before registration. Use element.addComponent() or Space itself for space-level effectors.`);
+    }
+    this.effectors.push(effector);
+  }
+  
+  addMaintainer(maintainer: Maintainer): void {
+    if (!(maintainer as any).element) {
+      throw new Error(`Maintainer ${maintainer.constructor.name} must be mounted to an element before registration. Use element.addComponent() or Space itself for space-level maintainers.`);
+    }
+    this.maintainers.push(maintainer);
   }
   
   /**
@@ -121,7 +312,7 @@ export class Space extends Element {
    * can display exactly what the LLM saw.
    */
   recordRenderedContext(
-    frame: IncomingVEILFrame,
+    frame: Frame,
     context: RenderedContext,
     metadata: { agentId?: string; agentName?: string; streamRef?: StreamRef } = {}
   ): void {
@@ -199,7 +390,7 @@ export class Space extends Element {
   /**
    * Get the current frame (for components to add operations)
    */
-  getCurrentFrame(): IncomingVEILFrame | undefined {
+  getCurrentFrame(): Frame | undefined {
     return this.currentFrame;
   }
   
@@ -240,7 +431,7 @@ export class Space extends Element {
   }
   
   /**
-   * Process one frame
+   * Process one frame - NEW THREE-PHASE IMPLEMENTATION
    */
   private async processFrame(): Promise<void> {
     if (this.processingFrame) return;
@@ -249,146 +440,105 @@ export class Space extends Element {
     const frameId = this.veilState.getNextSequence();
     const frameStartClock = performance.now();
     const frameSpan = this.tracer?.startSpan('processFrame', 'Space');
+    const timestamp = new Date().toISOString();
 
     try {
-      // Start frame
-      this.currentFrame = {
+      // Create frame structure
+      const frame: Frame = {
         sequence: frameId,
-        timestamp: new Date().toISOString(),
-        operations: [],
-        transition: {
-          sequence: frameId,
-          timestamp: new Date().toISOString(),
-          elementOps: [],
-          componentOps: [],
-          componentChanges: [],
-          veilOps: [],  // Will be populated from operations at frame end
-          extensions: {}
-        }
+        timestamp,
+        uuid: deterministicUUID(`frame-${frameId}`),
+        events: [],  // Will be populated with processed events
+        deltas: [],
+        transition: createDefaultTransition(frameId, timestamp)
       };
-      this.currentFrame.uuid = deterministicUUID(`incoming-${frameId}`);
+      
+      // Keep currentFrame for compatibility
+      this.currentFrame = frame;
+      
+      // Clear discovery cache at start of frame
+      this.clearDiscoveryCache();
+      
       this.notifyDebugFrameStart(this.currentFrame, {
         queuedEvents: this.eventQueue.length
       });
       
-      this.tracer?.record({
-        id: `frame-start-${frameId}`,
-        timestamp: Date.now(),
-        level: 'info',
-        category: TraceCategory.FRAME_START,
-        component: 'Space',
-        operation: 'processFrame',
-        data: {
-          frameId,
-          sequence: frameId,
-          queuedEvents: this.eventQueue.length
-        },
-        parentId: frameSpan?.id
-      });
-      
-      // Emit frame:start
-      await this.distributeEvent({
-        topic: 'frame:start',
-        source: this.getRef(),
-        payload: { frameId },
-        timestamp: Date.now()
-      } as FrameStartEvent);
-      
-      // Process all queued events in priority order
+      // Drain event queue
       const events: SpaceEvent[] = [];
       while (!this.eventQueue.isEmpty()) {
         const event = this.eventQueue.shift();
-        if (event) events.push(event);
-      }
-      
-      for (const event of events) {
-        await this.distributeEvent(event);
-        if (this.currentFrame) {
-          this.notifyDebugFrameEvent(this.currentFrame, event, {
-            phase: event.eventPhase ?? EventPhase.NONE,
-            targetId: event.target?.elementId
-          });
+        if (event) {
+          events.push(event);
         }
       }
+      
+      // PHASE 0: Event preprocessing (via Modulators)
+      const processedEvents = this.runPhase0(events);
+      
+      // Record processed events in frame
+      frame.events = processedEvents;
+      
+      // PHASE 1: Events → VEIL (via Receptors)
+      // Receptors return deltas directly (can add, rewrite, or remove facets)
+      const phase1Deltas = this.runPhase1(processedEvents);
+      const phase1Changes = this.veilState.applyDeltasDirect(phase1Deltas);
+      
+      // Add Phase 1 deltas to currentFrame so they're visible during Phase 2
+      this.currentFrame.deltas.push(...phase1Deltas);
+      
+      // PHASE 2: VEIL → VEIL (via Transforms)
+      // Now handled entirely within runPhase2 with priority groups
+      const phase2Result = this.runPhase2();
+      const allPhase2Deltas = phase2Result.deltas;
+      const allPhase2Changes = phase2Result.changes;
+      
+      // Collect all deltas for the complete frame (already in currentFrame.deltas)
+      frame.deltas = [...phase1Deltas, ...allPhase2Deltas];
+      
+      // Finalize the frame: add to history, update sequence, notify listeners
+      // State already has the changes from applyDeltasDirect calls
+      this.veilState.finalizeFrame(frame, true); // Skip ephemeral cleanup for now
       
       // Check if frame has content
-      const hasOperations = this.currentFrame.operations.length > 0;
-      const hasActivation = this.currentFrame.operations.some(
-        op => op.type === 'addFacet' && (op as any).facet?.type === 'agentActivation'
+      const hasOperations = this.currentFrame.deltas.length > 0;
+      const hasActivation = this.currentFrame.deltas.some(
+        op => op.type === 'addFacet' && (op as any).facet?.type === 'agent-activation'
       );
       
-      // Apply frame BEFORE emitting frame:end
-      // This ensures sequence is updated before agents respond
-      if (hasOperations || hasActivation) {
-        this.tracer?.record({
-          id: `frame-end-${frameId}`,
-          timestamp: Date.now(),
-          level: 'info',
-          category: TraceCategory.FRAME_END,
-          component: 'Space',
-          operation: 'processFrame',
-          data: {
-            frameId,
-            operations: this.currentFrame.operations.length,
-            hasActivation,
-            activeStream: this.currentFrame.activeStream?.streamId
-          },
-          parentId: frameSpan?.id
-        });
-        
-        // Update active stream if provided
-        if (this.currentFrame.activeStream) {
-          this.activeStream = this.currentFrame.activeStream;
-        }
-        
-        // Copy VEIL operations to transition before applying
-        if (this.currentFrame.transition) {
-          this.currentFrame.transition.veilOps = [...this.currentFrame.operations];
-        }
-        
-        // Record the frame
-        this.veilState.applyIncomingFrame(this.currentFrame);
-        this.notifyDebugFrameComplete(this.currentFrame, {
-          durationMs: performance.now() - frameStartClock,
-          processedEvents: events.length
-        });
-        
-        // Agent processing is handled by AgentComponent(s) listening to frame:end
-      } else {
-        // Still record empty frames to maintain sequence continuity
-        this.veilState.applyIncomingFrame(this.currentFrame);
-        this.notifyDebugFrameComplete(this.currentFrame, {
-          durationMs: performance.now() - frameStartClock,
-          processedEvents: events.length
-        });
-        
-        this.tracer?.record({
-          id: `frame-empty-${frameId}`,
-          timestamp: Date.now(),
-          level: 'debug',
-          category: TraceCategory.FRAME_END,
-          component: 'Space',
-          operation: 'processFrame',
-          data: {
-            frameId,
-            message: 'Frame empty (no operations) but recorded for sequence continuity'
-          },
-          parentId: frameSpan?.id
-        });
+      // Update transition with all operations
+      if (frame.transition) {
+        frame.transition.veilOps = [...this.currentFrame.deltas];
       }
       
-      // Emit frame:end AFTER applying the frame
-      await this.distributeEvent({
-        topic: 'frame:end',
-        source: this.getRef(),
-        payload: { 
-          frameId, 
-          hasOperations, 
-          hasActivation,
-          transition: this.currentFrame?.transition 
-        },
-        timestamp: Date.now()
-      } as FrameEndEvent);
+      // Collect all changes from both phases
+      const allChanges = [...phase1Changes, ...allPhase2Changes];
+      
+      // PHASE 3: VEIL → Events (via Effectors)
+      const newEvents = await this.runPhase3(allChanges);
+      
+      // PHASE 4: Maintenance (Element tree, references, cleanup)
+      const maintenanceResult = await this.runPhase4(this.currentFrame, allChanges);
+      
+      // Apply maintainer deltas immediately (for infrastructure like component-state facets)
+      if (maintenanceResult.deltas && maintenanceResult.deltas.length > 0) {
+        const maintenanceChanges = this.veilState.applyDeltasDirect(maintenanceResult.deltas);
+        allChanges.push(...maintenanceChanges);
+        frame.deltas.push(...maintenanceResult.deltas);
+      }
+      
+      // Queue all new events for next frame
+      [...newEvents, ...(maintenanceResult.events || [])].forEach(event => this.queueEvent(event));
+      
+      // Clean up ephemeral facets now that all phases are complete
+      const ephemeralCleanup = this.veilState.cleanupEphemeralFacets();
+      allChanges.push(...ephemeralCleanup);
+      
+      // Notify debug observers
+        this.notifyDebugFrameComplete(this.currentFrame, {
+          durationMs: performance.now() - frameStartClock,
+          processedEvents: events.length
+        });
+        
       
     } finally {
       this.currentFrame = undefined;
@@ -409,144 +559,381 @@ export class Space extends Element {
     }
   }
   
+  // MARTEM processing phases
+  
   /**
-   * Distribute an event through the element tree
+   * PHASE 0: Event preprocessing (Modulators)
    */
-  private async distributeEvent(event: SpaceEvent): Promise<void> {
-    // For broadcast-style events (like agent:response), distribute to all subscribers
-    if (this.isBroadcastEvent(event)) {
-      await this.broadcastEvent(event);
-      return;
+  private runPhase0(events: SpaceEvent[]): SpaceEvent[] {
+    let processedEvents = events;
+    
+    // Run events through each modulator in sequence
+    for (const modulator of this.modulators) {
+      processedEvents = modulator.process(processedEvents);
     }
     
-    // Otherwise use three-phase propagation
-    await this.propagateEvent(event);
+    return processedEvents;
   }
   
   /**
-   * Check if an event should be broadcast to all subscribers
+   * PHASE 1: Events → VEIL Deltas (Receptors)
+   * Receptors can add facets, rewrite existing facets, or remove facets
+   * Uses auto-discovery + manual registrations
+   * Processes receptors in priority groups
    */
-  private isBroadcastEvent(event: SpaceEvent): boolean {
-    // Default to broadcast unless explicitly set to false
-    if ('broadcast' in event) {
-      return event.broadcast !== false;
+  private runPhase1(events: SpaceEvent[]): VEILDelta[] {
+    const allDeltas: VEILDelta[] = [];
+    
+    // Merge discovered + manual receptors
+    const discovered = this.getDiscoveredComponents();
+    const allReceptors = new Map(this.receptors);
+    
+    for (const [topic, discoveredList] of discovered.receptors) {
+      const manual = allReceptors.get(topic) || [];
+      allReceptors.set(topic, [...manual, ...discoveredList]);
     }
     
-    // All events broadcast by default
-    return true;
-  }
-  
-  /**
-   * Broadcast an event to all subscribed elements
-   */
-  private async broadcastEvent(event: SpaceEvent): Promise<void> {
-    await this.broadcastToElement(this, event);
-  }
-  
-  /**
-   * Recursively broadcast to element and children
-   */
-  private async broadcastToElement(element: Element, event: SpaceEvent): Promise<void> {
-    if (!element.active) return;
-    
-    if (element.isSubscribedTo(event.topic)) {
-      await element.handleEvent(event);
+    // Flatten all receptors and group by priority
+    const allReceptorsList: Receptor[] = [];
+    for (const receptorList of allReceptors.values()) {
+      allReceptorsList.push(...receptorList);
     }
+    const receptorGroups = groupByPriority(allReceptorsList);
     
-    // Broadcast to all children
-    for (const child of element.children) {
-      await this.broadcastToElement(child, event);
-    }
-  }
-  
-  /**
-   * Use three-phase propagation for an event
-   */
-  private async propagateEvent(event: SpaceEvent): Promise<void> {
-    // Find the target element based on the event source
-    const targetElement = this.findElementByRef(event.source);
-    if (!targetElement) {
-      console.warn(`Target element not found for event: ${event.topic}`, event.source);
-      return;
-    }
-    
-    // Set the target
-    event.target = targetElement.getRef();
-    
-    // Build the propagation path from root to target
-    const path: Element[] = [];
-    let current: Element | null = targetElement;
-    while (current) {
-      path.unshift(current);
-      current = current.parent;
-    }
-    
-    // Phase 1: Capturing phase (root to target)
-    event.eventPhase = EventPhase.CAPTURING_PHASE;
-    for (let i = 0; i < path.length - 1; i++) {
-      const element = path[i];
-      if (!element.active) continue;
+    // Process each priority group
+    for (const [priority, receptors] of receptorGroups) {
+      const groupDeltas: VEILDelta[] = [];
       
-      if (element.isSubscribedTo(event.topic)) {
-        await element.handleEvent(event);
-        
-        if (event.propagationStopped) {
-          return;
-        }
-      }
-    }
-    
-    // Phase 2: At target
-    event.eventPhase = EventPhase.AT_TARGET;
-    if (targetElement.active && targetElement.isSubscribedTo(event.topic)) {
-      await targetElement.handleEvent(event);
-      
-      if (event.propagationStopped) {
-        return;
-      }
-    }
-    
-    // Phase 3: Bubbling phase (target to root)
-    if (eventBubbles(event)) {
-      event.eventPhase = EventPhase.BUBBLING_PHASE;
-      for (let i = path.length - 2; i >= 0; i--) {
-        const element = path[i];
-        if (!element.active) continue;
-        
-        if (element.isSubscribedTo(event.topic)) {
-          await element.handleEvent(event);
+      for (const event of events) {
+        for (const receptor of receptors) {
+          // Check if this receptor handles this event topic
+          if (!receptor.topics.includes(event.topic)) continue;
           
-          if (event.propagationStopped) {
-            return;
+          try {
+            const newDeltas = receptor.transform(event, this.getReadonlyState());
+            groupDeltas.push(...newDeltas);
+          } catch (error) {
+            console.error(`Receptor error for ${event.topic}:`, error);
+            groupDeltas.push({
+              type: 'addFacet',
+              facet: createEventFacet({
+                id: `error-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+                content: `Receptor error: ${String(error)}`,
+                source: 'space',
+                eventType: 'receptor-error',
+                metadata: {
+                  event: event.topic,
+                  error: String(error)
+                },
+                streamId: 'system',
+                streamType: 'system'
+              })
+            });
           }
         }
       }
+      
+      // Apply this priority group's changes
+      if (groupDeltas.length > 0) {
+        this.veilState.applyDeltasDirect(groupDeltas);
+        this.currentFrame!.deltas.push(...groupDeltas);
+        allDeltas.push(...groupDeltas);
+      }
     }
     
-    // Reset phase
-    event.eventPhase = EventPhase.NONE;
+    return allDeltas;
   }
   
   /**
-   * Find an element by its reference
+   * PHASE 2: VEIL → VEIL
+   * Uses auto-discovery + manual registrations
+   * Processes transforms in priority groups, each group runs to completion
    */
-  private findElementByRef(ref: ElementRef): Element | null {
-    return this.findElementByIdInTree(this, ref.elementId);
+  private runPhase2(): { deltas: VEILDelta[], changes: FacetDelta[] } {
+    const allDeltas: VEILDelta[] = [];
+    const allChanges: FacetDelta[] = [];
+    const maxIterations = 100;
+    
+    // Merge discovered + manual transforms
+    const discovered = this.getDiscoveredComponents();
+    const allTransforms = [...this.transforms, ...discovered.transforms];
+    
+    // Group transforms by priority
+    const transformGroups = groupByPriority(allTransforms);
+    
+    // Process each priority group to completion
+    for (const [priority, transforms] of transformGroups) {
+      let groupIteration = 0;
+      let lastGroupDeltas: VEILDelta[] = [];
+      
+      // Run this priority group until no more deltas
+      while (groupIteration < maxIterations) {
+        const groupDeltas: VEILDelta[] = [];
+        
+        for (const transform of transforms) {
+          try {
+            const newDeltas = transform.process(this.getReadonlyState());
+            groupDeltas.push(...newDeltas);
+          } catch (error) {
+            console.error('Transform error:', error);
+            groupDeltas.push({
+              type: 'addFacet',
+              facet: createEventFacet({
+                id: `error-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+                content: `Transform error: ${String(error)}`,
+                source: 'space',
+                eventType: 'transform-error',
+                metadata: {
+                  transform: transform.constructor.name,
+                  error: String(error)
+                },
+                streamId: 'system',
+                streamType: 'system'
+              })
+            });
+          }
+        }
+        
+        lastGroupDeltas = groupDeltas;
+        
+        if (groupDeltas.length === 0) break; // This group is stable
+        
+        // Apply and push deltas for this group
+        const groupChanges = this.veilState.applyDeltasDirect(groupDeltas);
+        this.currentFrame!.deltas.push(...groupDeltas);
+        allDeltas.push(...groupDeltas);
+        allChanges.push(...groupChanges);
+        
+        groupIteration++;
+      }
+      
+      if (groupIteration === maxIterations) {
+        throw new Error(
+          `Phase 2 priority group ${priority} exceeded maximum iterations (${maxIterations}). ` +
+          `Possible infinite loop in transforms. Last ${lastGroupDeltas.length} deltas were of types: ` +
+          `${lastGroupDeltas.map(d => d.type).join(', ')}`
+        );
+      }
+    }
+    
+    return { deltas: allDeltas, changes: allChanges };
   }
   
   /**
-   * Recursively find element by ID in the tree
+   * PHASE 3: VEIL changes → Events
+   * Uses auto-discovery + manual registrations
    */
-  private findElementByIdInTree(root: Element, id: string): Element | null {
-    if (root.id === id) return root;
+  private async runPhase3(changes: FacetDelta[]): Promise<SpaceEvent[]> {
+    const allEvents: SpaceEvent[] = [];
     
-    for (const child of root.children) {
-      const found = this.findElementByIdInTree(child, id);
-      if (found) return found;
+    // Merge discovered + manual effectors
+    const discovered = this.getDiscoveredComponents();
+    const allEffectors = [...this.effectors, ...discovered.effectors];
+    
+    if (discovered.effectors.length > 0 && allEvents.length === 0) {
+      console.log(`[Phase3] Discovered ${discovered.effectors.length} effectors, ${allEffectors.length} total`);
     }
     
-    return null;
+    // Group effectors by priority
+    const effectorGroups = groupByPriority(allEffectors);
+    
+    // Process each priority group
+    for (const [priority, effectors] of effectorGroups) {
+      const groupEvents: SpaceEvent[] = [];
+      
+      for (const effector of effectors) {
+        // Filter changes this effector cares about
+        const relevantChanges = changes.filter(change => 
+          this.matchesEffectorFilters(change.facet, effector.facetFilters || [])
+        );
+        if (relevantChanges.length === 0) continue;
+        
+        try {
+          const result = await effector.process(relevantChanges, this.getReadonlyState());
+          
+          if (result.events) {
+            groupEvents.push(...result.events);
+          }
+          
+          // External actions can be surfaced through tracing or debug observers
+        } catch (error) {
+          console.error('Effector error:', error);
+          // Create error event
+          groupEvents.push({
+            topic: 'system:error',
+            source: this.getRef(),
+            timestamp: Date.now(),
+            payload: {
+              type: 'effector-error',
+              effector: effector.constructor.name,
+              error: String(error)
+            }
+          });
+        }
+      }
+      
+      allEvents.push(...groupEvents);
+    }
+    
+    return allEvents;
   }
+  
+  /**
+   * PHASE 4: Maintenance
+   * Maintainers can modify VEIL for infrastructure concerns
+   * Uses auto-discovery + manual registrations
+   * Processes maintainers in priority groups
+   */
+  private async runPhase4(frame: Frame, changes: FacetDelta[]): Promise<{ events: SpaceEvent[]; deltas: VEILDelta[] }> {
+    const allEvents: SpaceEvent[] = [];
+    const allDeltas: VEILDelta[] = [];
+    
+    // Merge discovered + manual maintainers
+    const discovered = this.getDiscoveredComponents();
+    const allMaintainers = [...this.maintainers, ...discovered.maintainers];
+    
+    // Group maintainers by priority
+    const maintainerGroups = groupByPriority(allMaintainers);
+    
+    // Process each priority group
+    for (const [priority, maintainers] of maintainerGroups) {
+      const groupEvents: SpaceEvent[] = [];
+      const groupDeltas: VEILDelta[] = [];
+      
+      for (const maintainer of maintainers) {
+        try {
+          const result = await maintainer.process(frame, changes, this.getReadonlyState());
+          
+          // Collect events for next frame
+          if (result.events) {
+            groupEvents.push(...result.events);
+          }
+          
+          // Collect deltas to apply in current frame
+          if (result.deltas) {
+            groupDeltas.push(...result.deltas);
+          }
+        } catch (error) {
+          console.error('Maintainer error:', error);
+          // Create error event
+          groupEvents.push({
+            topic: 'system:error',
+            source: this.getRef(),
+            timestamp: Date.now(),
+            payload: {
+              type: 'maintainer-error',
+              maintainer: maintainer.constructor.name,
+              error: String(error)
+            }
+          });
+        }
+      }
+      
+      // Collect deltas (will be applied by processFrame)
+      allDeltas.push(...groupDeltas);
+      allEvents.push(...groupEvents);
+    }
+    
+    return { events: allEvents, deltas: allDeltas };
+  }
+  
+  /**
+   * Apply component-state delta with scoped write validation
+   * Called by Effectors/Maintainers during their phase to update their own state
+   * 
+   * @internal
+   */
+  _applyComponentStateDelta(delta: VEILDelta, componentId: string): void {
+    // Validate this is a component-state facet update
+    if (delta.type !== 'rewriteFacet' || !delta.id.startsWith('component-state:')) {
+      throw new Error(`_applyComponentStateDelta can only be used for component-state facets`);
+    }
+    
+    // Validate the component is modifying its own state
+    const expectedId = `component-state:${componentId}`;
+    if (delta.id !== expectedId) {
+      throw new Error(
+        `Component ${componentId} attempted to modify ${delta.id}. ` +
+        `Components can only modify their own state (${expectedId})`
+      );
+    }
+    
+    // Apply the delta immediately
+    const changes = this.veilState.applyDeltasDirect([delta]);
+    
+    // Add to current frame for history tracking
+    if (this.currentFrame) {
+      this.currentFrame.deltas.push(delta);
+    }
+    
+    // Note: We don't add to allChanges here because this happens during Phase 3/4
+    // after change tracking is done. The delta is in frame.deltas for persistence.
+  }
+
+  /**
+   * Helper to check if facet matches effector filters
+   */
+  private matchesEffectorFilters(facet: Facet, filters: FacetFilter[]): boolean {
+    if (filters.length === 0) return true;
+    
+    return filters.some(filter => {
+      // Check type
+      if (filter.type) {
+        const types = Array.isArray(filter.type) ? filter.type : [filter.type];
+        if (!types.includes(facet.type)) return false;
+      }
+      
+      // Check aspects
+      if (filter.aspectMatch) {
+        for (const [aspect, value] of Object.entries(filter.aspectMatch)) {
+          if ((facet as any)[aspect] !== value) return false;
+        }
+      }
+      
+      // Check attributes
+      if (filter.attributeMatch) {
+        if (!facet.attributes) return false;
+        for (const [key, value] of Object.entries(filter.attributeMatch)) {
+          if (facet.attributes[key] !== value) return false;
+        }
+      }
+      
+      return true;
+    });
+  }
+  
+  /**
+   * Get read-only view of state
+   */
+  private getReadonlyState(): ReadonlyVEILState {
+    const state = this.veilState.getState();
+    
+    return {
+      facets: state.facets as ReadonlyMap<string, Facet>,
+      scopes: state.scopes as ReadonlySet<string>,
+      streams: state.streams as ReadonlyMap<string, any>,
+      agents: state.agents as ReadonlyMap<string, AgentInfo>,
+      currentStream: state.currentStream,
+      currentAgent: state.currentAgent,
+      frameHistory: [...state.frameHistory],
+      currentSequence: state.currentSequence,
+      removals: new Map(state.removals),
+      
+      getFacetsByType: (type: string) => {
+        return Array.from(state.facets.values()).filter(f => f.type === type);
+      },
+      
+      getFacetsByAspect: (aspect: keyof Facet, value: any) => {
+        return Array.from(state.facets.values()).filter(f => (f as any)[aspect] === value);
+      },
+      
+      hasFacet: (id: string) => {
+        return state.facets.has(id);
+      }
+    };
+  }
+  
+  
   
   
   /**
@@ -579,27 +966,27 @@ export class Space extends Element {
     return Array.from(this.hostRegistry.keys());
   }
 
-  private notifyDebugFrameStart(frame: IncomingVEILFrame, context: DebugFrameStartContext): void {
+  private notifyDebugFrameStart(frame: Frame, context: DebugFrameStartContext): void {
     for (const observer of this.debugObservers) {
       observer.onFrameStart?.(frame, context);
     }
   }
 
-  private notifyDebugFrameEvent(frame: IncomingVEILFrame, event: SpaceEvent, context: DebugEventContext): void {
+  private notifyDebugFrameEvent(frame: Frame, event: SpaceEvent, context: DebugEventContext): void {
     for (const observer of this.debugObservers) {
       observer.onFrameEvent?.(frame, event, context);
     }
   }
 
-  private notifyDebugFrameComplete(frame: IncomingVEILFrame, context: DebugFrameCompleteContext): void {
+  private notifyDebugFrameComplete(frame: Frame, context: DebugFrameCompleteContext): void {
     for (const observer of this.debugObservers) {
       observer.onFrameComplete?.(frame, context);
     }
   }
 
-  private notifyDebugOutgoingFrame(frame: OutgoingVEILFrame, context: DebugOutgoingFrameContext): void {
+  private notifyDebugAgentFrame(frame: Frame, context: DebugAgentFrameContext): void {
     for (const observer of this.debugObservers) {
-      observer.onOutgoingFrame?.(frame, context);
+      observer.onAgentFrame?.(frame, context);
     }
   }
 
@@ -634,128 +1021,14 @@ export class Space extends Element {
       timestamp: Date.now()
     });
     
-    // Subscribe to agent:activate if not already subscribed
-    if (!this.isSubscribedTo('agent:activate')) {
-      this.subscribe('agent:activate');
-    }
   }
   
   /**
-   * Handle agent activation internally
+   * Handle events by queueing them for frame processing
    */
   async handleEvent(event: SpaceEvent): Promise<void> {
-    await super.handleEvent(event);
-    
-    // Handle agent:activate events
-    if (event.topic === 'agent:activate' && this.currentFrame) {
-      const payload = event.payload as any;
-      
-      // Add activation facet
-      this.currentFrame.operations.push({
-        type: 'addFacet',
-        facet: {
-          id: `agent-activation-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          type: 'agentActivation',
-          content: payload.reason || 'Agent activation requested',
-          attributes: {
-            source: payload.source || 'system',
-            sourceAgentId: payload.sourceAgentId,
-            sourceAgentName: payload.sourceAgentName,
-            reason: payload.reason || 'requested',
-            priority: payload.priority || 'normal',
-            targetAgent: payload.targetAgent,
-            targetAgentId: payload.targetAgentId,
-            config: payload.config
-          }
-        }
-      } as any);
-      
-      // Set active stream for response routing
-      if (!payload.streamId) {
-        console.warn('[Space] agent:activate event missing streamId - using console:default as fallback. Agent responses may not route correctly.');
-      }
-      const streamId = payload.streamId || 'console:default';
-      this.currentFrame.activeStream = {
-        streamId: streamId,
-        streamType: payload.streamType || streamId.split(':')[0],
-        metadata: payload.metadata || {}
-      };
-    }
-    
-    // Handle agent:frame-ready events
-    if (event.topic === 'agent:frame-ready') {
-      const { frame: agentFrame, agentId, agentName, renderedContext, rawCompletion } = event.payload as any;
-      
-      // Clone the frame to avoid mutating the agent's original
-      const nextSequence = this.veilState.getNextSequence();
-      const frame: OutgoingVEILFrame = {
-        ...agentFrame,
-        operations: [...agentFrame.operations],
-        sequence: nextSequence,
-        timestamp: agentFrame.timestamp || new Date().toISOString(),
-        activeStream: agentFrame.activeStream || this.activeStream,
-        uuid: deterministicUUID(`outgoing-${nextSequence}`)
-      };
-
-      // Attach raw completion to outgoing frame for debug purposes
-      if (rawCompletion) {
-        (frame as any).renderedContext = rawCompletion;
-      }
-
-      // Record the frame with agent information
-      this.veilState.recordOutgoingFrame(frame, { agentId, agentName });
-      this.notifyDebugOutgoingFrame(frame, { agentId, agentName });
-      
-      // If rendered context was provided, record it for the current frame (incoming frame)
-      if (renderedContext && this.currentFrame) {
-        this.recordRenderedContext(this.currentFrame, renderedContext, {
-          agentId,
-          agentName,
-          streamRef: frame.activeStream
-        });
-      }
-      
-      // Process tool calls synchronously to avoid starting new frames
-      for (const op of frame.operations) {
-        if (op.type === 'act') {
-          // Process action directly instead of emitting events
-          // Extract element ID from toolName (e.g., 'dispenser.dispense' -> 'dispenser')
-          const targetId = op.target || op.toolName.split('.')[0];
-          const targetElement = targetId ? this.findElementByIdInTree(this, targetId) : null;
-          if (targetElement) {
-            // Extract action name from toolName
-            const actionParts = op.toolName.split('.');
-            const actionName = actionParts.slice(1).join('.');
-            await targetElement.handleEvent({
-              topic: 'element:action',
-              source: this.getRef(),
-              payload: {
-                path: [targetId, actionName],  // Element expects path array
-                parameters: op.parameters
-              },
-              timestamp: Date.now()
-            });
-          }
-        }
-      }
-      
-      // Emit agent responses (these are broadcast and don't trigger new frames)
-      for (const op of frame.operations) {
-        if (op.type === 'speak') {
-          await this.distributeEvent({
-            topic: 'agent:response',
-            source: this.getRef(),
-            payload: {
-              content: op.content,
-              stream: frame.activeStream || this.activeStream,
-              agentId,
-              agentName
-            },
-            timestamp: Date.now()
-          });
-        }
-      }
-    }
+    // Queue the event for processing
+    this.queueEvent(event);
     
     // Track element operations in transition
     if (this.currentFrame?.transition) {

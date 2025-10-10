@@ -3,11 +3,9 @@
  * No implementation-specific concepts like "narratives" or "summaries"
  */
 
-import { Facet, IncomingVEILFrame, OutgoingVEILFrame } from '../veil/types';
+import { Facet, Frame } from '../veil/types';
 
 // Union type for frames
-type VEILFrame = IncomingVEILFrame | OutgoingVEILFrame;
-
 /**
  * How a frame renders to text
  */
@@ -62,7 +60,7 @@ export interface CompressionEngine {
    * Identify ranges of frames that could be compressed
    */
   identifyCompressibleRanges(
-    frames: VEILFrame[],
+    frames: Frame[],
     renderedFrames: RenderedFrame[]
   ): CompressibleRange[];
   
@@ -71,7 +69,7 @@ export interface CompressionEngine {
    */
   compressRange(
     range: CompressibleRange,
-    frames: VEILFrame[],
+    frames: Frame[],
     renderedFrames: RenderedFrame[],
     currentFacets: Map<string, Facet>
   ): Promise<CompressionResult>;
@@ -97,7 +95,7 @@ export interface CompressionEngine {
    * Optional: prepare compression in advance
    */
   prepareCompression?(
-    frames: VEILFrame[],
+    frames: Frame[],
     renderedFrames: RenderedFrame[]
   ): Promise<void>;
   

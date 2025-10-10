@@ -286,7 +286,7 @@ export class SpaceNotesComponent extends InteractiveComponent {
     
     // Remove the facet - one clean function call!
     this.addOperation(
-      removeFacet(`note-${noteId}`, 'delete')
+      removeFacet(`note-${noteId}`)
     );
   }
   
@@ -297,7 +297,7 @@ export class SpaceNotesComponent extends InteractiveComponent {
     // Batch remove all open notes - so much cleaner!
     for (const noteId of this.openNotes) {
       this.addOperation(
-        removeFacet(`note-${noteId}`, 'delete')
+        removeFacet(`note-${noteId}`)
       );
     }
     this.openNotes.clear();

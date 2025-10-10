@@ -110,20 +110,23 @@ export class MockLLMProvider implements LLMProvider {
     }
     
     // Check for custom pattern-based responses
-    // Look for patterns in all messages, not just the last one
-    const allContent = processableMessages.map(m => m.content).join(' ').toLowerCase();
+    // Look for patterns in the last user message
+    const lastUserMsg = processableMessages.filter(m => m.role === 'user').pop();
     
-    for (const [pattern, response] of this.customResponses) {
-      if (allContent.includes(pattern.toLowerCase())) {
-        return this.traceAndReturn({
-          content: response,
-          tokensUsed: this.estimateTokens(response)
-        });
+    if (lastUserMsg) {
+      const userContent = lastUserMsg.content.toLowerCase();
+      
+      for (const [pattern, response] of this.customResponses) {
+        if (userContent.includes(pattern.toLowerCase())) {
+          return this.traceAndReturn({
+            content: response,
+            tokensUsed: this.estimateTokens(response)
+          });
+        }
       }
     }
     
     // Smart mock: Check if asked about first message or memory
-    const lastUserMsg = processableMessages.filter(m => m.role === 'user').pop();
     if (lastUserMsg && 
         (lastUserMsg.content.toLowerCase().includes('first message') ||
          lastUserMsg.content.toLowerCase().includes('first thing') ||

@@ -2,7 +2,7 @@
  * Types for the Agent system
  */
 
-import { IncomingVEILFrame, OutgoingVEILFrame, OutgoingVEILOperation, VEILState, StreamRef } from '../veil/types';
+import { Frame, OutgoingVEILOperation, VEILState, StreamRef } from '../veil/types';
 import { RenderedContext } from '../hud/types-v2';
 
 /**
@@ -82,9 +82,9 @@ export type AgentCommand =
 export interface AgentInterface {
   /**
    * Called after all components have processed frame:end
-   * Returns outgoing frame if agent generates a response
+   * Returns an agent-generated frame if the agent produces a response
    */
-  onFrameComplete(frame: IncomingVEILFrame, state: VEILState): Promise<OutgoingVEILFrame | undefined>;
+  onFrameComplete(frame: Frame, state: VEILState): Promise<Frame | undefined>;
   
   /**
    * Check if activation should proceed
@@ -94,7 +94,7 @@ export interface AgentInterface {
   /**
    * Perform the agent cycle
    */
-  runCycle(context: RenderedContext, streamRef?: StreamRef): Promise<OutgoingVEILFrame>;
+  runCycle(context: RenderedContext, streamRef?: StreamRef): Promise<Frame>;
   
   /**
    * Parse LLM completion into VEIL operations
