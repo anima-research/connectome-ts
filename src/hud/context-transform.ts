@@ -51,8 +51,21 @@ export class ContextTransform extends BaseTransform {
         
         // Render context using the existing HUD logic
         const fullState = this.veilStateManager.getState();
+        
+        // Get current frame from Space to include in rendering
+        // This is critical: during Phase 2, the current frame hasn't been finalized
+        // to frameHistory yet, so we need to explicitly include it
+        const space = this.element?.findSpace() as any;
+        const currentFrame = space?.getCurrentFrame();
+        
+        // Combine frameHistory with current frame so agent sees everything
+        const allFrames = [...fullState.frameHistory];
+        if (currentFrame) {
+          allFrames.push(currentFrame);
+        }
+        
         const context = this.hud.render(
-          fullState.frameHistory,
+          allFrames,
           fullState.facets,
           this.compressionEngine,
           agentOptions
