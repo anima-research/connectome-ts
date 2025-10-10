@@ -85,6 +85,11 @@ async function demonstrateCompression() {
     { maxTokens: 1000 }
   );
   
+  // Mount transforms to Space (new requirement from main branch)
+  await space.addComponentAsync(snapshotTransform);
+  await space.addComponentAsync(compressionTransform);
+  await space.addComponentAsync(contextTransform);
+  
   // Show their constraints
   console.log('   Transform Constraints:');
   console.log(`   • FrameSnapshotTransform`);
@@ -103,7 +108,7 @@ async function demonstrateCompression() {
   
   console.log('   1. FrameSnapshotTransform (provides frame-snapshots)');
   space.addTransform(snapshotTransform);
-  console.log('      ✓ Registered');
+  console.log('      ✓ Registered and mounted');
   
   console.log();
   console.log('   2. CompressionTransform (requires frame-snapshots, provides compressed-frames)');
