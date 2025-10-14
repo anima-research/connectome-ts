@@ -89,8 +89,8 @@ export { groupByPriority } from './utils/priorities';
 // Transform exports
 export { StateTransitionTransform } from './transforms/state-transition-transform';
 export { ContinuationTransform } from './transforms/continuation-transform';
-export { CompressionTransform } from './transforms/compression-transform';
 export { FrameSnapshotTransform } from './transforms/frame-snapshot-transform';
+export { CompressionTransform } from './transforms/compression-transform';
 
 // Element tree system exports
 export { 

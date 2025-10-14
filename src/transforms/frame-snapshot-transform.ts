@@ -32,8 +32,10 @@ export interface FrameSnapshotTransformOptions {
 }
 
 export class FrameSnapshotTransform extends BaseTransform {
-  // Run late in Phase 2, after other transforms have stabilized state
-  // TODO [constraint-solver]: Replace with provides = ['frame-snapshots']
+  // Constraint-based ordering (replaces priority)
+  provides = ['frame-snapshots'];
+  
+  // Keep priority for backwards compatibility (when constraints not used)
   priority = 200;
   
   private hud: FrameTrackingHUD;

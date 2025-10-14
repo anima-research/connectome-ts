@@ -139,18 +139,35 @@ export interface Receptor extends Component {
 export interface Transform extends Component {
   /** 
    * Optional priority for execution order (lower = runs earlier).
-   * - Transforms with priority execute before those without
-   * - Among prioritized transforms: sorted by priority value
-   * - Among non-prioritized transforms: registration order preserved
+   * DEPRECATED: Use provides/requires for better semantics.
+   * 
+   * Priority is still respected but constraint-based ordering is preferred.
+   * If any transform uses constraints, the constraint solver is used.
    * 
    * Example priorities:
    * - 10: Infrastructure (compression, indexing)
    * - 50: Derivation (calculated state)
    * - 100: Rendering (context generation)
-   * 
-   * If unspecified, uses registration order.
    */
   priority?: number;
+  
+  /**
+   * Capabilities this transform provides to the system.
+   * Other transforms can require these capabilities.
+   * 
+   * @example
+   * provides = ['compressed-frames', 'compression-metadata'];
+   */
+  provides?: string[];
+  
+  /**
+   * Capabilities this transform needs from other transforms.
+   * The constraint solver ensures required providers run first.
+   * 
+   * @example
+   * requires = ['frame-snapshots'];
+   */
+  requires?: string[];
   
   /** Optional filters to limit which facets trigger this transform */
   facetFilters?: FacetFilter[];

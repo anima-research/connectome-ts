@@ -51,9 +51,11 @@ interface CompressionTask {
 }
 
 export class CompressionTransform extends BaseTransform {
-  // Priority: Run late in Phase 2, AFTER frame snapshots are captured (priority 200)
-  // This allows compression to use pre-captured snapshots instead of re-rendering
-  // TODO [constraint-solver]: Replace with requires = ['frame-snapshots'], provides = ['compressed-frames']
+  // Constraint-based ordering (replaces priority)
+  requires = ['frame-snapshots'];  // Needs snapshots to avoid re-rendering
+  provides = ['compressed-frames']; // Provides compression for context rendering
+  
+  // Keep priority for backwards compatibility (when constraints not used)
   priority = 250;
   
   private readonly engine: CompressionEngine;

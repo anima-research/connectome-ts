@@ -36,6 +36,7 @@ import {
 } from './receptor-effector-types';
 import { VEILOperationReceptor } from './migration-adapters';
 import { SpaceAutoDiscovery } from './space-auto-discovery';
+import { TransformConstraintSolver } from './constraint-solver';
 import { groupByPriority } from '../utils/priorities';
 import { 
   isReceptor, 
@@ -240,6 +241,41 @@ export class Space extends Element {
    * 
    * @param transform - The transform to register
    */
+  /**
+   * Register a transform for Phase 2 processing.
+   * 
+   * EXECUTION ORDER (Dual System):
+   * 
+   * 1. CONSTRAINT-BASED (Preferred):
+   *    If ANY transform uses provides/requires, the constraint solver is activated.
+   *    System performs topological sort based on declared dependencies.
+   *    Catches missing providers and circular dependencies with helpful errors.
+   * 
+   * 2. PRIORITY-BASED (Backwards Compatible):
+   *    If no constraints used, falls back to priority-based sorting.
+   *    Lower priority number = runs earlier.
+   *    Transforms without priority use registration order.
+   * 
+   * @example Constraint-based (recommended)
+   * const snapshotTransform = new FrameSnapshotTransform();
+   * // snapshotTransform.provides = ['frame-snapshots']
+   * 
+   * const compressionTransform = new CompressionTransform({ engine });
+   * // compressionTransform.requires = ['frame-snapshots']
+   * // compressionTransform.provides = ['compressed-frames']
+   * 
+   * space.addTransform(compressionTransform);  // Register in any order!
+   * space.addTransform(snapshotTransform);     // Solver figures it out
+   * // Result: snapshot → compression (automatic)
+   * 
+   * @example Priority-based (legacy)
+   * const transformA = new MyTransform();
+   * transformA.priority = 10;
+   * space.addTransform(transformA);  // Runs first
+   * 
+   * @param transform - The transform to register
+   * @throws Error if constraint validation fails (circular deps, missing providers)
+   */
   addTransform(transform: Transform): void {
     if (!(transform as any).element) {
       throw new Error(`Transform ${transform.constructor.name} must be mounted to an element before registration. Use element.addComponent() or Space itself for space-level transforms.`);
@@ -247,9 +283,26 @@ export class Space extends Element {
     
     this.transforms.push(transform);
     
-    // TODO [constraint-solver]: Replace this priority-based sort with topological sort
-    // based on transform.provides/requires declarations
-    // Sort: prioritized transforms first (by priority), then unprioritized (maintain order)
+    // Use constraint solver if any transform has constraints
+    if (TransformConstraintSolver.hasConstraints(this.transforms)) {
+      try {
+        const solver = new TransformConstraintSolver();
+        this.transforms = solver.solve(this.transforms);
+        return;
+      } catch (error) {
+        // Re-throw with context
+        throw new Error(`[Space] Transform registration failed: ${(error as Error).message}`);
+      }
+    }
+    
+    // Fallback: Priority-based sorting (backwards compatible)
+    this.sortTransformsByPriority();
+  }
+  
+  /**
+   * Sort transforms by priority (backwards compatible behavior)
+   */
+  private sortTransformsByPriority(): void {
     this.transforms.sort((a, b) => {
       const aPriority = a.priority;
       const bPriority = b.priority;
