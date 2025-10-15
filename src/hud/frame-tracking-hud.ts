@@ -67,18 +67,18 @@ export class FrameTrackingHUD implements CompressibleHUD {
       sequence: number;
     }> = [];
     let totalTokens = 0;
-
+    
     // Note on token budget: We currently include ALL frames even if we exceed the budget.
     // Dropping frames (whether old or new) is problematic:
     // - Dropping old frames loses important context and setup
     // - Dropping new frames (the previous behavior) causes amnesia about recent messages
     // If frame dropping becomes necessary, it should be done intelligently (e.g., using
     // compression, importance scoring, or keeping a sliding window of recent + important frames).
-
+    
     // Track state as we replay operations - start with empty state
     const replayedState = new Map<string, Facet>();
     const removals = new Map<string, 'hide' | 'delete'>();
-
+    
     // Render each frame
     for (const frame of frames) {
       // Check if this frame is compressed
@@ -90,7 +90,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
           if (stateDelta) {
             this.applyStateDelta(stateDelta, replayedState);
           }
-
+          
           // Add replacement even if it's empty string (for compressed frames)
           if (replacement) {
             frameContents.push({
@@ -103,12 +103,12 @@ export class FrameTrackingHUD implements CompressibleHUD {
           continue;
         }
       }
-
+      
       const source = this.getFrameSource(frame);
 
       const { content, facetIds } = this.renderFrameContent(frame, source, replayedState, removals);
       const tokens = this.estimateTokens(content);
-
+      
       // Trace each frame rendering
       tracer?.record({
         id: `${traceId}-frame-${frame.sequence}`,
@@ -130,14 +130,14 @@ export class FrameTrackingHUD implements CompressibleHUD {
         },
         parentId: traceId
       });
-
+      
       frameRenderings.push({
         frameSequence: frame.sequence,
         content,
         tokens,
         facetIds
       });
-
+      
       // Only add non-empty content
       if (content.trim()) {
         frameContents.push({
@@ -148,7 +148,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
         totalTokens += tokens;
       }
     }
-
+    
     // Check if we exceeded token budget (but don't drop frames)
     if (config.maxTokens && totalTokens > config.maxTokens) {
       console.warn(`[HUD] Token budget exceeded: ${totalTokens} > ${config.maxTokens}.`);
@@ -212,9 +212,9 @@ export class FrameTrackingHUD implements CompressibleHUD {
           case 'thought':
             if (hasContentAspect(facet)) {
               content = `<thought>${facet.content}</thought>`;
+          }
+              break;
             }
-            break;
-        }
         
         if (content) {
           contentParts.push({ content, facetId: facet.id, type: facet.type });
@@ -380,9 +380,9 @@ export class FrameTrackingHUD implements CompressibleHUD {
             });
           }
           replayedState.set(operation.id, updatedFacet);
-          break;
-        }
-
+            break;
+          }
+            
         case 'removeFacet':
           break;
       }
@@ -404,7 +404,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
               { facetIds: [facetId], chunkType: type }
             ));
             renderedStates.delete(facet.id);
-            break;
+          break;
           }
           
           // Render directly
@@ -416,9 +416,9 @@ export class FrameTrackingHUD implements CompressibleHUD {
               { facetIds: [facet.id], chunkType: facet.type }
             ));
           }
-          break;
-        }
-
+            break;
+          }
+          
         case 'rewriteFacet': {
           if (removals?.has(operation.id)) break;
           
@@ -477,7 +477,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
   ): string {
     const parts: string[] = [];
     const renderedStates = new Map<string, string>();
-
+    
     for (const operation of frame.deltas) {
       switch (operation.type) {
         case 'addFacet': {
@@ -487,7 +487,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
             break;
           }
           if (removals?.has(facet.id)) {
-            break;
+          break;
           }
           if (facet.type === 'state') {
             const rendered = this.renderFacet(facet);
@@ -506,7 +506,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
 
           const currentFacet = replayedState.get(operation.id);
           if (!currentFacet) {
-            break;
+          break;
           }
 
           const updatedFacet = this.mergeFacetChanges(currentFacet, operation.changes);
@@ -529,8 +529,8 @@ export class FrameTrackingHUD implements CompressibleHUD {
           const facet = operation.facet;
           if (!facet) {
             console.error('[FrameTrackingHUD] Invalid addFacet operation in second pass - missing facet:', operation);
-            break;
-          }
+          break;
+      }
           if (removals?.has(facet.id)) {
             break;
           }
@@ -583,7 +583,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
 
     return parts.join('\n');
   }
-
+  
   private renderFacet(facet: Facet): string | null {
     const tracer = getGlobalTracer();
     
@@ -601,7 +601,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
     if (!facetContent && facetChildren.length === 0) {
       return null;
     }
-
+    
     const parts: string[] = [];
     
     // Trace facet rendering
@@ -630,7 +630,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
     const displayName = (facet as any).displayName;
     if (typeof displayName === 'string' && displayName.length > 0) {
       const tag = this.sanitizeTagName(displayName);
-
+      
       // Render the facet's own content
       if (facetContent) {
         parts.push(`<${tag}>${facetContent}</${tag}>`);
@@ -757,7 +757,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
 
       const messageIndex = messages.length;
       frameToMessageIndex.set(frame.sequence, messageIndex);
-
+      
       messages.push({
         role,
         content: frame.content,
@@ -945,7 +945,7 @@ export class FrameTrackingHUD implements CompressibleHUD {
 
     return merged;
   }
-
+  
   private escapeXml(str: string): string {
     return str
       .replace(/&/g, '&amp;')

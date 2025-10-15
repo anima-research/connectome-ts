@@ -304,9 +304,9 @@ export class BasicAgent implements AgentInterface {
       return placeholder;
     });
     
-    // Parse @element.action syntax (now supports hierarchical paths like @chat.general.say)
-    // Updated to support hyphens in element names (e.g., @box-1.open)
-    const actionRegex = /@([\w.-]+)(?:\s*\(([^)]*)\)|\s*\{([\s\S]*?)\})?/g;
+    // Parse {@element.action} syntax (curly brace syntax to avoid conflicts with @ mentions)
+    // Supports hierarchical paths like {@chat.general.say} and hyphens in names {@box-1.open}
+    const actionRegex = /\{@([\w.-]+)(?:\s*\(([^)]*)\)|\s*\{([\s\S]*?)\})?\}/g;
     let actionMatch;
     while ((actionMatch = actionRegex.exec(protectedContent)) !== null) {
       const fullPath = actionMatch[1];
@@ -319,10 +319,10 @@ export class BasicAgent implements AgentInterface {
       let parameters: Record<string, any> = {};
       
       if (inlineParams) {
-        // Parse inline params: @box.open("gently") or @box.open(speed="slow", careful=true)
+        // Parse inline params: {@box.open("gently")} or {@box.open(speed="slow", careful=true)}
         parameters = parseInlineParameters(inlineParams);
       } else if (blockParams) {
-        // Parse block parameters: @email.send { to: alice@example.com, subject: Test }
+        // Parse block parameters: {@email.send { to: alice@example.com, subject: Test }}
         // This is a simplified parser - could be enhanced
         const lines = blockParams.trim().split('\n');
         let currentKey: string | null = null;
@@ -420,8 +420,9 @@ export class BasicAgent implements AgentInterface {
     // Remove tool calls
     protectedSpeech = protectedSpeech.replace(/<tool_call\s+name="[^"]+"[\s\S]*?<\/tool_call>/g, '');
     
-    // Remove @element.action syntax (now handles hierarchical paths and hyphens)
-    protectedSpeech = protectedSpeech.replace(/@[\w.-]+(?:\s*\([^)]*\)|\s*\{[\s\S]*?\})?/g, '');
+    // Remove {@element.action} syntax (new curly brace syntax to avoid conflicts with @ mentions)
+    // This won't match Discord mentions like <@username> or <#channel>
+    protectedSpeech = protectedSpeech.replace(/\{@[\w.-]+(?:\s*\([^)]*\)|\s*\{[\s\S]*?\})?\}/g, '');
     
     // Restore backticks
     speechContent = protectedSpeech;

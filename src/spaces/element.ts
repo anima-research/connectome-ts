@@ -118,6 +118,30 @@ export class Element {
   }
   
   /**
+   * Register RETM components in an element's subtree (called when adding element to Space)
+   */
+  private registerSubtreeComponents(element: Element, space: any): void {
+    const { isReceptor, isEffector, isTransform, isMaintainer } = require('../utils/retm-type-guards');
+    
+    const traverse = (el: Element) => {
+      // Register this element's components
+      for (const component of el.components) {
+        if (isReceptor(component)) space.addReceptor(component);
+        if (isEffector(component)) space.addEffector(component);
+        if (isTransform(component)) space.addTransform(component);
+        if (isMaintainer(component)) space.addMaintainer(component);
+      }
+      
+      // Traverse children
+      for (const child of el.children) {
+        traverse(child);
+      }
+    };
+    
+    traverse(element);
+  }
+  
+  /**
    * Add a child element
    */
   addChild(child: Element): void {
@@ -128,13 +152,18 @@ export class Element {
     this._children.push(child);
     child._parent = this;
     
+    // If this element is in a Space, register RETM components in the child's subtree
+    const space = this.findSpace();
+    if (space) {
+      this.registerSubtreeComponents(child, space);
+    }
+    
     // Auto-subscribe to element:action if the child or its components can handle actions
     if (child.handleAction || child._components.some((c: any) => c.actions && c.actions.size > 0)) {
       child.subscribe('element:action');
     }
     
     // Auto-register element actions if agent supports it
-    const space = this.isSpace ? this : this.findSpace();
     if (space && 'agent' in space && (space as any).agent && 
         'registerElementAutomatically' in (space as any).agent) {
       ((space as any).agent as any).registerElementAutomatically(child);

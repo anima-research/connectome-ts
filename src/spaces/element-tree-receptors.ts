@@ -125,7 +125,7 @@ export class ElementTreeTransform extends BaseTransform {
             components.push({
               type: componentType,
               index: components.length,
-              config
+            config
             });
             deltas.push(rewriteFacet(treeFacetId, {
               state: { components }
@@ -271,8 +271,8 @@ export class ElementTreeMaintainer extends BaseMaintainer {
     
     // Find parent
     const parent = this.elementCache.get(parentId || 'root');
-    if (!parent) {
-      console.error(`Parent element ${parentId} not found`);
+            if (!parent) {
+              console.error(`Parent element ${parentId} not found`);
       
       // Emit failure continuation if tag exists
       if (continuationTag) {
@@ -306,7 +306,7 @@ export class ElementTreeMaintainer extends BaseMaintainer {
     this.elementCache.set(elementId, element);
     
     // Mount element - this will emit element:mount event (queued for next frame)
-    parent.addChild(element);
+            parent.addChild(element);
     
     // Create persistent element-tree facet
     events.push({
@@ -407,7 +407,7 @@ export class ElementTreeMaintainer extends BaseMaintainer {
           deltas.push(stateDelta);
           
           // Now add component (onMount() can read component-state)
-          element.addComponent(component);
+            element.addComponent(component);
           
           // Register if it's a RETM component
           const componentClass = (compDef as any).componentClass;

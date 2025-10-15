@@ -15,6 +15,7 @@
     "test:timeline": "ts-node examples/test-state-timeline.ts",
     "test:anthropic": "ts-node examples/test-anthropic-simple.ts",
     "test:console": "ts-node examples/test-console-chat.ts",
+    "example:console": "tsx examples/console-chat-host.ts",
     "test:interactive": "ts-node examples/test-interactive-box.ts",
     "test:dispenser": "ts-node examples/test-state-init.ts",
     "example:dispenser": "ts-node examples/dispenser-with-host.ts",

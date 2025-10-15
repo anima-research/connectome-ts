@@ -742,12 +742,36 @@ export class DebugServer {
     });
 
     this.app.get('/api/state', (_req, res) => {
-      res.json({
-        space: serializeElement(this.space),
-        veil: serializeVEILState(this.veilState.getState()),
-        metrics: this.tracker.getMetrics(),
-        manualLLMEnabled: this.debugLLMEnabled
-      });
+      try {
+        // Serialize space structure without circular references
+        const spaceInfo = {
+          id: this.space.id,
+          name: this.space.name,
+          children: this.space.children.map(child => ({
+            id: child.id,
+            name: child.name,
+            components: child.components.map(c => ({
+              type: c.constructor.name,
+              id: (c as any).id || 'unknown'
+            }))
+          })),
+          componentCount: this.space.components.length,
+          receptorCount: (this.space as any).receptors?.size || 0,
+          effectorCount: (this.space as any).effectors?.length || 0,
+          transformCount: (this.space as any).transforms?.length || 0,
+          maintainerCount: (this.space as any).maintainers?.length || 0
+        };
+        
+        res.json({
+          space: spaceInfo,
+          veil: serializeVEILState(this.veilState.getState()),
+          metrics: this.tracker.getMetrics(),
+          manualLLMEnabled: this.debugLLMEnabled
+        });
+      } catch (error: any) {
+        console.error('[DebugServer] Error serializing state:', error);
+        res.status(500).json({ error: error.message });
+      }
     });
 
     this.app.get('/api/elements/:id', (req, res) => {

@@ -127,7 +127,9 @@ Be concise and friendly. You can use markdown formatting in your responses.`
     
     // Add agent processing pipeline
     space.addEffector(new AgentEffector(agentElem, agent));
-    space.addTransform(new ContextTransform(veilState));
+    
+    const contextTransform = new ContextTransform(veilState);
+    await contextTransform.mount(space); // Mount auto-registers with Space
     
     console.log('✅ Console Chat initialized\n');
     console.log('Type messages to chat with the agent');

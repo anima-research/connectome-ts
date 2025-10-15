@@ -169,6 +169,25 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
     if (this._enabled) {
       this.onEnable();
     }
+    
+    // Auto-register RETM components with Space (eliminates dual registration)
+    const space = this.element.findSpace();
+    if (space && 'addReceptor' in space) {  // Ensure it's a Space, not just an Element
+      const { isReceptor, isEffector, isTransform, isMaintainer } = require('../utils/retm-type-guards');
+      
+      if (isReceptor(this)) {
+        (space as any).addReceptor(this);
+      }
+      if (isEffector(this)) {
+        (space as any).addEffector(this);
+      }
+      if (isTransform(this)) {
+        (space as any).addTransform(this);
+      }
+      if (isMaintainer(this)) {
+        (space as any).addMaintainer(this);
+      }
+    }
   }
   
   /**

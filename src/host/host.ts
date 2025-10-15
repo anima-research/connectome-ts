@@ -112,12 +112,13 @@ export class ConnectomeHost {
     
     // Set up persistence tracking if enabled
     if (this.config.persistence?.enabled) {
-      // Register persistence maintainer (RETM-based)
+      // Mount persistence maintainer (auto-registration handles the rest!)
       const persistenceMaintainer = new PersistenceMaintainer(veilState, space, {
         storagePath: this.config.persistence.storageDir || './connectome-state',
         snapshotInterval: this.config.persistence.snapshotInterval || 100
       });
-      space.addMaintainer(persistenceMaintainer);
+      // Just mount - auto-registration happens automatically
+      await space.addComponentAsync(persistenceMaintainer);
       
       // Keep TransitionManager for now for compatibility
       this.transitionManager = new TransitionManager(space, veilState, {
