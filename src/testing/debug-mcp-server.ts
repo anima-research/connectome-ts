@@ -303,6 +303,90 @@ export class ConnectomeDebugMCP {
   }
   
   /**
+   * Search within a specific field of a frame
+   * Useful for inspecting large fields like rendered context
+   * @tool
+   */
+  async searchInField(params: {
+    frameId: string;
+    fieldPath: string;
+    pattern: string;
+    contextChars?: number;
+  }): Promise<any> {
+    const frame = await this.getFrame({ frameId: params.frameId });
+    const contextSize = params.contextChars || 200;
+    
+    // Navigate to the field using the path
+    const pathParts = params.fieldPath.split('.');
+    let current: any = frame;
+    
+    for (const part of pathParts) {
+      // Handle array notation: messages[0]
+      const arrayMatch = part.match(/^(\w+)\[(\d+)\]$/);
+      if (arrayMatch) {
+        const arrayName = arrayMatch[1];
+        const index = parseInt(arrayMatch[2]);
+        current = current?.[arrayName]?.[index];
+      } else {
+        current = current?.[part];
+      }
+      
+      if (current === undefined || current === null) {
+        throw new Error(`Field path "${params.fieldPath}" not found in frame`);
+      }
+    }
+    
+    // Convert to string for searching
+    const fieldContent = typeof current === 'string' ? current : JSON.stringify(current, null, 2);
+    
+    // Search for pattern (support regex)
+    const regex = new RegExp(params.pattern, 'gi');
+    const matches: Array<{
+      match: string;
+      index: number;
+      before: string;
+      after: string;
+      line?: number;
+    }> = [];
+    
+    let match;
+    while ((match = regex.exec(fieldContent)) !== null) {
+      const matchStart = match.index;
+      const matchEnd = matchStart + match[0].length;
+      
+      const before = fieldContent.substring(
+        Math.max(0, matchStart - contextSize),
+        matchStart
+      );
+      const after = fieldContent.substring(
+        matchEnd,
+        Math.min(fieldContent.length, matchEnd + contextSize)
+      );
+      
+      // Calculate line number
+      const beforeText = fieldContent.substring(0, matchStart);
+      const lineNumber = (beforeText.match(/\n/g) || []).length + 1;
+      
+      matches.push({
+        match: match[0],
+        index: matchStart,
+        before: before,
+        after: after,
+        line: lineNumber
+      });
+    }
+    
+    return {
+      frameId: params.frameId,
+      fieldPath: params.fieldPath,
+      pattern: params.pattern,
+      fieldSize: fieldContent.length,
+      matchCount: matches.length,
+      matches: matches
+    };
+  }
+  
+  /**
    * Get element tree starting from a specific element or root
    * @tool
    */

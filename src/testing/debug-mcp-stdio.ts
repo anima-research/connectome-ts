@@ -134,6 +134,19 @@ const TOOLS = {
       required: ['pattern']
     }
   },
+  searchInField: {
+    description: 'Search within a specific field of a frame (for inspecting large fields like context)',
+    parameters: {
+      type: 'object',
+      properties: {
+        frameId: { type: 'string', description: 'Frame UUID' },
+        fieldPath: { type: 'string', description: 'JSON path to field (e.g., "deltas[0].facet.state.context.messages[0].content")' },
+        pattern: { type: 'string', description: 'Search pattern (regex supported)' },
+        contextChars: { type: 'number', description: 'Number of characters to show before/after match (default: 200)' }
+      },
+      required: ['frameId', 'fieldPath', 'pattern']
+    }
+  },
   getElementTree: {
     description: 'Get element tree starting from a specific element or root',
     parameters: {
@@ -306,6 +319,9 @@ async function processMessage(message: any) {
               break;
             case 'searchFrames':
               result = await mcpInstance.searchFrames(args);
+              break;
+            case 'searchInField':
+              result = await mcpInstance.searchInField(args);
               break;
             case 'getElementTree':
               result = await mcpInstance.getElementTree(args);
