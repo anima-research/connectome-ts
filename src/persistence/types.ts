@@ -76,6 +76,8 @@ export interface PersistenceSnapshot {
   version: number;
   timestamp: string;
   sequence: number;
+  lifecycleId: string;  // Unique ID for this Space's lifecycle
+  spaceId: string;      // Stable Space ID (persists across restores)
   
   // Core state
   veilState: SerializedVEILState;
@@ -119,6 +121,7 @@ export interface CompressedFrameBatch {
 export interface FrameDelta {
   sequence: number;
   timestamp: string;
+  lifecycleId: string;  // Must match Space's lifecycleId to be replayed
   frame: Frame;
   elementOperations?: ElementOperation[];
   renderedContext?: RenderedContextSnapshot;

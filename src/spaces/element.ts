@@ -9,6 +9,7 @@ import { generateId } from './utils';
 export class Element {
   /**
    * Unique identifier for this element
+   * For Space, this persists across restores (part of lifecycle)
    */
   readonly id: string;
   
@@ -145,6 +146,20 @@ export class Element {
    * Add a child element
    */
   addChild(child: Element): void {
+    // Check if child already exists (prevent duplicates)
+    if (this._children.includes(child)) {
+      console.warn(`[Element.addChild] Element ${child.id} already exists in ${this.id}, skipping`);
+      return;
+    }
+    
+    // Also check by ID (in case it's a different instance with same ID)
+    if (this._children.some(c => c.id === child.id)) {
+      console.warn(`[Element.addChild] Element with ID ${child.id} already exists in ${this.id}, skipping`);
+      return;
+    }
+    
+    console.log(`[Element.addChild] Adding ${child.id} to ${this.id}`);
+    
     if (child._parent) {
       child._parent.removeChild(child);
     }

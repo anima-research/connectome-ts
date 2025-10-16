@@ -42,8 +42,8 @@ export class ConnectomeHost {
   private providers = new Map<string, LLMProvider>();
   private secrets = new Map<string, string>();
   private transitionManager?: TransitionManager;
+  private storageAdapter?: any;  // FileStorageAdapter instance
   private debugServer?: DebugServer;
-  private storageAdapter?: FileStorageAdapter;
   
   constructor(config: HostConfig = {}) {
     this.config = config;
@@ -76,10 +76,17 @@ export class ConnectomeHost {
   async start(app: ConnectomeApplication): Promise<Space> {
     console.log('🚀 Starting Connectome Host...');
     
-    // Initialize storage if enabled
-    if (this.config.persistence?.enabled && !this.config.reset) {
+    // Handle storage initialization and reset
+    if (this.config.persistence?.enabled) {
       const storageDir = this.config.persistence.storageDir || './connectome-state';
       this.storageAdapter = new FileStorageAdapter(storageDir);
+      
+      // Clear storage on --reset to start completely fresh
+      if (this.config.reset) {
+        console.log('🗑️  Clearing persistence storage (--reset flag)...');
+        await this.storageAdapter.clear();
+        console.log('✅ Storage cleared - starting fresh lifecycle');
+      }
     }
     
     let space: Space;
@@ -112,6 +119,11 @@ export class ConnectomeHost {
     
     // Set up persistence tracking if enabled
     if (this.config.persistence?.enabled) {
+      // Create storage adapter (reused for loading deltas)
+      this.storageAdapter = new (await import('../persistence/file-storage')).FileStorageAdapter(
+        this.config.persistence.storageDir || './connectome-state'
+      );
+      
       // Mount persistence maintainer (auto-registration handles the rest!)
       const persistenceMaintainer = new PersistenceMaintainer(veilState, space, {
         storagePath: this.config.persistence.storageDir || './connectome-state',
@@ -120,11 +132,11 @@ export class ConnectomeHost {
       // Just mount - auto-registration happens automatically
       await space.addComponentAsync(persistenceMaintainer);
       
-      // Keep TransitionManager for now for compatibility
-      this.transitionManager = new TransitionManager(space, veilState, {
-        snapshotInterval: this.config.persistence.snapshotInterval || 100,
-        storagePath: this.config.persistence.storageDir || './connectome-state'
-      });
+      // TODO: TransitionManager disabled - using PersistenceMaintainer instead
+      // this.transitionManager = new TransitionManager(space, veilState, {
+      //   snapshotInterval: this.config.persistence.snapshotInterval || 100,
+      //   storagePath: this.config.persistence.storageDir || './connectome-state'
+      // });
       
       // Note: Shutdown handler should be added by the application, not here
       // to avoid duplicate handlers
@@ -200,8 +212,8 @@ export class ConnectomeHost {
    * Restore from a persistence snapshot
    */
   private async restore(snapshot: any, app: ConnectomeApplication): Promise<{ space: Space; veilState: VEILStateManager }> {
-    // Create space and VEIL state
-    const { space, veilState } = await app.createSpace(this.referenceRegistry);
+    // Create space and VEIL state, preserving lifecycleId and spaceId from snapshot
+    const { space, veilState } = await app.createSpace(this.referenceRegistry, snapshot.lifecycleId, snapshot.spaceId);
     
     // Register core services before restoration
     this.referenceRegistry.set('space', space);
@@ -211,12 +223,64 @@ export class ConnectomeHost {
     // This ensures it's ready to handle events from AxonLoader
     this.setupDynamicComponentHandler(space);
     
-    // Restore VEIL state first
+    // Enter restoration mode - suppress event processing
+    space.setRestorationMode(true);
+    
+    // Restore VEIL state from snapshot
     await restoreVEILState(veilState, snapshot.veilState);
     
-    // Restore elements and components (this now waits for async component mounting)
+    // Restore elements and components from snapshot
     const registry = app.getComponentRegistry();
     await restoreElementTree(space, snapshot.elementTree);
+    
+    const afterTreeState = veilState.getState();
+    console.log(`[Host] After element tree restore: currentSeq=${afterTreeState.currentSequence}, frameCount=${afterTreeState.frameHistory.length}`);
+    
+    // Check state immediately before persistence check
+    const beforePersistCheck = veilState.getState();
+    console.log(`[Host] Before persistence check: currentSeq=${beforePersistCheck.currentSequence}`);
+    
+    // Load and replay deltas since the snapshot (filtered by lifecycleId)
+    // Deltas are replayed synchronously in order, no event processing
+    if (this.config.persistence?.enabled && this.storageAdapter) {
+      const beforeLoadDeltas = veilState.getState();
+      console.log(`[Host] Right before loadDeltas: currentSeq=${beforeLoadDeltas.currentSequence}`);
+      
+      const deltas = await this.storageAdapter.loadDeltas(
+        snapshot.sequence + 1, 
+        undefined, 
+        snapshot.lifecycleId
+      );
+      
+      if (deltas.length > 0) {
+        const preReplayState = veilState.getState();
+        const maxFrameInHistory = preReplayState.frameHistory.length > 0
+          ? Math.max(...preReplayState.frameHistory.map((f: any) => f.sequence))
+          : 0;
+        console.log(`📼 Replaying ${deltas.length} deltas since snapshot (sequence ${snapshot.sequence})...`);
+        console.log(`[Host] Before replay: currentSeq=${preReplayState.currentSequence}, maxFrame=${maxFrameInHistory}, frameCount=${preReplayState.frameHistory.length}`);
+        
+        // Replay each delta frame synchronously to VEIL
+        // This updates facets and frameHistory, but doesn't trigger events
+        for (const delta of deltas) {
+          console.log(`[Host] Applying delta ${delta.sequence}, frame ${delta.frame.sequence}, current: ${veilState.getState().currentSequence}`);
+          // applyFrame updates VEIL state synchronously
+          const changes = veilState.applyFrame(delta.frame);
+          console.log(`[Host] Applied ${changes.length} changes: ${changes.map(c => `${c.type}:${(c as any).facet?.type || 'unknown'}`).join(', ')}`);
+          // Changes are returned but not processed - no receptors/effectors run
+        }
+        
+        const finalSequence = veilState.getState().currentSequence;
+        console.log(`✅ Replayed deltas, now at sequence ${finalSequence}`);
+      }
+    }
+    
+    // Reconstruct element tree from all element-tree facets in VEIL
+    // This includes both snapshot elements and any created in deltas
+    await this.reconstructElementsFromVEIL(space, veilState);
+    
+    // Exit restoration mode - allow normal event processing to resume
+    space.setRestorationMode(false);
     
     console.log('✅ All components restored and mounted');
     
@@ -523,5 +587,61 @@ export class ConnectomeHost {
     hostElement.subscribe('axon:component-loaded');
     
     console.log('[Host] Dynamic component handler setup complete');
+  }
+  
+  /**
+   * Reconstruct element tree from element-tree facets in VEIL
+   * Called after replaying deltas to materialize elements created in deltas
+   */
+  private async reconstructElementsFromVEIL(space: Space, veilState: VEILStateManager): Promise<void> {
+    const { Element } = await import('../spaces/element');
+    const state = veilState.getState();
+    
+    // Find all active element-tree facets
+    const elementFacets = Array.from(state.facets.values())
+      .filter(f => f.type === 'element-tree' && (f as any).state?.active) as any[];
+    
+    const elementCache = new Map<string, any>();
+    elementCache.set('root', space);
+    elementCache.set(space.id, space);
+    
+    // Add existing elements to cache
+    for (const child of space.children) {
+      elementCache.set(child.id, child);
+    }
+    
+    // Sort: parents before children
+    elementFacets.sort((a, b) => {
+      const aIsRoot = a.state?.parentId === 'root' || a.state?.parentId === space.id;
+      const bIsRoot = b.state?.parentId === 'root' || b.state?.parentId === space.id;
+      if (aIsRoot && !bIsRoot) return -1;
+      if (!aIsRoot && bIsRoot) return 1;
+      return 0;
+    });
+    
+    // Create elements from facets
+    for (const facet of elementFacets) {
+      const { elementId, name, parentId } = facet.state;
+      
+      // Skip if already exists (from snapshot elementTree)
+      if (elementCache.has(elementId)) {
+        console.log(`[Host] Element ${elementId} already exists, skipping reconstruction`);
+        continue;
+      }
+      
+      // Find parent
+      const parent = elementCache.get(parentId);
+      if (!parent) {
+        console.warn(`[Host] Parent ${parentId} not found for element ${elementId}`);
+        continue;
+      }
+      
+      // Create and add element
+      const element = new Element(name, elementId);
+      elementCache.set(elementId, element);
+      parent.addChild(element);
+      
+      console.log(`[Host] Reconstructed element: ${name} (${elementId})`);
+    }
   }
 }

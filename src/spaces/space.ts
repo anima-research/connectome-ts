@@ -35,7 +35,6 @@ import {
   Maintainer
 } from './receptor-effector-types';
 import { VEILOperationReceptor } from './migration-adapters';
-import { SpaceAutoDiscovery } from './space-auto-discovery';
 import { groupByPriority } from '../utils/priorities';
 import { 
   isReceptor, 
@@ -116,21 +115,20 @@ export class Space extends Element {
   private effectors: Effector[] = [];
   private maintainers: Maintainer[] = [];
   
-  // Auto-discovery (disabled now that we have auto-registration on mount)
-  private discovery = new SpaceAutoDiscovery();
-  private useAutoDiscovery = false;  // Disabled - components auto-register on mount
-  private discoveryCache?: {
-    receptors: Map<string, Receptor[]>;
-    transforms: Transform[];
-    effectors: Effector[];
-    maintainers: Maintainer[];
-  };
+  // Lifecycle ID - persists for the entire life of this Space instance
+  // Generated on creation, never changes, used to isolate deltas/snapshots
+  public readonly lifecycleId: string;
   
-  constructor(veilState: VEILStateManager, hostRegistry?: Map<string, any>) {
-    super('root');
+  // Restoration mode - suppresses event processing during state restoration
+  private isRestoring: boolean = false;
+  
+  constructor(veilState: VEILStateManager, hostRegistry?: Map<string, any>, lifecycleId?: string, spaceId?: string) {
+    // Pass stable ID to Element constructor if provided (for restoration)
+    super('root', spaceId);
     this.veilState = veilState;
     this.hostRegistry = hostRegistry || new Map(); // Fallback for tests
     this.tracer = getGlobalTracer();
+    this.lifecycleId = lifecycleId || this.generateLifecycleId();
     
     // Subscribe to agent activation events
     this.subscribe('agent:activate');
@@ -142,54 +140,10 @@ export class Space extends Element {
   }
   
   /**
-   * Enable or disable auto-discovery of RETM components
+   * Generate a new lifecycle ID for this Space instance
    */
-  setAutoDiscovery(enabled: boolean): void {
-    this.useAutoDiscovery = enabled;
-    this.discoveryCache = undefined;
-  }
-  
-  /**
-   * Discover RETM components in the element tree
-   * Caches results per frame for performance
-   */
-  private getDiscoveredComponents(): {
-    receptors: Map<string, Receptor[]>;
-    transforms: Transform[];
-    effectors: Effector[];
-    maintainers: Maintainer[];
-  } {
-    if (!this.useAutoDiscovery) {
-      return {
-        receptors: new Map(),
-        transforms: [],
-        effectors: [],
-        maintainers: []
-      };
-    }
-    
-    // Use cache if available
-    if (this.discoveryCache) {
-      return this.discoveryCache;
-    }
-    
-    // Discover components
-    const discovered = {
-      receptors: this.discovery.discoverReceptors(this),
-      transforms: this.discovery.discoverTransforms(this),
-      effectors: this.discovery.discoverEffectors(this),
-      maintainers: this.discovery.discoverMaintainers(this)
-    };
-    
-    this.discoveryCache = discovered;
-    return discovered;
-  }
-  
-  /**
-   * Clear discovery cache at start of frame
-   */
-  private clearDiscoveryCache(): void {
-    this.discoveryCache = undefined;
+  private generateLifecycleId(): string {
+    return `lifecycle-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
   }
   
   // MARTEM registration methods
@@ -207,6 +161,7 @@ export class Space extends Element {
       const topicReceptors = this.receptors.get(topic) || [];
       topicReceptors.push(receptor);
       this.receptors.set(topic, topicReceptors);
+      console.log(`[Space.addReceptor] Registered ${receptor.constructor.name} for topic '${topic}', now ${topicReceptors.length} receptors for this topic`);
     }
   }
   
@@ -395,9 +350,21 @@ export class Space extends Element {
   }
   
   /**
+   * Set restoration mode (suppresses frame processing)
+   */
+  setRestorationMode(restoring: boolean): void {
+    this.isRestoring = restoring;
+  }
+  
+  /**
    * Queue an event for processing
    */
   queueEvent(event: SpaceEvent): void {
+    // Suppress event processing during restoration
+    if (this.isRestoring) {
+      return;
+    }
+    
     this.eventQueue.push(event);
     
     this.tracer?.record({
@@ -435,6 +402,12 @@ export class Space extends Element {
    */
   private async processFrame(): Promise<void> {
     if (this.processingFrame) return;
+    
+    // Skip frame processing during restoration
+    if (this.isRestoring) {
+      console.log('[Space] Skipping frame processing during restoration');
+      return;
+    }
     this.processingFrame = true;
     
     const frameId = this.veilState.getNextSequence();
@@ -455,9 +428,6 @@ export class Space extends Element {
       
       // Keep currentFrame for compatibility
       this.currentFrame = frame;
-      
-      // Clear discovery cache at start of frame
-      this.clearDiscoveryCache();
       
       this.notifyDebugFrameStart(this.currentFrame, {
         queuedEvents: this.eventQueue.length
@@ -581,37 +551,25 @@ export class Space extends Element {
   /**
    * PHASE 1: Events → VEIL Deltas (Receptors)
    * Receptors can add facets, rewrite existing facets, or remove facets
-   * Uses auto-discovery + manual registrations
    * Processes receptors in priority groups
    */
   private runPhase1(events: SpaceEvent[]): VEILDelta[] {
     const allDeltas: VEILDelta[] = [];
     
-    // Merge discovered + manual receptors
-    const discovered = this.getDiscoveredComponents();
-    const allReceptors = new Map(this.receptors);
-    
-    for (const [topic, discoveredList] of discovered.receptors) {
-      const manual = allReceptors.get(topic) || [];
-      allReceptors.set(topic, [...manual, ...discoveredList]);
-    }
-    
-    // Flatten all receptors and group by priority
-    const allReceptorsList: Receptor[] = [];
-    for (const receptorList of allReceptors.values()) {
-      allReceptorsList.push(...receptorList);
-    }
-    const receptorGroups = groupByPriority(allReceptorsList);
-    
-    // Process each priority group
-    for (const [priority, receptors] of receptorGroups) {
-      const groupDeltas: VEILDelta[] = [];
+    // Process each event with its specific receptors
+    for (const event of events) {
+      // Get receptors for this event's topic only
+      const receptorsForTopic = this.receptors.get(event.topic) || [];
+      if (receptorsForTopic.length === 0) continue;
       
-      for (const event of events) {
+      // Group by priority
+      const receptorGroups = groupByPriority(receptorsForTopic);
+      
+      // Process each priority group
+      for (const [priority, receptors] of receptorGroups) {
+        const groupDeltas: VEILDelta[] = [];
+        
         for (const receptor of receptors) {
-          // Check if this receptor handles this event topic
-          if (!receptor.topics.includes(event.topic)) continue;
-          
           try {
             const newDeltas = receptor.transform(event, this.getReadonlyState());
             groupDeltas.push(...newDeltas);
@@ -634,13 +592,13 @@ export class Space extends Element {
             });
           }
         }
-      }
-      
-      // Apply this priority group's changes
-      if (groupDeltas.length > 0) {
-        this.veilState.applyDeltasDirect(groupDeltas);
-        this.currentFrame!.deltas.push(...groupDeltas);
-        allDeltas.push(...groupDeltas);
+        
+        // Apply this priority group's changes
+        if (groupDeltas.length > 0) {
+          this.veilState.applyDeltasDirect(groupDeltas);
+          this.currentFrame!.deltas.push(...groupDeltas);
+          allDeltas.push(...groupDeltas);
+        }
       }
     }
     
@@ -649,7 +607,6 @@ export class Space extends Element {
   
   /**
    * PHASE 2: VEIL → VEIL
-   * Uses auto-discovery + manual registrations
    * Processes transforms in priority groups, each group runs to completion
    */
   private runPhase2(): { deltas: VEILDelta[], changes: FacetDelta[] } {
@@ -657,12 +614,8 @@ export class Space extends Element {
     const allChanges: FacetDelta[] = [];
     const maxIterations = 100;
     
-    // Merge discovered + manual transforms
-    const discovered = this.getDiscoveredComponents();
-    const allTransforms = [...this.transforms, ...discovered.transforms];
-    
     // Group transforms by priority
-    const transformGroups = groupByPriority(allTransforms);
+    const transformGroups = groupByPriority(this.transforms);
     
     // Process each priority group to completion
     for (const [priority, transforms] of transformGroups) {
@@ -724,21 +677,12 @@ export class Space extends Element {
   
   /**
    * PHASE 3: VEIL changes → Events
-   * Uses auto-discovery + manual registrations
    */
   private async runPhase3(changes: FacetDelta[]): Promise<SpaceEvent[]> {
     const allEvents: SpaceEvent[] = [];
     
-    // Merge discovered + manual effectors
-    const discovered = this.getDiscoveredComponents();
-    const allEffectors = [...this.effectors, ...discovered.effectors];
-    
-    if (discovered.effectors.length > 0 && allEvents.length === 0) {
-      console.log(`[Phase3] Discovered ${discovered.effectors.length} effectors, ${allEffectors.length} total`);
-    }
-    
     // Group effectors by priority
-    const effectorGroups = groupByPriority(allEffectors);
+    const effectorGroups = groupByPriority(this.effectors);
     
     // Process each priority group
     for (const [priority, effectors] of effectorGroups) {
@@ -784,19 +728,14 @@ export class Space extends Element {
   /**
    * PHASE 4: Maintenance
    * Maintainers can modify VEIL for infrastructure concerns
-   * Uses auto-discovery + manual registrations
    * Processes maintainers in priority groups
    */
   private async runPhase4(frame: Frame, changes: FacetDelta[]): Promise<{ events: SpaceEvent[]; deltas: VEILDelta[] }> {
     const allEvents: SpaceEvent[] = [];
     const allDeltas: VEILDelta[] = [];
     
-    // Merge discovered + manual maintainers
-    const discovered = this.getDiscoveredComponents();
-    const allMaintainers = [...this.maintainers, ...discovered.maintainers];
-    
     // Group maintainers by priority
-    const maintainerGroups = groupByPriority(allMaintainers);
+    const maintainerGroups = groupByPriority(this.maintainers);
     
     // Process each priority group
     for (const [priority, maintainers] of maintainerGroups) {

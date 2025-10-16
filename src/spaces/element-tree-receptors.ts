@@ -25,6 +25,7 @@ export class ElementRequestReceptor extends BaseReceptor {
   topics = ['element:create', 'element:destroy', 'component:add', 'component:remove'];
   
   transform(event: SpaceEvent, state: ReadonlyVEILState): VEILDelta[] {
+    console.log(`[ElementRequestReceptor] Processing ${event.topic} event`);
     const facets: Facet[] = [];
     
     switch (event.topic) {

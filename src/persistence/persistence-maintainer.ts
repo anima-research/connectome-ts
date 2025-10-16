@@ -39,11 +39,13 @@ export class PersistenceMaintainer extends BaseMaintainer {
     
     // Check if we need a snapshot
     const snapshotInterval = this.config.snapshotInterval || 100;
-    if (frame.sequence - this.lastSnapshotSequence >= snapshotInterval) {
-      this.createSnapshot(frame.sequence).catch(err => {
+    const currentSequence = this.veilState.getState().currentSequence;
+    if (currentSequence - this.lastSnapshotSequence >= snapshotInterval) {
+      // Snapshot the CURRENT state (which is one frame behind during Phase 4)
+      this.createSnapshot(currentSequence).catch(err => {
         console.error('[PersistenceMaintainer] Failed to create snapshot:', err);
       });
-      this.lastSnapshotSequence = frame.sequence;
+      this.lastSnapshotSequence = currentSequence;
     }
     
     // Clear element operations after snapshot
@@ -58,6 +60,7 @@ export class PersistenceMaintainer extends BaseMaintainer {
     const delta: FrameDelta = {
       sequence,
       timestamp: frame.timestamp,
+      lifecycleId: this.space.lifecycleId,  // Tag with current lifecycle
       frame,
       elementOperations: [...this.elementOperations]
     };
@@ -92,6 +95,8 @@ export class PersistenceMaintainer extends BaseMaintainer {
       version: 1,
       timestamp: new Date().toISOString(),
       sequence,
+      lifecycleId: this.space.lifecycleId,  // Tag with current lifecycle
+      spaceId: this.space.id,                // Stable Space ID
       veilState: serializeVEILState(state),
       elementTree,
       metadata: {

@@ -176,15 +176,19 @@ export abstract class Component implements ComponentLifecycle, EventHandler {
       const { isReceptor, isEffector, isTransform, isMaintainer } = require('../utils/retm-type-guards');
       
       if (isReceptor(this)) {
+        console.log(`[Component._attach] Auto-registering receptor: ${this.constructor.name}`);
         (space as any).addReceptor(this);
       }
       if (isEffector(this)) {
+        console.log(`[Component._attach] Auto-registering effector: ${this.constructor.name}`);
         (space as any).addEffector(this);
       }
       if (isTransform(this)) {
+        console.log(`[Component._attach] Auto-registering transform: ${this.constructor.name}`);
         (space as any).addTransform(this);
       }
       if (isMaintainer(this)) {
+        console.log(`[Component._attach] Auto-registering maintainer: ${this.constructor.name}`);
         (space as any).addMaintainer(this);
       }
     }

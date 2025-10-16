@@ -14,8 +14,10 @@ export interface ConnectomeApplication {
    * Create the Space and VEILStateManager
    * Called for both fresh starts and restoration
    * @param hostRegistry - The host's reference registry (optional for backwards compatibility)
+   * @param lifecycleId - Lifecycle ID to restore (for preserving lifecycle across restarts)
+   * @param spaceId - Stable Space ID to restore (for preserving references)
    */
-  createSpace(hostRegistry?: Map<string, any>): Promise<{ space: Space; veilState: VEILStateManager }>;
+  createSpace(hostRegistry?: Map<string, any>, lifecycleId?: string, spaceId?: string): Promise<{ space: Space; veilState: VEILStateManager }>;
   
   /**
    * Initialize the space with elements and components

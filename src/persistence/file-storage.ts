@@ -263,7 +263,7 @@ export class FileStorageAdapter implements StorageAdapter {
   /**
    * Load deltas
    */
-  async loadDeltas(fromSequence: number, toSequence?: number): Promise<FrameDelta[]> {
+  async loadDeltas(fromSequence: number, toSequence?: number, lifecycleId?: string): Promise<FrameDelta[]> {
     try {
       const files = await readdir(this.deltaDir);
       const deltaFiles = files
@@ -286,10 +286,17 @@ export class FileStorageAdapter implements StorageAdapter {
         const delta = this.config?.compressDeltas
           ? await this.decompressDelta(data)
           : JSON.parse(data);
+        
+        // Filter by lifecycleId if provided
+        if (lifecycleId && delta.lifecycleId && delta.lifecycleId !== lifecycleId) {
+          console.log(`[FileStorageAdapter] Skipping delta ${sequence} from different lifecycle (${delta.lifecycleId})`);
+          continue;
+        }
           
         deltas.push(delta);
       }
       
+      console.log(`[FileStorageAdapter] Loaded ${deltas.length} deltas for lifecycle ${lifecycleId || 'any'}`);
       return deltas;
     } catch (error) {
       return [];

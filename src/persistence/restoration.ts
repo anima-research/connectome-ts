@@ -32,7 +32,7 @@ export async function restoreVEILState(
       deserializeValue(serialized.currentStream) : undefined,
     frameHistory: serialized.frameHistory ? 
       serialized.frameHistory.map(f => deserializeValue(f)) : [],
-    currentSequence: serialized.currentSequence,
+    currentSequence: serialized.currentSequence,  // Use serialized sequence
     removals: new Map(serialized.removals || []),
     agents: new Map(),
     currentAgent: undefined,
