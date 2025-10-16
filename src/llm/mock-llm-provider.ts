@@ -214,9 +214,22 @@ export class MockLLMProvider implements LLMProvider {
       }
     }
     
+    // Extract last sender for smart reply handling
+    let lastSender = 'antra_tessera';  // Default
+    if (lastUserMsg) {
+      // Try to extract username from "Author: message" or "[Discord] Author: message" format
+      const authorMatch = lastUserMsg.content.match(/(?:\[Discord\]\s*)?([^:]+):/);
+      if (authorMatch) {
+        lastSender = authorMatch[1].trim();
+      }
+    }
+    
     // Return next response in sequence or default
     if (this.responseIndex < this.responses.length) {
-      const response = this.responses[this.responseIndex++] + ` ${Math.floor(1000 + Math.random() * 9000)}`;
+      let response = this.responses[this.responseIndex++];
+      // Replace @antra_tessera with actual sender for smart replies
+      response = response.replace(/@antra_tessera/g, `@${lastSender}`);
+      response = response + ` ${Math.floor(1000 + Math.random() * 9000)}`;
       return this.traceAndReturn({
         content: response,
         tokensUsed: this.estimateTokens(response)

@@ -116,9 +116,9 @@ export class Space extends Element {
   private effectors: Effector[] = [];
   private maintainers: Maintainer[] = [];
   
-  // Auto-discovery
+  // Auto-discovery (disabled now that we have auto-registration on mount)
   private discovery = new SpaceAutoDiscovery();
-  private useAutoDiscovery = true;  // Enabled by default
+  private useAutoDiscovery = false;  // Disabled - components auto-register on mount
   private discoveryCache?: {
     receptors: Map<string, Receptor[]>;
     transforms: Transform[];
