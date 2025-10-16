@@ -70,6 +70,10 @@ export class VEILStateManager {
       }
     }
 
+    // Freeze frame to ensure immutability (enables safe reference sharing)
+    Object.freeze(frame);
+    Object.freeze(frame.deltas);  // Also freeze the deltas array
+    
     // Update state
     this.state.frameHistory.push(frame);
     this.state.currentSequence = frame.sequence;
@@ -139,6 +143,10 @@ export class VEILStateManager {
     if (frame.activeStream !== undefined) {
       this.state.currentStream = frame.activeStream;
     }
+    
+    // Freeze frame to ensure immutability (enables safe reference sharing)
+    Object.freeze(frame);
+    Object.freeze(frame.deltas);  // Also freeze the deltas array
     
     // Update state
     this.state.frameHistory.push(frame);
@@ -815,10 +823,8 @@ export class VEILStateManager {
     
     try {
       for (const frame of tempHistory) {
-        // Temporarily adjust sequence for replay
-        const originalSeq = frame.sequence;
-        frame.sequence = this.state.currentSequence + 1;
-        
+        // No mutation needed - frames are immutable and already have correct sequences
+        // Remaining frames are contiguous after deletion of most recent frames
         if ('deltas' in frame) {
           const isIncoming = !frame.deltas.some((op: any) => 
             op.type === 'speak' || op.type === 'act'
@@ -830,9 +836,6 @@ export class VEILStateManager {
             this.applyFrame(frame);
           }
         }
-        
-        // Restore original sequence
-        frame.sequence = originalSeq;
       }
       
       this.notifyListeners();

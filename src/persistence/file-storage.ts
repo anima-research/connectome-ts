@@ -8,8 +8,10 @@ import { promisify } from 'util';
 import {
   StorageAdapter,
   PersistenceSnapshot,
-  FrameDelta
+  FrameDelta,
+  FrameBucketRef
 } from './types';
+import { FrameBucketStore } from './frame-bucket-store';
 
 const readFile = promisify(fs.readFile);
 const writeFile = promisify(fs.writeFile);
@@ -21,6 +23,7 @@ export class FileStorageAdapter implements StorageAdapter {
   private basePath: string;
   private snapshotDir: string;
   private deltaDir: string;
+  private bucketStore: FrameBucketStore;
   
   // Write locks to prevent concurrent writes to the same file
   private writeLocks: Map<string, Promise<void>> = new Map();
@@ -29,6 +32,10 @@ export class FileStorageAdapter implements StorageAdapter {
     this.basePath = basePath;
     this.snapshotDir = path.join(basePath, 'snapshots');
     this.deltaDir = path.join(basePath, 'deltas');
+    this.bucketStore = new FrameBucketStore({ 
+      storageDir: basePath,
+      bucketSize: 100  // 100 frames per bucket
+    });
     
     console.log('[FileStorageAdapter] Created with basePath:', this.basePath);
     console.log('[FileStorageAdapter] snapshotDir:', this.snapshotDir);
@@ -43,13 +50,14 @@ export class FileStorageAdapter implements StorageAdapter {
       await mkdir(this.basePath, { recursive: true });
       await mkdir(this.snapshotDir, { recursive: true });
       await mkdir(this.deltaDir, { recursive: true });
+      await this.bucketStore.initialize();
     } catch (error) {
       // Directories might already exist
     }
   }
   
   /**
-   * Save a snapshot
+   * Save a snapshot (with bucketed frame storage)
    */
   async saveSnapshot(snapshot: PersistenceSnapshot): Promise<void> {
     await this.ensureDirectories();
@@ -59,11 +67,31 @@ export class FileStorageAdapter implements StorageAdapter {
     const tempPath = filepath + '.tmp';
     
     try {
-      // Write to temporary file first
+      // Debug: Check what we're trying to save
+      console.log(`[FileStorageAdapter] saveSnapshot - veilState keys:`, Object.keys(snapshot.veilState || {}));
+      console.log(`[FileStorageAdapter] saveSnapshot - frameHistory length:`, snapshot.veilState?.frameHistory?.length || 0);
+      
+      // Extract frame history and create buckets
+      const frameHistory = snapshot.veilState?.frameHistory || [];
+      if (frameHistory.length > 0) {
+        console.log(`[FileStorageAdapter] Creating buckets for ${frameHistory.length} frames...`);
+        const bucketRefs = await this.bucketStore.createBuckets(frameHistory);
+        console.log(`[FileStorageAdapter] Created ${bucketRefs.length} frame buckets`);
+        
+        // Replace frameHistory with bucket references in snapshot
+        snapshot.veilState.frameBucketRefs = bucketRefs;
+        delete snapshot.veilState.frameHistory;  // Don't save full history!
+      } else {
+        console.log(`[FileStorageAdapter] No frames to bucket (frameHistory empty)`);
+      }
+      
+      // Write snapshot to temporary file first
       await writeFile(tempPath, JSON.stringify(snapshot, null, 2));
       
       // Atomically rename temp file to final destination
       await promisify(fs.rename)(tempPath, filepath);
+      
+      console.log(`[FileStorageAdapter] Saved snapshot ${filename} (${frameHistory.length} frames in ${snapshot.veilState.frameBucketRefs?.length || 0} buckets)`);
       
       // Clean up old snapshots
       await this.cleanupOldSnapshots();
@@ -110,6 +138,14 @@ export class FileStorageAdapter implements StorageAdapter {
       if (!Array.isArray(snapshot.elementTree.children)) {
         console.error(`[FileStorageAdapter] Invalid snapshot ${id}: elementTree.children is not an array`);
         return null;
+      }
+      
+      // Load frames from buckets if using new format
+      if (snapshot.veilState?.frameBucketRefs && snapshot.veilState.frameBucketRefs.length > 0) {
+        console.log(`[FileStorageAdapter] Loading ${snapshot.veilState.frameBucketRefs.length} frame buckets...`);
+        const frames = await this.bucketStore.loadFrames(snapshot.veilState.frameBucketRefs);
+        snapshot.veilState.frameHistory = frames;
+        console.log(`[FileStorageAdapter] Restored ${frames.length} frames from buckets`);
       }
       
       console.log(`[FileStorageAdapter] Successfully loaded snapshot ${id} with sequence ${snapshot.sequence}`);

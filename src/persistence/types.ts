@@ -99,7 +99,7 @@ export interface SerializedVEILState {
   currentStream?: any;
   currentAgent?: string;
   currentSequence: number;
-  frameHistory?: Array<any>;  // Serialized frame history
+  frameHistory?: Array<any>;  // Serialized frame history (handled by storage adapter)
   removals?: Array<[string, 'hide' | 'delete']>;  // Removed facets
 }
 

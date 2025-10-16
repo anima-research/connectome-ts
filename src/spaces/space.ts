@@ -492,23 +492,9 @@ export class Space extends Element {
       const allPhase2Deltas = phase2Result.deltas;
       const allPhase2Changes = phase2Result.changes;
       
-      // Collect all deltas for the complete frame (already in currentFrame.deltas)
+      // Collect all deltas into frame BEFORE Phase 4
+      // (Maintainers need to see complete frame for saving)
       frame.deltas = [...phase1Deltas, ...allPhase2Deltas];
-      
-      // Finalize the frame: add to history, update sequence, notify listeners
-      // State already has the changes from applyDeltasDirect calls
-      this.veilState.finalizeFrame(frame, true); // Skip ephemeral cleanup for now
-      
-      // Check if frame has content
-      const hasOperations = this.currentFrame.deltas.length > 0;
-      const hasActivation = this.currentFrame.deltas.some(
-        op => op.type === 'addFacet' && (op as any).facet?.type === 'agent-activation'
-      );
-      
-      // Update transition with all operations
-      if (frame.transition) {
-        frame.transition.veilOps = [...this.currentFrame.deltas];
-      }
       
       // Collect all changes from both phases
       const allChanges = [...phase1Changes, ...allPhase2Changes];
@@ -517,14 +503,31 @@ export class Space extends Element {
       const newEvents = await this.runPhase3(allChanges);
       
       // PHASE 4: Maintenance (Element tree, references, cleanup)
+      // Maintainers can now see frame.deltas for persistence
       const maintenanceResult = await this.runPhase4(this.currentFrame, allChanges);
       
       // Apply maintainer deltas immediately (for infrastructure like component-state facets)
       if (maintenanceResult.deltas && maintenanceResult.deltas.length > 0) {
         const maintenanceChanges = this.veilState.applyDeltasDirect(maintenanceResult.deltas);
         allChanges.push(...maintenanceChanges);
-        frame.deltas.push(...maintenanceResult.deltas);
+        // Rebuild frame.deltas to include maintenance (before freeze)
+        frame.deltas = [...frame.deltas, ...maintenanceResult.deltas];
       }
+      
+      // Check if frame has content
+      const hasOperations = frame.deltas.length > 0;
+      const hasActivation = frame.deltas.some(
+        op => op.type === 'addFacet' && (op as any).facet?.type === 'agent-activation'
+      );
+      
+      // Update transition with all operations
+      if (frame.transition) {
+        frame.transition.veilOps = [...frame.deltas];
+      }
+      
+      // NOW finalize the frame (freeze it as immutable)
+      // State already has the changes from applyDeltasDirect calls
+      this.veilState.finalizeFrame(frame, true); // Skip ephemeral cleanup for now
       
       // Queue all new events for next frame
       [...newEvents, ...(maintenanceResult.events || [])].forEach(event => this.queueEvent(event));
