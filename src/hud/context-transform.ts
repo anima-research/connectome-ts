@@ -61,7 +61,11 @@ export class ContextTransform extends BaseTransform {
         // Combine frameHistory with current frame so agent sees everything
         const allFrames = [...fullState.frameHistory];
         if (currentFrame) {
-          allFrames.push(currentFrame);
+          // Only add if not already in history (avoid duplicates)
+          const isAlreadyInHistory = fullState.frameHistory.some(f => f.sequence === currentFrame.sequence);
+          if (!isAlreadyInHistory) {
+            allFrames.push(currentFrame);
+          }
         }
         
         const context = this.hud.render(

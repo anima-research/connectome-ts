@@ -268,8 +268,57 @@ export class FrameTrackingHUD implements CompressibleHUD {
 
     // Check for user input events
     const userTopics = ['console:input', 'discord:message', 'minecraft:chat'];
-    if (frame.events.some(event => userTopics.includes(event.topic))) {
+    if (frame.events.some(event => {
+      if (!userTopics.includes(event.topic)) return false;
+      
+      // For discord:message events, check if it's from the bot itself
+      // Bot's own messages in history should be treated as agent responses, not user input
+      if (event.topic === 'discord:message') {
+        const payload = event.payload as any;
+        const authorId = payload?.authorId;
+        const BOT_USER_ID = '1382891708513128485'; // TODO: Make configurable
+        
+        // If this is a message FROM the bot, it's an agent message
+        if (authorId === BOT_USER_ID) {
+          return false; // Not a user message
+        }
+      }
+      
+      return true;
+    })) {
       return 'user';
+    }
+
+    // Check for agent-generated facets in deltas (speech, thought, action with agentId)
+    const hasAgentFacet = frame.deltas?.some(delta => {
+      if (delta.type === 'addFacet' && delta.facet) {
+        const facet = delta.facet;
+        // Check for agentId attribute (agent-generated content)
+        if ((facet as any).agentId) {
+          return true;
+        }
+        // Check nested children for agent speech (e.g., speech inside discord-msg)
+        if (Array.isArray((facet as any).children)) {
+          for (const child of (facet as any).children) {
+            if ((child as any).agentId) {
+              return true;
+            }
+            // Speech from bot in history has agentId
+            if (child.type === 'speech' && (child as any).agentId) {
+              return true;
+            }
+          }
+        }
+        // Also check for agent facet types at top level
+        if (facet.type === 'speech' || facet.type === 'thought' || facet.type === 'action') {
+          return true;
+        }
+      }
+      return false;
+    });
+    
+    if (hasAgentFacet) {
+      return 'agent';
     }
 
     // Check for agent-generated events by looking at VEIL operations from agent elements
@@ -342,6 +391,24 @@ export class FrameTrackingHUD implements CompressibleHUD {
   ): RenderedChunk[] {
     const chunks: RenderedChunk[] = [];
     const renderedStates = new Map<string, { content: string; facetId: string; type: string }>();
+    
+    // Detect if this is a history dump (many event facets with nested speech)
+    const eventFacetsWithSpeech = frame.deltas.filter(d => 
+      d.type === 'addFacet' && 
+      d.facet?.type === 'event' &&
+      Array.isArray((d.facet as any).children) &&
+      (d.facet as any).children.some((c: any) => c.type === 'speech')
+    ).length;
+    
+    const isHistoryDump = eventFacetsWithSpeech > 5;
+    
+    if (isHistoryDump) {
+      chunks.push(createRenderedChunk(
+        '<history>\n',
+        this.estimateTokens('<history>\n'),
+        { chunkType: 'history-marker' }
+      ));
+    }
 
     // First pass: process state changes
     for (const operation of frame.deltas) {
@@ -449,6 +516,15 @@ export class FrameTrackingHUD implements CompressibleHUD {
           break;
         }
       }
+    }
+    
+    // Add closing history tag if this was a history dump
+    if (isHistoryDump) {
+      chunks.push(createRenderedChunk(
+        '</history>\n',
+        this.estimateTokens('</history>\n'),
+        { chunkType: 'history-marker' }
+      ));
     }
 
     return chunks;
@@ -587,17 +663,12 @@ export class FrameTrackingHUD implements CompressibleHUD {
   private renderFacet(facet: Facet): string | null {
     const tracer = getGlobalTracer();
     
-    // Only render facets with ContentAspect
-    // This allows component developers to create custom content facets
-    if (!hasContentAspect(facet)) {
-      return null;
-    }
-
-    const facetContent = facet.content;
+    const facetContent = hasContentAspect(facet) ? facet.content : undefined;
     const facetChildren = Array.isArray((facet as any)?.children)
       ? ((facet as any).children as Facet[])
       : [];
 
+    // Skip facets with no content AND no children
     if (!facetContent && facetChildren.length === 0) {
       return null;
     }
@@ -663,7 +734,17 @@ export class FrameTrackingHUD implements CompressibleHUD {
     
     // No tag for facets without displayName
     if (facetContent) {
-      parts.push(facetContent);
+      // For speech facets, include speaker attribution
+      if (facet.type === 'speech' && hasStateAspect(facet)) {
+        const speaker = (facet.state as any).speaker;
+        if (speaker) {
+          parts.push(`${speaker}: ${facetContent}`);
+        } else {
+          parts.push(facetContent);
+        }
+      } else {
+        parts.push(facetContent);
+      }
     }
     
     // Still render children even without displayName

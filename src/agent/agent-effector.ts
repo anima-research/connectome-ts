@@ -106,6 +106,19 @@ export class AgentEffector extends BaseEffector {
         const contextState = contextFacet.state as { context: RenderedContext };
         const context = contextState.context;
 
+        // Record rendered context for debug UI
+        const space = this.element.findSpace() as any;
+        if (space && space.getCurrentFrame && space.recordRenderedContext) {
+          const currentFrame = space.getCurrentFrame();
+          if (currentFrame) {
+            space.recordRenderedContext(currentFrame, context, {
+              agentId: this.getAgentId(),
+              agentName: this.element.name || undefined,
+              streamRef
+            });
+          }
+        }
+
         // Start agent cycle in background (fire-and-forget)
         // This allows the frame to complete immediately, enabling other effectors
         // to react to the activation (e.g., sending typing indicators) before agent completes

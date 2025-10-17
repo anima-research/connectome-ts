@@ -170,7 +170,9 @@ export class FrameBucketStore {
     // LRU eviction if cache is full
     if (this.bucketCache.size >= this.maxCacheSize) {
       const firstKey = this.bucketCache.keys().next().value;
-      this.bucketCache.delete(firstKey);
+      if (firstKey) {
+        this.bucketCache.delete(firstKey);
+      }
     }
     
     this.bucketCache.set(bucket.hash, bucket);

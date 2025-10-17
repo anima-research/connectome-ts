@@ -91,6 +91,7 @@ export class ConnectomeHost {
     
     let space: Space;
     let veilState: VEILStateManager;
+    let wasRestored = false;
     
     try {
       // Check for existing snapshot
@@ -99,6 +100,7 @@ export class ConnectomeHost {
       if (snapshot && !this.config.reset) {
         console.log('📦 Restoring from snapshot...');
         ({ space, veilState } = await this.restore(snapshot, app));
+        wasRestored = true;
       } else {
         console.log('🌱 Creating fresh application...');
         ({ space, veilState } = await this.createFresh(app));
@@ -154,7 +156,10 @@ export class ConnectomeHost {
     this.setupDynamicComponentHandler(space);
     
     // Let the application perform final initialization
-    await app.onStart?.(space, veilState);
+    // Only call onStart for fresh applications (not after restore)
+    if (!wasRestored) {
+      await app.onStart?.(space, veilState);
+    }
     
     console.log('✅ Host started successfully!\n');
     

@@ -126,6 +126,7 @@ export class PersistenceManager {
     const delta: FrameDelta = {
       sequence,
       timestamp: frame.timestamp,
+      lifecycleId: (this.space as any).lifecycleId || 'unknown',
       frame,
       elementOperations: this.elementOperations.length > 0 ? [...this.elementOperations] : undefined
     };
@@ -185,6 +186,8 @@ export class PersistenceManager {
       version: 1,
       timestamp: new Date().toISOString(),
       sequence: veilState.currentSequence,
+      lifecycleId: (this.space as any).lifecycleId || 'unknown',
+      spaceId: this.space.id,
       veilState: serializeVEILState(veilState),
       elementTree: serializeElement(this.space),
       metadata: {

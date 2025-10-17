@@ -7,6 +7,16 @@ import { ElementRef } from '../spaces/types';
 import type { RenderedContext } from '../hud/types-v2';
 
 /**
+ * Frame bucket reference (for content-addressed storage)
+ */
+export interface FrameBucketRef {
+  hash: string;
+  startSequence: number;
+  endSequence: number;
+  frameCount: number;
+}
+
+/**
  * Serialization types
  */
 export type SerializableValue = 
@@ -102,6 +112,7 @@ export interface SerializedVEILState {
   currentAgent?: string;
   currentSequence: number;
   frameHistory?: Array<any>;  // Serialized frame history (handled by storage adapter)
+  frameBucketRefs?: FrameBucketRef[];  // Content-addressed frame references
   removals?: Array<[string, 'hide' | 'delete']>;  // Removed facets
 }
 
